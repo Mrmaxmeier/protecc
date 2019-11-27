@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+package api;
+
 import "shared.proto";
 
 service ToolApi {
