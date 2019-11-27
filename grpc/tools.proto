@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+import "shared.proto";
+
+service ToolApi {
+    rpc RegisterStreamTagger (stream RegisterStreamTaggerRequest) returns (stream Stream);
+    rpc RegisterStreamMapper (stream RegisterStreamMapperRequest) returns (stream Stream);
+    rpc RegisterStreamReducer (stream RegisterStreamReducerRequest) returns (stream RegisterStreamReducerResponse);
+
+    rpc RegisterPacketTagger (stream RegisterPacketTaggerRequest) returns (stream UDPPacket);
+}
+
+message RegisterStreamTaggerRequest {
+    oneof message {
+        RegistrationRequest registration = 1;
+        StreamTaggerResponse response = 2;
+    }
+}
+message RegisterStreamMapperRequest {
+    oneof message {
+        RegistrationRequest registration = 1;
+        StreamMapperResponse response = 2;
+    }
+}
+message RegisterStreamReducerRequest {
+    oneof message {
+        RegistrationRequest registration = 1;
+        StreamReducerResponse response = 2;
+    }
+}
+message RegisterStreamReducerResponse {
+    oneof message {
+        Stream stream = 1;
+        StreamReducerRequest request = 2;
+    }
+}
+message RegisterPacketTaggerRequest {
+    oneof message {
+        RegistrationRequest registration = 1;
+        PacketTaggerResponse response = 2;
+    }
+}
+
+message RegistrationRequest {
+    string name = 1;
+}
+
+message StreamTaggerResponse {
+    int64 streamId = 1;
+    repeated int32 tags = 2;
+}
+message StreamMapperResponse {
+    int64 streamId = 1;
+    bytes result = 2;
+}
+message StreamReducerResponse {
+    string reduction = 2;
+}
+message StreamReducerRequest {
+}
+message PacketTaggerResponse {
+    int64 packetId = 1;
+    repeated int32 tags = 2;
+}
