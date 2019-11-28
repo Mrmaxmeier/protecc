@@ -21,7 +21,29 @@ pub struct ToolApiImpl {}
 impl ToolApi for ToolApiImpl {
     type RegisterStreamTaggerStream = Pin<Box<dyn Stream<Item = Result<api::Stream, Status>> + Send + Sync + 'static>>;
     async fn register_stream_tagger(&self, request: Request<Streaming<RegisterStreamTaggerRequest>>) -> Result<Response<Self::RegisterStreamTaggerStream>, Status> {
-        unimplemented!()
+        let stream = request.into_inner();
+
+        let output = async_stream::try_stream! {
+            futures::pin_mut!(stream);
+
+            while let Some(request) = stream.next().await {
+                let note = note?;
+
+                let location = note.location.clone().unwrap();
+
+                let location_notes = notes.entry(location).or_insert(vec![]);
+                location_notes.push(note);
+
+                for note in location_notes {
+                    yield note.clone();
+                }
+            }
+        };
+
+        Ok(Response::new(Box::pin(output)
+            as Pin<
+            Box<dyn Stream<Item = Result<RouteNote, Status>> + Send + Sync + 'static>,
+        >))
     }
 
     type RegisterStreamMapperStream = Pin<Box<dyn Stream<Item = Result<api::Stream, Status>> + Send + Sync + 'static>>;

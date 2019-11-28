@@ -1,4 +1,5 @@
 mod api;
+mod reassembly;
 
 use tonic::transport::Server;
 use std::sync::Arc;
