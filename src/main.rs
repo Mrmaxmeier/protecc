@@ -1,9 +1,11 @@
+#![feature(drain_filter)]
+
 mod api;
 mod reassembly;
 
-use tonic::transport::Server;
-use std::sync::Arc;
 use crate::api::ToolApiImpl;
+use std::sync::Arc;
+use tonic::transport::Server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
