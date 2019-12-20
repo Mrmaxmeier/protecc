@@ -1,0 +1,1 @@
+elm-live -s custom.html src/Main.elm -- --output=elm.js
