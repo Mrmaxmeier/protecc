@@ -5,12 +5,12 @@ use pktparse::tcp::TcpHeader;
 use std::cmp::max;
 
 #[derive(Debug)]
-struct Packet {
-    src_ip: IpAddr,
-    dst_ip: IpAddr,
-    timestamp: u64,
-    tcp_header: TcpHeader,
-    data: Vec<u8>,
+pub(crate) struct Packet {
+    pub(crate) src_ip: IpAddr,
+    pub(crate) dst_ip: IpAddr,
+    pub(crate) timestamp: u64,
+    pub(crate) tcp_header: TcpHeader,
+    pub(crate) data: Vec<u8>,
 }
 
 struct Stream {
@@ -106,17 +106,17 @@ impl StreamId {
     }
 }
 
-struct Reassembler {
+pub(crate) struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
 }
 impl Reassembler {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Reassembler {
             reassemblies: HashMap::new(),
         }
     }
 
-    fn advance_state(&mut self, p: Packet) -> Option<(Vec<Packet>, Vec<Packet>)> {
+    pub(crate) fn advance_state(&mut self, p: Packet) -> Option<(Vec<Packet>, Vec<Packet>)> {
         let id = StreamId(
             p.src_ip,
             p.tcp_header.source_port,

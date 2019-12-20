@@ -23,6 +23,7 @@ impl ToolApi for ToolApiImpl {
         &self,
         request: Request<Streaming<RegisterStreamTaggerRequest>>,
     ) -> Result<Response<Self::RegisterStreamTaggerStream>, Status> {
+        println!("[RegisterStreamTagger]");
         let stream = request.into_inner();
 
         let output = async_stream::try_stream! {
