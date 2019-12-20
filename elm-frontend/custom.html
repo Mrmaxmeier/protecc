@@ -1,0 +1,70 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+	<meta charset="UTF-8">
+	<title>Main</title>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.css"
+		integrity="sha256-9mbkOfVho3ZPXfM7W8sV2SndrGDuh7wuyLjtsWeTI1Q=" crossorigin="anonymous" />
+	<script src="https://code.jquery.com/jquery-3.4.1.slim.min.js"
+		integrity="sha256-pasqAKBDmFT4eHoN2ndd6lN370kFiGUFyTiUHWhU7k8=" crossorigin="anonymous"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.js"
+		integrity="sha256-t8GepnyPmw9t+foMh3mKNvcorqNHamSKtKRxxpUEgFI=" crossorigin="anonymous"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.slim.js"
+		integrity="sha256-Dul4c09cdrWKXVtallPxF558lwxMwCC8dXJdZ0PVW54=" crossorigin="anonymous"></script>
+	<script src="elm.js"></script>
+</head>
+
+<body>
+	<div id="elm"></div>
+	<script>
+		const socket = io('http://localhost');
+		var app = Elm.Main.init({
+			node: document.getElementById('elm')
+		});
+
+		socket.on('connect', () => {
+			app.ports.socketStatus.send("connected");
+		});
+		socket.on('connect_error', (error) => {
+			app.ports.socketError.send("" + error);
+		});
+		socket.on('connect_timeout', (timeout) => {
+			app.ports.socketError.send("connect timeout: " + timeout);
+		});
+		socket.on('error', (error) => {
+			app.ports.socketError.send("" + error);
+		});
+		socket.on('disconnect', (reason) => {
+			app.ports.socketStatus.send("disconnected");
+			if (reason === 'io server disconnect') {
+				app.ports.socketError.send("Connection closed by the server!");
+			}
+		});
+		socket.on('reconnect', (attemptNumber) => {
+			app.ports.socketStatus.send("connecting");
+		});
+		socket.on('reconnect_attempt', (attemptNumber) => {
+
+		});
+		socket.on('reconnecting', (attemptNumber) => {
+
+		});
+		socket.on('reconnect_error', (error) => {
+			app.ports.socketError.send("" + error);
+		});
+		socket.on('reconnect_failed', () => {
+			app.ports.socketError.send("Reconnection failed!");
+		});
+
+
+		$('.message .close')
+			.on('click', function () {
+				$(this)
+					.closest('.message')
+					.transition('fade');
+			});
+	</script>
+</body>
+
+</html>
