@@ -1,0 +1,22 @@
+{
+  "name": "protecc",
+  "version": "1.0.0",
+  "scripts": {
+    "postinstall": "spago install",
+    "build": "spago build",
+    "clean": "rm -rf node_modules output .spago dist/* *.lock",
+    "bundle": "spago bundle-app --main Main --to dist/app.js && parcel build assets/index.html",
+    "watch": "spago bundle-app -w -l --main Main --to dist/app.js",
+    "serve": "parcel assets/index.html"
+  },
+  "devDependencies": {
+    "parcel-bundler": "^1.12.4",
+    "purescript": "^0.13.5",
+    "purty": "^4.5.2",
+    "serve": "^11.2.0",
+    "spago": "^0.13.0"
+  },
+  "dependencies": {
+    "socket.io-client": "^2.3.0"
+  }
+}
