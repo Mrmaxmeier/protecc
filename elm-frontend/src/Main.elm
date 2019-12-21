@@ -2,6 +2,7 @@ module Main exposing (Model, Msg(..), init, main, subscriptions, update, view)
 
 import Browser
 import Browser.Navigation as Nav
+import Dashboard
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Routing
@@ -33,12 +34,19 @@ type alias Model =
     { key : Nav.Key
     , route : Routing.Route
     , ws : Socket.State
+    , dashboard : Dashboard.State
     }
 
 
 init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
-    ( Model key (Routing.parse url) Socket.init, Cmd.none )
+    ( { key = key
+      , route = Routing.parse url
+      , ws = Socket.init
+      , dashboard = Dashboard.init
+      }
+    , Cmd.none
+    )
 
 
 
@@ -49,6 +57,7 @@ type Msg
     = LinkClicked Browser.UrlRequest
     | UrlChanged Url.Url
     | SocketWrap Socket.Msg
+    | DashboardWrap Dashboard.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -71,8 +80,18 @@ update msg model =
             let
                 ( newWs, cmds ) =
                     Socket.update socketMsg model.ws
+
+                dashboardCmds =
+                    Dashboard.onSocketMsg socketMsg
             in
-            ( { model | ws = newWs }, Cmd.map SocketWrap cmds )
+            ( { model | ws = newWs }, Cmd.batch [ Cmd.map SocketWrap cmds, Cmd.map DashboardWrap dashboardCmds ] )
+
+        DashboardWrap socketMsg ->
+            let
+                ( newDs, cmds ) =
+                    Dashboard.update socketMsg model.dashboard
+            in
+            ( { model | dashboard = newDs }, Cmd.map DashboardWrap cmds )
 
 
 
@@ -81,7 +100,10 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.map SocketWrap <| Socket.subscriptions model.ws
+    Sub.batch
+        [ Sub.map SocketWrap <| Socket.subscriptions model.ws
+        , Sub.map DashboardWrap <| Dashboard.subscriptions model.dashboard
+        ]
 
 
 
@@ -97,7 +119,7 @@ view model =
                     view404 path
 
                 Routing.Index ->
-                    viewIndex
+                    \s -> Html.map DashboardWrap <| Dashboard.view s.dashboard
     in
     { title = Routing.title model.route
     , body =
@@ -144,8 +166,3 @@ view404 path _ =
                 ]
             ]
         ]
-
-
-viewIndex : Model -> Html Msg
-viewIndex model =
-    div [ class "ui container" ] []
