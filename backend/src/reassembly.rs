@@ -4,6 +4,13 @@ use std::net::IpAddr;
 use pktparse::tcp::TcpHeader;
 use std::cmp::max;
 
+use crate::incr_counter;
+use crate::database;
+
+use crate::database::Database;
+
+
+
 #[derive(Debug)]
 pub(crate) struct Packet {
     pub(crate) src_ip: IpAddr,
@@ -89,8 +96,17 @@ impl StreamReassembly {
     fn is_done(&self) -> bool {
         self.reset || (self.client_to_server.is_closed && self.server_to_client.is_closed)
     }
-    fn packets(self) -> (Vec<Packet>, Vec<Packet>) {
-        (self.client_to_server.packets, self.server_to_client.packets)
+    fn finalize(self) -> database::Stream {
+        let StreamReassembly {
+            client,
+            server,
+            client_to_server,
+            server_to_client,
+            ..
+        } = self;
+        let packets = Vec::new();
+        // TODO: populate packets vec
+        database::Stream { client, server, tags: Vec::new(), packets }
     }
 }
 
@@ -108,15 +124,17 @@ impl StreamId {
 
 pub(crate) struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
+    database: Database,
 }
 impl Reassembler {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(database: Database) -> Self {
         Reassembler {
             reassemblies: HashMap::new(),
+            database,
         }
     }
 
-    pub(crate) fn advance_state(&mut self, p: Packet) -> Option<(Vec<Packet>, Vec<Packet>)> {
+    pub(crate) fn advance_state(&mut self, p: Packet) {
         let id = StreamId(
             p.src_ip,
             p.tcp_header.source_port,
@@ -125,8 +143,9 @@ impl Reassembler {
         );
         if !self.reassemblies.contains_key(&id) {
             if !p.tcp_header.flag_syn {
-                println!("Packet that does not belong to a stream: {:?}", p);
-                return None;
+                // eprintln!("Packet that does not belong to a stream: {:?} -> {:?} ({} -> {})", p.src_ip, p.dst_ip, p.tcp_header.source_port, p.tcp_header.dest_port);
+                incr_counter!(packets_without_stream);
+                return;
             }
             self.reassemblies.insert(
                 id.clone(),
@@ -150,8 +169,13 @@ impl Reassembler {
             reassembly.is_done()
         };
         if is_done {
-            return self.reassemblies.remove(&id).map(StreamReassembly::packets);
+            incr_counter!(streams_completed);
+            let db_stream = self
+                .reassemblies
+                .remove(&id)
+                .map(StreamReassembly::finalize)
+                .unwrap();
+            self.database.push(db_stream);
         }
-        return None;
     }
 }
