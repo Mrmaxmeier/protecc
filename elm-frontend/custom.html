@@ -56,14 +56,6 @@
 		socket.on('reconnect_failed', () => {
 			app.ports.socketError.send("Reconnection failed!");
 		});
-
-
-		$('.message .close')
-			.on('click', function () {
-				$(this)
-					.closest('.message')
-					.transition('fade');
-			});
 	</script>
 </body>
 
