@@ -1,15 +1,14 @@
 module MainComponent where
 
 import Prelude
+
 import CSS as CSS
+import Dashboard as Dashboard
 import Data.Either (Either(..))
 import Data.Foldable (oneOf)
-import Data.List (List)
-import Data.Maybe (Maybe(..), maybe)
-import Effect (Effect)
+import Data.Maybe (Maybe(..))
+import Data.Symbol (SProxy(..))
 import Effect.Aff (Aff)
-import Effect.Console (log)
-import Halogen (ClassName(..))
 import Halogen as H
 import Halogen.HTML (a, div)
 import Halogen.HTML as HH
@@ -20,29 +19,31 @@ import Halogen.HTML.Properties as HP
 import Routing (match)
 import Routing.Match (Match, end)
 import SemanticUI as S
-import SocketIO as SIO
-import Web.Event.Event (Event)
-import Web.Event.EventTarget (eventListener)
-import Web.Socket.Event.CloseEvent (CloseEvent)
-import Web.Socket.Event.CloseEvent as CloseEvent
-import Web.Socket.Event.MessageEvent as MessageEvent
-import Web.Socket.WebSocket (WebSocket)
-import Web.Socket.WebSocket as WebSocket
 
 type Slot
-  = H.Slot Query Void
+  = ( dashboard :: H.Slot Dashboard.Query Void Unit
+  )
+
+_dashboard = SProxy :: SProxy "dashboard"
 
 data Query a
   = ChangeRoute String a
   | SocketConnect a
   | SocketDisconnect String a
   | SocketError String a
+  | SocketReconnecting Int a
 
 data Action
   = NoOp
 
+data SocketState 
+  = Disconnected
+  | Connecting
+  | Connected
+
 type State
   = { route :: Route
+    , socketState :: SocketState
     }
 
 data Message
@@ -57,39 +58,55 @@ component =
     }
 
 initialState :: ∀ i. i -> State
-initialState = const { route: Index }
+initialState = const { route: Index, socketState: Connecting }
 
-render :: State -> H.ComponentHTML Action () Aff
+render :: State -> H.ComponentHTML Action Slot Aff
 render state =
   HH.div_
     [ renderMenu state
     , renderRoute state.route state
     ]
 
-renderMenu :: State -> H.ComponentHTML Action () Aff
+renderMenu :: State -> H.ComponentHTML Action Slot Aff
 renderMenu state =
   div [ classes [ S.ui, S.attached, S.inverted, S.segment ] ]
     [ div [ classes [ S.ui, S.inverted, S.secondary, S.pointing, S.menu ] ]
         [ div [ classes [ S.ui, S.container ] ]
             $ map
-                (\entry -> HH.a [ classes $ activeIfEqual entry state.route, HP.href entry.link ] [ HH.text entry.name ])
+                (\entry -> a [ classes $ activeIfEqual entry state.route, HP.href entry.link ] [ HH.text entry.name ])
                 menuEntries
-        , div [ classes [ S.right, S.menu ] ] []
+        , div [ classes [ S.right, S.menu ] ] [renderSocketState state.socketState]
         ]
     ]
   where
   activeIfEqual entry route = if entry == routeToEntry route then [ S.active, S.item ] else [ S.item ]
 
-handleQuery :: ∀ a. Query a -> H.HalogenM State Action () Message Aff (Maybe a)
+renderSocketState :: SocketState -> H.ComponentHTML Action Slot Aff
+renderSocketState state = 
+  div [classes [S.ui, S.icon, S.item]] [ HH.i [classes $ [S.icon] <> icon] [] ]
+  where
+  icon = case state of 
+    Connecting -> [S.yellow, S.sync]
+    Connected -> [S.green, S.wifi]
+    Disconnected -> [S.red, S.ban]
+
+handleQuery :: ∀ a. Query a -> H.HalogenM State Action Slot Message Aff (Maybe a)
 handleQuery = case _ of
   ChangeRoute msg a -> do
     H.modify_ $ _ { route = pathToRoute msg }
-    pure (Just a)
-  SocketConnect a -> pure $ Just a
-  SocketDisconnect reason a -> pure $ Just a
+    pure $ Just a
+  SocketConnect a -> do
+    H.modify_ $ _ { socketState = Connected }
+    pure $ Just a
+  SocketDisconnect reason a -> do
+    H.modify_ $ _ { socketState = Disconnected }
+    pure $ Just a
   SocketError error a -> pure $ Just a
+  SocketReconnecting attempt a -> do
+    H.modify_ $ _ { socketState = Connecting }
+    pure $ Just a
 
-handleAction :: Action -> H.HalogenM State Action () Message Aff Unit
+handleAction :: Action -> H.HalogenM State Action Slot Message Aff Unit
 handleAction = case _ of
   NoOp -> pure unit
 
@@ -133,8 +150,8 @@ routeToEntry Index = dashboardEntry
 
 routeToEntry (NotFound _) = memesEntry
 
-renderRoute :: Route -> State -> H.ComponentHTML Action () Aff
-renderRoute Index state = div [] []
+renderRoute :: Route -> State -> H.ComponentHTML Action Slot Aff
+renderRoute Index state = HH.slot _dashboard unit Dashboard.component unit absurd
 
 renderRoute (NotFound s) state =
   div [ classes [ S.ui, S.container ], HC.style (CSS.paddingTop $ CSS.px 20.0) ]

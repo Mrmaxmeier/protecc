@@ -46,3 +46,39 @@ header = ClassName "header"
 
 blind :: ClassName
 blind = ClassName "blind"
+
+yellow :: ClassName
+yellow = ClassName "yellow"
+
+red :: ClassName
+red = ClassName "red"
+
+green :: ClassName
+green = ClassName "green"
+
+wifi :: ClassName
+wifi = ClassName "wifi"
+
+sync :: ClassName
+sync = ClassName "sync"
+
+ban :: ClassName
+ban = ClassName "ban"
+
+statistic :: ClassName
+statistic = ClassName "statistic"
+
+statistics :: ClassName
+statistics = ClassName "statistics"
+
+value :: ClassName
+value = ClassName "value"
+
+label :: ClassName
+label = ClassName "label"
+
+three :: ClassName
+three = ClassName "three"
+
+four :: ClassName
+four = ClassName "four"

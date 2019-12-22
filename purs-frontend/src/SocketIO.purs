@@ -7,6 +7,9 @@ module SocketIO
   , connectProducer
   , errorProducer
   , disconnectProducer
+  , reconnectingProducer
+  , onReconnecting
+  , Socket
   ) where
 
 import Prelude
@@ -19,42 +22,54 @@ import Data.Function.Uncurried (Fn1, mkFn1)
 import Data.Maybe (Maybe(..))
 import Effect.Class (liftEffect)
 
-foreign import open :: String -> Effect Unit
+foreign import data Socket :: Type
 
-foreign import onErrorImpl :: (Fn1 String (Effect Unit)) -> Effect Unit
+foreign import open :: String -> Effect Socket
 
-foreign import onConnectImpl :: (Fn1 Unit (Effect Unit)) -> Effect Unit
+foreign import onErrorImpl :: Socket -> (Fn1 String (Effect Unit)) -> Effect Unit
 
-foreign import onDisconnectImpl :: (Fn1 String (Effect Unit)) -> Effect Unit
+foreign import onConnectImpl :: Socket -> (Fn1 Unit (Effect Unit)) -> Effect Unit
 
-foreign import send :: String -> Effect Unit
+foreign import onDisconnectImpl :: Socket -> (Fn1 String (Effect Unit)) -> Effect Unit
 
-onError :: (String -> Effect Unit) -> Effect Unit
-onError = onErrorImpl <<< mkFn1
+foreign import onReconnectingImpl :: Socket -> (Fn1 Int (Effect Unit)) -> Effect Unit
 
-onConnect :: (Unit -> Effect Unit) -> Effect Unit
-onConnect = onConnectImpl <<< mkFn1
+foreign import send :: Socket -> String -> Effect Unit
 
-onDisconnect :: (String -> Effect Unit) -> Effect Unit
-onDisconnect = onDisconnectImpl <<< mkFn1
+onError :: Socket -> (String -> Effect Unit) -> Effect Unit
+onError socket = onErrorImpl socket <<< mkFn1
 
-connectProducer :: CR.Producer Unit Aff Unit
-connectProducer =
+onConnect :: Socket -> (Unit -> Effect Unit) -> Effect Unit
+onConnect socket = onConnectImpl socket <<< mkFn1
+
+onReconnecting :: Socket -> (Int -> Effect Unit) -> Effect Unit
+onReconnecting socket = onReconnectingImpl socket <<< mkFn1
+
+onDisconnect :: Socket -> (String -> Effect Unit) -> Effect Unit
+onDisconnect socket = onDisconnectImpl socket <<< mkFn1
+
+connectProducer :: Socket -> CR.Producer Unit Aff Unit
+connectProducer socket =
   CRA.produce \emitter -> do
-    onConnect (\_ -> emit emitter unit)
+    onConnect socket (\_ -> emit emitter unit)
 
-errorProducer :: CR.Producer String Aff Unit
-errorProducer =
+errorProducer :: Socket -> CR.Producer String Aff Unit
+errorProducer socket =
   CRA.produce \emitter -> do
-    onError $ emit emitter
+    onError socket $ emit emitter
 
-disconnectProducer :: CR.Producer String Aff Unit
-disconnectProducer =
+disconnectProducer :: Socket -> CR.Producer String Aff Unit
+disconnectProducer socket =
   CRA.produce \emitter -> do
-    onDisconnect $ emit emitter
+    onDisconnect socket $ emit emitter
 
-sender :: ∀ m. (m -> String) -> CR.Consumer m Aff Unit
-sender extract =
+reconnectingProducer :: Socket -> CR.Producer Int Aff Unit
+reconnectingProducer socket =
+  CRA.produce \emitter -> do
+    onReconnecting socket $ emit emitter
+
+sender :: ∀ m. Socket -> (m -> String) -> CR.Consumer m Aff Unit
+sender socket extract =
   CR.consumer \msg -> do
-    liftEffect $ send (extract msg)
+    liftEffect $ send socket (extract msg)
     pure Nothing

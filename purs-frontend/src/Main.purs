@@ -21,7 +21,6 @@ import Web.HTML.Event.HashChangeEvent as HCE
 import Web.HTML.Event.HashChangeEvent.EventTypes as HCET
 import Web.HTML.Location (hash)
 import Web.HTML.Window as Window
-import Effect.Console (log)
 
 -- A producer coroutine that emits messages whenever the window emits a
 -- `hashchange` event.
@@ -50,16 +49,10 @@ hashChangeConsumer query =
 -- A consumer coroutine that takes the `query` function from our component IO
 -- record and sends `ReceiveMessage` queries in when it receives inputs from the
 -- producer.
-wsConsumer1 :: ∀ b. (∀ a. MainComponent.Query a -> Aff (Maybe a)) -> (b -> Unit -> MainComponent.Query Unit) -> CR.Consumer b Aff Unit
-wsConsumer1 query f =
-  CR.consumer \msg -> do
-    void $ query $ H.tell $ f msg
-    pure Nothing
-
-wsConsumer :: (∀ a. MainComponent.Query a -> Aff (Maybe a)) -> (Unit -> MainComponent.Query Unit) -> CR.Consumer Unit Aff Unit
+wsConsumer :: ∀ b. (∀ a. MainComponent.Query a -> Aff (Maybe a)) -> (b -> Unit -> MainComponent.Query Unit) -> CR.Consumer b Aff Unit
 wsConsumer query f =
   CR.consumer \msg -> do
-    void $ query $ H.tell $ f
+    void $ query $ H.tell $ f msg
     pure Nothing
 
 main :: Effect Unit
@@ -67,15 +60,16 @@ main = do
   window <- DOM.window
   location <- Window.location window
   path <- hash location
-  SocketIO.open "ws://localhost"
+  socket <- SocketIO.open "ws://localhost"
   _ <-
     HA.runHalogenAff do
       body <- HA.awaitBody
       io <- runUI MainComponent.component unit body
       _ <- io.query $ H.tell $ MainComponent.ChangeRoute $ Str.drop 1 path
       CR.runProcess (hashChangeProducer CR.$$ hashChangeConsumer io.query)
-      io.subscribe $ SocketIO.sender (case _ of MainComponent.SocketOutput s -> s)
-      CR.runProcess (SocketIO.errorProducer CR.$$ wsConsumer1 io.query MainComponent.SocketError)
-      CR.runProcess (SocketIO.disconnectProducer CR.$$ wsConsumer1 io.query MainComponent.SocketDisconnect)
-      CR.runProcess (SocketIO.connectProducer CR.$$ wsConsumer io.query MainComponent.SocketConnect)
+      io.subscribe $ SocketIO.sender socket (case _ of MainComponent.SocketOutput s -> s)
+      CR.runProcess (SocketIO.errorProducer socket CR.$$ wsConsumer io.query MainComponent.SocketError)
+      CR.runProcess (SocketIO.disconnectProducer socket CR.$$ wsConsumer io.query MainComponent.SocketDisconnect)
+      CR.runProcess (SocketIO.connectProducer socket CR.$$ wsConsumer io.query (const MainComponent.SocketConnect))
+      CR.runProcess (SocketIO.reconnectingProducer socket CR.$$ wsConsumer io.query MainComponent.SocketReconnecting)
   pure unit
