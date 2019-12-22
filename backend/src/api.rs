@@ -6,8 +6,8 @@ pub mod api {
 }
 
 pub use api::{
-    server,
-    server::{ToolApi, ToolApiServer},
+    tools_server,
+    tools_server::{Tools, ToolsServer},
     RegisterPacketTaggerRequest, RegisterStreamMapperRequest, RegisterStreamReducerRequest,
     RegisterStreamTaggerRequest,
 };
@@ -16,7 +16,7 @@ use std::pin::Pin;
 pub struct ToolApiImpl {}
 
 #[tonic::async_trait]
-impl ToolApi for ToolApiImpl {
+impl Tools for ToolApiImpl {
     type RegisterStreamTaggerStream =
         Pin<Box<dyn Stream<Item = Result<api::Stream, Status>> + Send + Sync + 'static>>;
     async fn register_stream_tagger(

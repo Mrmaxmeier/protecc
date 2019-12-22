@@ -4,7 +4,7 @@ package api;
 
 import "shared.proto";
 
-service ToolApi {
+service Tools {
     rpc RegisterStreamTagger (stream RegisterStreamTaggerRequest) returns (stream Stream);
     rpc RegisterStreamMapper (stream RegisterStreamMapperRequest) returns (stream Stream);
     rpc RegisterStreamReducer (stream RegisterStreamReducerRequest) returns (stream RegisterStreamReducerResponse);

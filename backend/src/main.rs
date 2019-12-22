@@ -12,11 +12,11 @@ use reassembly::Reassembler;
 
 use std::env::args;
 use tonic::transport::Server;
+use tokio::prelude::*;
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    //let addr = "[::1]:10000".parse().unwrap();
-    //println!("serving on {:?}", addr);
     let database = database::Database::new();
     let mut reassembler = Reassembler::new(database.clone());
 
@@ -35,11 +35,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     query.execute(&database);
 
-    /*
+
+    let addr = "[::1]:10000".parse().unwrap();
+    println!("serving on {:?}", addr);
     Server::builder()
-        .add_service(api::server::ToolApiServer::new(ToolApiImpl {}))
+        .add_service(api::tools_server::ToolsServer::new(ToolApiImpl {}))
         .serve(addr)
         .await?;
-    */
     Ok(())
 }
