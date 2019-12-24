@@ -1,14 +1,31 @@
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::sync::{Arc, Mutex, RwLock};
 use std::net::IpAddr;
 
 use crate::incr_counter;
 
+use sled;
+use serde::{Serialize, Deserialize};
+
+
+/*
+TODO(perf/footprint):
+- replace Vec with smallvec
+- replace hashset with same-alloc set (tinyset)
+- replace (sender, usize) with u32 & 0x7fffffff
+- replace hashmap with smallvec?
+
+MAYBE(footprint):
+- global cache of ipaddrs
+*/
 pub(crate) struct Stream {
     pub(crate) client: (IpAddr, u16),
     pub(crate) server: (IpAddr, u16),
-    pub(crate) tags: Vec<TagID>,
-    pub(crate) packets: Vec<(Sender, Vec<u8>)>,
+    pub(crate) tags: HashSet<TagID>,
+    pub(crate) features: HashMap<TagID, f64>,
+    pub(crate) segments: Vec<(Sender, usize)>,
+    pub(crate) client_data_id: u64,
+    pub(crate) server_data_id: u64,
 }
 
 
@@ -25,10 +42,10 @@ impl Stream {
 
 const SERVICE_PACKET_THRESHOLD: usize = 0x1000;
 
-#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct StreamID(usize);
 
-#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct TagID(u64);
 
 #[derive(Default)]
@@ -73,22 +90,42 @@ impl Service {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct Database {
-    pub(crate) streams: Arc<RwLock<Vec<Stream>>>,
-    pub(crate) tag_index: Arc<Mutex<TagIndex>>,
-    pub(crate) services: Arc<RwLock<HashMap<u16, Arc<Mutex<Service>>>>>,
-    pub(crate) counters: Arc<Mutex<crate::counters::Counters>>,
+    pub(crate) streams: RwLock<Vec<Stream>>,
+    pub(crate) tag_index: Mutex<TagIndex>,
+    pub(crate) services: RwLock<HashMap<u16, Arc<Mutex<Service>>>>,
+    pub(crate) counters: Mutex<crate::counters::Counters>,
+    pub(crate) sled_db: sled::Db,
 }
 
 impl Database {
     pub(crate) fn new() -> Self {
-        Database {
-            streams: Arc::new(RwLock::new(Vec::new())),
-            tag_index: Arc::new(Mutex::new(TagIndex::new())),
-            services: Arc::new(RwLock::new(HashMap::new())),
-            counters: Arc::new(Mutex::new(crate::counters::Counters::default())),
+        let mut sled_db = sled::Db::open("/tmp/snacc_payload_database").unwrap();
+        if !sled_db.is_empty() {
+            println!("[WARN] clearing previous sled db");
+            sled_db.clear().unwrap();
         }
+        Database {
+            streams: RwLock::new(Vec::new()),
+            tag_index: Mutex::new(TagIndex::new()),
+            services: RwLock::new(HashMap::new()),
+            counters: Mutex::new(crate::counters::Counters::default()),
+            sled_db,
+        }
+    }
+
+
+    pub(crate) fn push_raw(&self, client: (IpAddr, u16), server: (IpAddr, u16), segments: Vec<(Sender, usize)>, client_data: Vec<u8>, server_data: Vec<u8>) {
+        let client_data_id = self.sled_db.generate_id().unwrap();
+        let server_data_id = self.sled_db.generate_id().unwrap();
+        self.sled_db.insert(client_data_id.to_be_bytes(), client_data).unwrap();
+        self.sled_db.insert(server_data_id.to_be_bytes(), server_data).unwrap();
+        let stream = Stream {
+            client, server, segments, client_data_id, server_data_id,
+            tags: HashSet::new(),
+            features: HashMap::new()
+        };
+        self.push(stream);
     }
 
     pub(crate) fn push(&self, stream: Stream) {

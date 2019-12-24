@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use pktparse::tcp::TcpHeader;
 use std::cmp::max;
 
-use crate::incr_counter;
 use crate::database;
+use crate::incr_counter;
 
 use crate::database::Database;
-
-
 
 #[derive(Debug)]
 pub(crate) struct Packet {
@@ -60,6 +59,14 @@ impl Stream {
                 .drain_filter(|p| p.tcp_header.sequence_no < ack_number),
         );
     }
+
+    fn flattened(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        for pkt in &self.packets {
+            buf.extend(&pkt.data);
+        }
+        buf
+    }
 }
 
 struct StreamReassembly {
@@ -96,7 +103,7 @@ impl StreamReassembly {
     fn is_done(&self) -> bool {
         self.reset || (self.client_to_server.is_closed && self.server_to_client.is_closed)
     }
-    fn finalize(self) -> database::Stream {
+    fn finalize(self, db: &Database) {
         let StreamReassembly {
             client,
             server,
@@ -104,9 +111,41 @@ impl StreamReassembly {
             server_to_client,
             ..
         } = self;
-        let packets = Vec::new();
-        // TODO: populate packets vec
-        database::Stream { client, server, tags: Vec::new(), packets }
+
+        let client_data = client_to_server.flattened();
+        let server_data = server_to_client.flattened();
+
+        let mut packets = client_to_server
+            .packets
+            .iter()
+            .map(|p| (database::Sender::Client, p))
+            .chain(
+                server_to_client
+                    .packets
+                    .iter()
+                    .map(|p| (database::Sender::Server, p)),
+            )
+            .collect::<Vec<_>>();
+
+        packets.sort_by(|a, b| a.1.timestamp.cmp(&b.1.timestamp));
+
+        let mut segments = Vec::with_capacity(packets.len());
+        let mut client_pos = 0;
+        let mut server_pos = 0;
+        for (sender, packet) in packets.into_iter() {
+            use database::Sender::*;
+            let pos = match sender {
+                Client => client_pos,
+                Server => server_pos,
+            };
+            match sender {
+                Client => client_pos += packet.data.len(),
+                Server => server_pos += packet.data.len(),
+            }
+            segments.push((sender, pos));
+        }
+
+        db.push_raw(client, server, segments, client_data, server_data)
     }
 }
 
@@ -124,10 +163,10 @@ impl StreamId {
 
 pub(crate) struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
-    database: Database,
+    database: Arc<Database>,
 }
 impl Reassembler {
-    pub(crate) fn new(database: Database) -> Self {
+    pub(crate) fn new(database: Arc<Database>) -> Self {
         Reassembler {
             reassemblies: HashMap::new(),
             database,
@@ -170,12 +209,8 @@ impl Reassembler {
         };
         if is_done {
             incr_counter!(streams_completed);
-            let db_stream = self
-                .reassemblies
-                .remove(&id)
-                .map(StreamReassembly::finalize)
-                .unwrap();
-            self.database.push(db_stream);
+            let stream = self.reassemblies.remove(&id).unwrap();
+            stream.finalize(&self.database);
         }
     }
 }

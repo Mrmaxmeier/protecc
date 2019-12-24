@@ -10,6 +10,7 @@ pub(crate) mod reassembly;
 use crate::api::ToolApiImpl;
 use reassembly::Reassembler;
 
+use std::sync::Arc;
 use std::env::args;
 use tonic::transport::Server;
 use tokio::prelude::*;
@@ -17,7 +18,7 @@ use tokio::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let database = database::Database::new();
+    let database = Arc::new(database::Database::new());
     let mut reassembler = Reassembler::new(database.clone());
 
     for path in args().skip(1) {
