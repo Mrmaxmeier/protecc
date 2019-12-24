@@ -1,12 +1,11 @@
-use std::collections::{HashSet, HashMap};
-use std::sync::{Arc, Mutex, RwLock};
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::incr_counter;
 
+use serde::{Deserialize, Serialize};
 use sled;
-use serde::{Serialize, Deserialize};
-
 
 /*
 TODO(perf/footprint):
@@ -18,6 +17,8 @@ TODO(perf/footprint):
 MAYBE(footprint):
 - global cache of ipaddrs
 */
+// Note: Stream should be small and cheap to clone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Stream {
     pub(crate) client: (IpAddr, u16),
     pub(crate) server: (IpAddr, u16),
@@ -28,7 +29,7 @@ pub(crate) struct Stream {
     pub(crate) server_data_id: u64,
 }
 
-
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum Sender {
     Client,
     Server,
@@ -100,7 +101,7 @@ pub(crate) struct Database {
 
 impl Database {
     pub(crate) fn new() -> Self {
-        let mut sled_db = sled::Db::open("/tmp/snacc_payload_database").unwrap();
+        let sled_db = sled::Db::open("/tmp/snacc_payload_database").unwrap();
         if !sled_db.is_empty() {
             println!("[WARN] clearing previous sled db");
             sled_db.clear().unwrap();
@@ -114,16 +115,30 @@ impl Database {
         }
     }
 
-
-    pub(crate) fn push_raw(&self, client: (IpAddr, u16), server: (IpAddr, u16), segments: Vec<(Sender, usize)>, client_data: Vec<u8>, server_data: Vec<u8>) {
+    pub(crate) fn push_raw(
+        &self,
+        client: (IpAddr, u16),
+        server: (IpAddr, u16),
+        segments: Vec<(Sender, usize)>,
+        client_data: Vec<u8>,
+        server_data: Vec<u8>,
+    ) {
         let client_data_id = self.sled_db.generate_id().unwrap();
         let server_data_id = self.sled_db.generate_id().unwrap();
-        self.sled_db.insert(client_data_id.to_be_bytes(), client_data).unwrap();
-        self.sled_db.insert(server_data_id.to_be_bytes(), server_data).unwrap();
+        self.sled_db
+            .insert(client_data_id.to_be_bytes(), client_data)
+            .unwrap();
+        self.sled_db
+            .insert(server_data_id.to_be_bytes(), server_data)
+            .unwrap();
         let stream = Stream {
-            client, server, segments, client_data_id, server_data_id,
+            client,
+            server,
+            segments,
+            client_data_id,
+            server_data_id,
             tags: HashSet::new(),
-            features: HashMap::new()
+            features: HashMap::new(),
         };
         self.push(stream);
     }

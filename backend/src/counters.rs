@@ -29,17 +29,15 @@ pub(crate) fn flush_tls() {
 
 #[macro_export]
 macro_rules! incr_counter {
-    ($x:ident) => {
-        {
-            crate::counters::_incr_counter_impl(stringify!($x), |c| {
-                c.$x += 1;
-                if c.$x.is_power_of_two() {
-                    println!("counter {}: {}", stringify!($x), c.$x);
-                }
-            });
-            ()
-        }
-    };
+    ($x:ident) => {{
+        crate::counters::_incr_counter_impl(stringify!($x), |c| {
+            c.$x += 1;
+            if c.$x.is_power_of_two() {
+                println!("counter {}: {}", stringify!($x), c.$x);
+            }
+        });
+        ()
+    }};
     ($x:ident, $msg:tt) => {
         println!($msg);
         incr_counter!($x);

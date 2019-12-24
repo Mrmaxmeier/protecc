@@ -1,20 +1,19 @@
 #![feature(drain_filter)]
 
 mod api;
+pub(crate) mod counters;
 mod database;
 mod pcapreader;
 mod query;
-pub(crate) mod counters;
 pub(crate) mod reassembly;
 
 use crate::api::ToolApiImpl;
 use reassembly::Reassembler;
 
-use std::sync::Arc;
 use std::env::args;
-use tonic::transport::Server;
+use std::sync::Arc;
 use tokio::prelude::*;
-
+use tonic::transport::Server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pcapreader::read_pcap_file(&path, &mut reassembler);
     }
 
-    for (k, v) in database.services.read().unwrap().iter(){
+    for (k, v) in database.services.read().unwrap().iter() {
         println!("service {}: #{}", k, v.lock().unwrap().streams.len());
     }
 
@@ -34,8 +33,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kind: query::QueryKind::All,
         limit: None,
     };
-    query.execute(&database);
+    let mut buf = Vec::new();
+    let mut cursor = query.into_cursor(&database);
 
+    while cursor.has_next() {
+        cursor = cursor.execute(&database, &mut buf);
+        dbg!(&cursor);
+        dbg!(buf.len());
+    }
 
     let addr = "[::1]:10000".parse().unwrap();
     println!("serving on {:?}", addr);

@@ -5,8 +5,8 @@ use pktparse;
 use std::fs::File;
 use std::net::IpAddr;
 
-use crate::reassembly::{Packet, Reassembler};
 use crate::incr_counter;
+use crate::reassembly::{Packet, Reassembler};
 
 fn handle_packetdata(reassembler: &mut Reassembler, packet: PacketData) {
     match packet {
@@ -48,7 +48,7 @@ fn handle_ip6(reassembler: &mut Reassembler, data: &[u8]) {
             IPProtocol::TCP => {
                 let addrs = (header.source_addr.into(), header.dest_addr.into());
                 handle_tcp(reassembler, payload, addrs);
-            },
+            }
             _ => incr_counter!(packets_unhandled),
         }
     } else {
