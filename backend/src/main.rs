@@ -32,6 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let query = query::Query {
         kind: query::QueryKind::All,
         limit: None,
+        filter: None,
     };
     let mut buf = Vec::new();
     let mut cursor = query.into_cursor(&database);

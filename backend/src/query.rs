@@ -18,6 +18,14 @@ const QUERY_SCAN_LIMIT: usize = 0x10000;
 pub(crate) struct Query {
     pub(crate) kind: QueryKind,
     pub(crate) limit: Option<u64>,
+    pub(crate) filter: Option<QueryFilter>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct QueryFilter {
+    // TODO: complex tag search
+    // TODO: regex search
+    // TODO: search by ip
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,25 +39,9 @@ pub(crate) struct Cursor {
 pub(crate) enum QueryKind {
     All,
     Service(u16),
-    Tagged(TagQuery),
-    ServiceTagged(u16, TagQuery),
+    Tagged(TagID),
+    ServiceTagged(u16, TagID),
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) enum TagQuery {
-    One(TagID),
-    // All(Vec<TagID>),
-    // Expr(Expr),
-}
-
-/*
-pub(crate) enum Expr {
-    Tag(TagID),
-    Not(Box<Expr>),
-    And(Vec<Expr>),
-    Or(Vec<Expr>),
-}
-*/
 
 impl Query {
     pub(crate) fn into_cursor(self, db: &Database) -> Cursor {
@@ -87,9 +79,9 @@ impl Cursor {
                         &matched_streams[matched_streams.len() - QUERY_RETURN_LIMIT..];
                 }
                 let mut res = self.clone();
+                res.scan_offset += matched_streams.len();
                 for elem in matched_streams.iter().rev() {
-                    buffer.push(elem.clone());
-                    res.scan_offset += 1;
+                    buffer.push(elem.clone()); // TODO(perf): avoid this clone?
                 }
                 res
             }
@@ -112,13 +104,5 @@ impl Cursor {
                 .unwrap_or(Vec::new()),
                 */
         }
-    }
-
-    fn all(&self, streams: &[StreamID]) -> Vec<Stream> {
-        todo!()
-    }
-
-    fn tagged(&self, streams: &TagIndex, tag_query: &TagQuery) -> Vec<Stream> {
-        todo!()
     }
 }
