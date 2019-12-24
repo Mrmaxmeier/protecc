@@ -115,7 +115,7 @@ struct StreamId(IpAddr, u16, IpAddr, u16);
 impl StreamId {
     fn new(src: IpAddr, src_port: u16, dst: IpAddr, dst_port: u16) -> Self {
         if (src, src_port) > (dst, dst_port) {
-            StreamId(src, src_port, dst, dst_port)
+            StreamId(dst, dst_port, src, src_port)
         } else {
             StreamId(src, src_port, dst, dst_port)
         }
@@ -135,7 +135,7 @@ impl Reassembler {
     }
 
     pub(crate) fn advance_state(&mut self, p: Packet) {
-        let id = StreamId(
+        let id = StreamId::new(
             p.src_ip,
             p.tcp_header.source_port,
             p.dst_ip,
