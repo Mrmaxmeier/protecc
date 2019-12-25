@@ -43,6 +43,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         dbg!(buf.len());
     }
 
+    println!("--------------");
+    buf.clear();
+    cursor = query::Query {
+        kind: query::QueryKind::Service(8080),
+        limit: None,
+        filter: None,
+    }.into_cursor(&database);
+    dbg!(cursor.execute(&database, &mut buf));
+    dbg!(buf);
+
     let addr = "[::1]:10000".parse().unwrap();
     println!("serving on {:?}", addr);
     Server::builder()

@@ -133,6 +133,7 @@ impl StreamReassembly {
         let mut client_pos = 0;
         let mut server_pos = 0;
         for (sender, packet) in packets.into_iter() {
+            if packet.data.is_empty() { continue } // TODO: does this break things? check for PSH?
             use database::Sender::*;
             let pos = match sender {
                 Client => client_pos,

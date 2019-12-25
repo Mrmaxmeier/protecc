@@ -45,6 +45,9 @@ const SERVICE_PACKET_THRESHOLD: usize = 0x1000;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct StreamID(usize);
+impl StreamID {
+    pub(crate) fn idx(&self) -> usize { self.0 }
+}
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct TagID(u64);

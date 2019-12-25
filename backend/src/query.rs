@@ -1,4 +1,4 @@
-use crate::database::{Database, Stream, StreamID, TagID, TagIndex};
+use crate::database::{Database, Stream, TagID};
 use serde::{Deserialize, Serialize};
 
 /*
@@ -26,6 +26,12 @@ pub(crate) struct QueryFilter {
     // TODO: complex tag search
     // TODO: regex search
     // TODO: search by ip
+}
+
+impl QueryFilter {
+    fn matches(&self, stream: &Stream) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,30 +76,30 @@ impl Cursor {
         self.scan_offset != self.scan_max
     }
     pub(crate) fn execute(&self, db: &Database, buffer: &mut Vec<Stream>) -> Cursor {
-        let scan_idx = self.scan_max - self.scan_offset;
         match &self.query.kind {
             QueryKind::All => {
-                let mut matched_streams = &db.streams.read().unwrap()[..scan_idx];
-                if matched_streams.len() > QUERY_RETURN_LIMIT {
-                    matched_streams =
-                        &matched_streams[matched_streams.len() - QUERY_RETURN_LIMIT..];
+                let streams = db.streams.read().unwrap();
+                self.limit_and_filter(buffer, streams.iter().rev().skip(self.scan_offset))
+            }
+            QueryKind::Service(port) => {
+                let services = db.services.read().unwrap();
+                if let Some(service) = services.get(&port) {
+                    let all_streams = db.streams.read().unwrap();
+                    let scan_streams = &service.lock().unwrap().streams;
+                    self.limit_and_filter(
+                        buffer,
+                        scan_streams
+                            .iter()
+                            .rev()
+                            .skip(self.scan_offset)
+                            .map(|stream_id| &all_streams[stream_id.idx()]),
+                    )
+                } else {
+                    self.clone()
                 }
-                let mut res = self.clone();
-                res.scan_offset += matched_streams.len();
-                for elem in matched_streams.iter().rev() {
-                    buffer.push(elem.clone()); // TODO(perf): avoid this clone?
-                }
-                res
             }
             _ => todo!(),
             /*
-            QueryKind::Service(port) => db
-                .services
-                .read()
-                .unwrap()
-                .get(&port)
-                .map(|service| self.all(&service.lock().unwrap().streams))
-                .unwrap_or(Vec::new()),
             QueryKind::Tagged(tag_query) => self.tagged(&*db.tag_index.lock().unwrap(), tag_query),
             QueryKind::ServiceTagged(port, tag_query) => db
                 .services
@@ -104,5 +110,26 @@ impl Cursor {
                 .unwrap_or(Vec::new()),
                 */
         }
+    }
+
+    fn limit_and_filter<'a, I>(&'a self, buffer: &'a mut Vec<Stream>, streams: I) -> Cursor
+    where
+        I: Iterator<Item = &'a Stream>,
+    {
+        let mut returned_cnt = 0;
+        let mut processed_cnt = 0;
+        for stream in streams {
+            if self.query.filter.as_ref().map(|f| f.matches(stream)) != Some(false) {
+                buffer.push(stream.clone());
+                returned_cnt += 1;
+            }
+            processed_cnt += 1;
+            if returned_cnt >= QUERY_RETURN_LIMIT || processed_cnt >= QUERY_SCAN_LIMIT {
+                break;
+            }
+        }
+        let mut res = self.clone();
+        res.scan_offset += processed_cnt;
+        res
     }
 }
