@@ -1,13 +1,7 @@
 use crate::database::{Database, Stream, TagID};
 use serde::{Deserialize, Serialize};
 
-/*
-TODO(impl):
-- query all
-- query service
-- query tags
-- query ip?
-*/
+use crate::incr_counter;
 
 /// max entries returned by a single cursor step
 const QUERY_RETURN_LIMIT: usize = 0x100;
@@ -17,15 +11,14 @@ const QUERY_SCAN_LIMIT: usize = 0x10000;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Query {
     pub(crate) kind: QueryKind,
-    pub(crate) limit: Option<u64>,
     pub(crate) filter: Option<QueryFilter>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct QueryFilter {
     // TODO: complex tag search
-    // TODO: regex search
-    // TODO: search by ip
+// TODO: regex search
+// TODO: search by ip
 }
 
 impl QueryFilter {
@@ -98,17 +91,47 @@ impl Cursor {
                     self.clone()
                 }
             }
-            _ => todo!(),
-            /*
-            QueryKind::Tagged(tag_query) => self.tagged(&*db.tag_index.lock().unwrap(), tag_query),
-            QueryKind::ServiceTagged(port, tag_query) => db
-                .services
-                .read()
-                .unwrap()
-                .get(&port)
-                .map(|service| self.tagged(&service.lock().unwrap().tag_index.as_ref().expect("no tag_index for query"), tag_query))
-                .unwrap_or(Vec::new()),
-                */
+            QueryKind::Tagged(tag_id) => {
+                let tag_index = db.tag_index.lock().unwrap();
+                if let Some(scan_streams) = tag_index.tagged.get(tag_id) {
+                    let all_streams = db.streams.read().unwrap();
+                    self.limit_and_filter(
+                        buffer,
+                        scan_streams
+                            .iter()
+                            .rev()
+                            .skip(self.scan_offset)
+                            .map(|stream_id| &all_streams[stream_id.idx()]),
+                    )
+                } else {
+                    self.clone()
+                }
+            }
+            QueryKind::ServiceTagged(port, tag_id) => {
+                let services = db.services.read().unwrap();
+                if let Some(service) = services.get(&port) {
+                    let service = service.lock().unwrap();
+                    if let Some(ref tag_index) = service.tag_index {
+                        if let Some(scan_streams) = tag_index.tagged.get(tag_id) {
+                            let all_streams = db.streams.read().unwrap();
+                            self.limit_and_filter(
+                                buffer,
+                                scan_streams
+                                    .iter()
+                                    .rev()
+                                    .skip(self.scan_offset)
+                                    .map(|stream_id| &all_streams[stream_id.idx()]),
+                            )
+                        } else {
+                            self.clone()
+                        }
+                    } else {
+                        todo!()
+                    }
+                } else {
+                    self.clone()
+                }
+            }
         }
     }
 
@@ -119,7 +142,9 @@ impl Cursor {
         let mut returned_cnt = 0;
         let mut processed_cnt = 0;
         for stream in streams {
+            incr_counter!(query_rows_scanned);
             if self.query.filter.as_ref().map(|f| f.matches(stream)) != Some(false) {
+                incr_counter!(query_rows_returned);
                 buffer.push(stream.clone());
                 returned_cnt += 1;
             }

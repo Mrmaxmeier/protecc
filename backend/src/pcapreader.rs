@@ -128,5 +128,6 @@ pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
             Err(e) => panic!("error while reading: {:?}", e),
         }
     }
+    incr_counter!(pcaps_imported);
     crate::counters::flush_tls();
 }

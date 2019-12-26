@@ -46,7 +46,9 @@ const SERVICE_PACKET_THRESHOLD: usize = 0x1000;
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct StreamID(usize);
 impl StreamID {
-    pub(crate) fn idx(&self) -> usize { self.0 }
+    pub(crate) fn idx(&self) -> usize {
+        self.0
+    }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
@@ -64,7 +66,9 @@ impl TagIndex {
         }
     }
     fn push(&self, stream: &Stream) {
-        todo!();
+        if !stream.tags.is_empty() {
+            todo!();
+        }
     }
 }
 
@@ -104,7 +108,13 @@ pub(crate) struct Database {
 
 impl Database {
     pub(crate) fn new() -> Self {
-        let sled_db = sled::Db::open("/tmp/snacc_payload_database").unwrap();
+        let sled_db = sled::Config::default()
+            .path("snacc_stream_payload_database.sled".to_owned())
+            .cache_capacity(500_000_000) // 500 MB
+            .flush_every_ms(Some(5000))
+            .temporary(true)
+            .open()
+            .unwrap();
         if !sled_db.is_empty() {
             println!("[WARN] clearing previous sled db");
             sled_db.clear().unwrap();

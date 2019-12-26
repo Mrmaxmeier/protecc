@@ -214,4 +214,20 @@ impl Reassembler {
             stream.finalize(&self.database);
         }
     }
+
+    pub(crate) fn expire(&mut self) {
+        let mut wip_bytes = 0;
+        for (_, r) in self.reassemblies.iter() {
+            for pkt in &r.client_to_server.packets {
+                wip_bytes += pkt.data.len();
+            }
+            for pkt in &r.server_to_client.packets {
+                wip_bytes += pkt.data.len();
+            }
+        }
+        // dbg!(self.reassemblies.len());
+        // dbg!(wip_bytes);
+        // TODO: implement this
+        self.reassemblies.clear();
+    }
 }

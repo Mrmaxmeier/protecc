@@ -21,17 +21,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut reassembler = Reassembler::new(database.clone());
 
     for path in args().skip(1) {
-        println!("importing pcap {:?}", path);
-        pcapreader::read_pcap_file(&path, &mut reassembler);
-    }
-
-    for (k, v) in database.services.read().unwrap().iter() {
-        println!("service {}: #{}", k, v.lock().unwrap().streams.len());
+        loop {
+            println!("importing pcap {:?}", path);
+            pcapreader::read_pcap_file(&path, &mut reassembler);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            reassembler.expire();
+        }
     }
 
     let query = query::Query {
         kind: query::QueryKind::All,
-        limit: None,
         filter: None,
     };
     let mut buf = Vec::new();
@@ -47,11 +46,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     buf.clear();
     cursor = query::Query {
         kind: query::QueryKind::Service(8080),
-        limit: None,
         filter: None,
     }.into_cursor(&database);
     dbg!(cursor.execute(&database, &mut buf));
-    dbg!(buf);
 
     let addr = "[::1]:10000".parse().unwrap();
     println!("serving on {:?}", addr);
