@@ -146,7 +146,7 @@ impl StreamReassembly {
             segments.push((sender, pos));
         }
 
-        db.push_raw(client, server, segments, client_data, server_data)
+        db.push_raw(client, server, segments, &client_data, &server_data)
     }
 }
 

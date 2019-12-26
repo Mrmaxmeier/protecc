@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             println!("importing pcap {:?}", path);
             pcapreader::read_pcap_file(&path, &mut reassembler);
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            // std::thread::sleep(std::time::Duration::from_millis(100));
             reassembler.expire();
         }
     }

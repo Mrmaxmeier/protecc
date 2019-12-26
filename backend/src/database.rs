@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, RwLock};
 
+
 use crate::incr_counter;
 
 use serde::{Deserialize, Serialize};
-use sled;
 
 /*
 TODO(perf/footprint):
@@ -25,8 +25,8 @@ pub(crate) struct Stream {
     pub(crate) tags: HashSet<TagID>,
     pub(crate) features: HashMap<TagID, f64>,
     pub(crate) segments: Vec<(Sender, usize)>,
-    pub(crate) client_data_id: u64,
-    pub(crate) server_data_id: u64,
+    pub(crate) client_data_id: StreamPayloadID,
+    pub(crate) server_data_id: StreamPayloadID,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +50,10 @@ impl StreamID {
         self.0
     }
 }
+
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub(crate) struct StreamPayloadID(u64);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct TagID(u64);
@@ -103,29 +107,34 @@ pub(crate) struct Database {
     pub(crate) tag_index: Mutex<TagIndex>,
     pub(crate) services: RwLock<HashMap<u16, Arc<Mutex<Service>>>>,
     pub(crate) counters: Mutex<crate::counters::Counters>,
-    pub(crate) sled_db: sled::Db,
+    pub(crate) payload_db: rocksdb::DB,
 }
 
 impl Database {
     pub(crate) fn new() -> Self {
-        let sled_db = sled::Config::default()
-            .path("snacc_stream_payload_database.sled".to_owned())
-            .cache_capacity(500_000_000) // 500 MB
-            .flush_every_ms(Some(5000))
-            .temporary(true)
-            .open()
-            .unwrap();
-        if !sled_db.is_empty() {
-            println!("[WARN] clearing previous sled db");
-            sled_db.clear().unwrap();
+        let payload_db = rocksdb::DB::open_default("stream_payloads.rocksdb").unwrap();
+        /*
+        if !payload_db.is_empty() {
+            println!("[WARN] clearing previous stream payload db");
+            payload_db.clear().unwrap();
         }
+        */
         Database {
             streams: RwLock::new(Vec::new()),
             tag_index: Mutex::new(TagIndex::new()),
             services: RwLock::new(HashMap::new()),
             counters: Mutex::new(crate::counters::Counters::default()),
-            sled_db,
+            payload_db,
         }
+    }
+
+    fn store_data(&self, data: &[u8]) -> StreamPayloadID {
+        use std::hash::Hasher;
+        let mut hasher = metrohash::MetroHash64::with_seed(0x1337133713371337);
+        hasher.write(data);
+        let id = StreamPayloadID(hasher.finish());
+        self.payload_db.put(id.0.to_be_bytes(), data).expect("Failed to write to RocksDB");
+        id
     }
 
     pub(crate) fn push_raw(
@@ -133,17 +142,11 @@ impl Database {
         client: (IpAddr, u16),
         server: (IpAddr, u16),
         segments: Vec<(Sender, usize)>,
-        client_data: Vec<u8>,
-        server_data: Vec<u8>,
+        client_data: &[u8],
+        server_data: &[u8],
     ) {
-        let client_data_id = self.sled_db.generate_id().unwrap();
-        let server_data_id = self.sled_db.generate_id().unwrap();
-        self.sled_db
-            .insert(client_data_id.to_be_bytes(), client_data)
-            .unwrap();
-        self.sled_db
-            .insert(server_data_id.to_be_bytes(), server_data)
-            .unwrap();
+        let client_data_id = self.store_data(client_data);
+        let server_data_id = self.store_data(server_data);
         let stream = Stream {
             client,
             server,
