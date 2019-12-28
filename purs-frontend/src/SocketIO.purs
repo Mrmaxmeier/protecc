@@ -4,23 +4,25 @@ module SocketIO
   , onConnect
   , onDisconnect
   , sender
-  , connectProducer
-  , errorProducer
-  , disconnectProducer
-  , reconnectingProducer
+  , connectSource
+  , errorSource
+  , disconnectSource
+  , reconnectingSource
   , onReconnecting
+  , messageSource
+  , onMessage
   , Socket
+  , send
   ) where
 
 import Prelude
 import Control.Coroutine as CR
-import Control.Coroutine.Aff (emit)
-import Control.Coroutine.Aff as CRA
-import Effect.Aff (Aff)
-import Effect (Effect)
 import Data.Function.Uncurried (Fn1, mkFn1)
 import Data.Maybe (Maybe(..))
+import Effect (Effect)
+import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
+import Halogen.Query.EventSource (EventSource, effectEventSource, emit)
 
 foreign import data Socket :: Type
 
@@ -34,7 +36,9 @@ foreign import onDisconnectImpl :: Socket -> (Fn1 String (Effect Unit)) -> Effec
 
 foreign import onReconnectingImpl :: Socket -> (Fn1 Int (Effect Unit)) -> Effect Unit
 
-foreign import send :: Socket -> String -> Effect Unit
+foreign import onMessageImpl :: Socket -> String -> (Fn1 String (Effect Unit)) -> Effect Unit
+
+foreign import send :: Socket -> String -> String -> Effect Unit
 
 onError :: Socket -> (String -> Effect Unit) -> Effect Unit
 onError socket = onErrorImpl socket <<< mkFn1
@@ -48,28 +52,34 @@ onReconnecting socket = onReconnectingImpl socket <<< mkFn1
 onDisconnect :: Socket -> (String -> Effect Unit) -> Effect Unit
 onDisconnect socket = onDisconnectImpl socket <<< mkFn1
 
-connectProducer :: Socket -> CR.Producer Unit Aff Unit
-connectProducer socket =
-  CRA.produce \emitter -> do
-    onConnect socket (\_ -> emit emitter unit)
+onMessage :: Socket -> String -> (String -> Effect Unit) -> Effect Unit
+onMessage socket cmd = onMessageImpl socket cmd <<< mkFn1
 
-errorProducer :: Socket -> CR.Producer String Aff Unit
-errorProducer socket =
-  CRA.produce \emitter -> do
-    onError socket $ emit emitter
+source :: ∀ a. ((a -> Effect Unit) -> Effect Unit) -> EventSource Aff a
+source f =
+  effectEventSource \emitter -> do
+    f $ emit emitter
+    pure mempty
 
-disconnectProducer :: Socket -> CR.Producer String Aff Unit
-disconnectProducer socket =
-  CRA.produce \emitter -> do
-    onDisconnect socket $ emit emitter
+connectSource :: Socket -> EventSource Aff Unit
+connectSource = source <<< onConnect
 
-reconnectingProducer :: Socket -> CR.Producer Int Aff Unit
-reconnectingProducer socket =
-  CRA.produce \emitter -> do
-    onReconnecting socket $ emit emitter
+errorSource :: Socket -> EventSource Aff String
+errorSource = source <<< onError
 
-sender :: ∀ m. Socket -> (m -> String) -> CR.Consumer m Aff Unit
+disconnectSource :: Socket -> EventSource Aff String
+disconnectSource = source <<< onDisconnect
+
+reconnectingSource :: Socket -> EventSource Aff Int
+reconnectingSource = source <<< onReconnecting
+
+messageSource :: Socket -> String -> EventSource Aff String
+messageSource socket = source <<< onMessage socket
+
+sender :: ∀ m. Socket -> (m -> { cmd :: String, arg :: String }) -> CR.Consumer m Aff Unit
 sender socket extract =
   CR.consumer \msg -> do
-    liftEffect $ send socket (extract msg)
+    let
+      e = extract msg
+    liftEffect $ send socket e.cmd e.arg
     pure Nothing

@@ -8,7 +8,7 @@ exports.open = function (url) {
     }
 }
 
-exports.onErrorImpl = function(socket) {
+exports.onErrorImpl = function (socket) {
     return function (callback) {
         return function () {
             socket.on('error', (error) => {
@@ -28,7 +28,7 @@ exports.onConnectImpl = function (socket) {
     };
 }
 
-exports.onDisconnectImpl = function (socket) { 
+exports.onDisconnectImpl = function (socket) {
     return function (callback) {
         return function () {
             socket.on('disconnect', (reason) => {
@@ -38,7 +38,7 @@ exports.onDisconnectImpl = function (socket) {
     };
 }
 
-exports.onReconnectingImpl = function (socket) { 
+exports.onReconnectingImpl = function (socket) {
     return function (callback) {
         return function () {
             socket.on('reconnecting', (attempt) => {
@@ -49,9 +49,23 @@ exports.onReconnectingImpl = function (socket) {
 }
 
 exports.send = function (socket) {
-    return function (s) {
-        return function () {
-            socket.send(s);
+    return function (cmd) {
+        return function (arg) {
+            return function () {
+                socket.emit(cmd, arg);
+            }
+        }
+    }
+}
+
+exports.onMessageImpl = function (socket) {
+    return function (cmd) {
+        return function (callback) {
+            return function () {
+                socket.on(cmd, (arg) => {
+                    callback(arg)();
+                })
+            }
         }
     }
 }

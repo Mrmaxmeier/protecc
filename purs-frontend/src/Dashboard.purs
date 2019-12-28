@@ -1,25 +1,29 @@
 module Dashboard where
 
 import Prelude
-
 import CSS as CSS
-import Data.Either (Either(..))
-import Data.Foldable (oneOf)
 import Data.Maybe (Maybe(..), maybe)
 import Effect.Aff (Aff)
+import Halogen (liftEffect)
 import Halogen as H
-import Halogen.HTML (a, div)
+import Halogen.HTML (div)
 import Halogen.HTML as HH
 import Halogen.HTML.CSS as HC
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties (classes)
 import Halogen.HTML.Properties as HP
 import SemanticUI as S
+import Socket as Socket
+import SocketIO as SIO
 
-data Query a 
+data Query a
   = NoOpQ
 
-type Counters 
+data Action
+  = SocketConnect
+  | Init
+
+type Counters
   = { packets :: Int
     , streams :: Int
     , reassemblyErrors :: Int
@@ -37,32 +41,37 @@ type State
   = { counters :: Maybe Counters
     }
 
-component :: ∀i o. H.Component HH.HTML Query i o Aff
+component :: ∀ i o. H.Component HH.HTML Query i o Aff
 component =
   H.mkComponent
     { initialState
     , render
-    , eval: H.mkEval $ H.defaultEval
+    , eval: H.mkEval $ H.defaultEval { initialize = Just Init, handleAction = handleAction }
     }
+  where
+  handleAction = case _ of
+    Init -> void $ Socket.subscribe SIO.connectSource (const SocketConnect)
+    SocketConnect -> do
+      socket <- liftEffect Socket.get
+      liftEffect $ SIO.send socket "test" "memes"
 
-initialState :: ∀i. i -> State
+initialState :: ∀ i. i -> State
 initialState = const { counters: Nothing }
 
-render :: ∀a. State -> H.ComponentHTML a () Aff
-render state 
-  = div [ HC.style (CSS.paddingTop $ CSS.px 20.0) ] 
-    [ div [classes [S.ui, S.three, S.statistics] ] $
-        map (\f -> f state.counters) 
+render :: ∀ a. State -> H.ComponentHTML a () Aff
+render state =
+  div [ HC.style (CSS.paddingTop $ CSS.px 20.0) ]
+    [ div [ classes [ S.ui, S.three, S.statistics ] ]
+        $ map (\f -> f state.counters)
             [ renderStatistic "Streams" _.streams
             , renderStatistic "Packets" _.packets
             , renderStatistic "Reassembly Errors" _.reassemblyErrors
             ]
-    
     ]
 
-renderStatistic :: ∀a. String -> (Counters -> Int) -> Maybe Counters -> H.ComponentHTML a () Aff
-renderStatistic label value counters 
-  = div [classes [S.statistic]] 
-    [ div [ classes [S.value] ] [maybe (HH.text "?") (\c -> HH.text $ show (value c)) counters ] -- TODO
-    , div [ classes [S.label]] [HH.text label]
+renderStatistic :: ∀ a. String -> (Counters -> Int) -> Maybe Counters -> H.ComponentHTML a () Aff
+renderStatistic label value counters =
+  div [ classes [ S.statistic ] ]
+    [ div [ classes [ S.value ] ] [ maybe (HH.text "?") (\c -> HH.text $ show (value c)) counters ]
+    , div [ classes [ S.label ] ] [ HH.text label ]
     ]
