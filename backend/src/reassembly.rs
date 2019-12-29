@@ -60,12 +60,10 @@ impl Stream {
         );
     }
 
-    fn flattened(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
+    fn flatten_into(&self, buffer: &mut Vec<u8>) {
         for pkt in &self.packets {
-            buf.extend(&pkt.data);
+            buffer.extend(&pkt.data);
         }
-        buf
     }
 }
 
@@ -103,7 +101,7 @@ impl StreamReassembly {
     fn is_done(&self) -> bool {
         self.reset || (self.client_to_server.is_closed && self.server_to_client.is_closed)
     }
-    fn finalize(self, db: &Database) {
+    fn finalize(self, db: &Database, _flat_client: &mut Vec<u8>, _flat_server: &mut Vec<u8>) {
         let StreamReassembly {
             client,
             server,
@@ -112,8 +110,10 @@ impl StreamReassembly {
             ..
         } = self;
 
-        let client_data = client_to_server.flattened();
-        let server_data = server_to_client.flattened();
+        _flat_client.clear();
+        _flat_server.clear();
+        client_to_server.flatten_into(_flat_client);
+        server_to_client.flatten_into(_flat_server);
 
         let mut packets = client_to_server
             .packets
@@ -146,7 +146,7 @@ impl StreamReassembly {
             segments.push((sender, pos));
         }
 
-        db.push_raw(client, server, segments, &client_data, &server_data)
+        db.push_raw(client, server, segments, _flat_client, _flat_server)
     }
 }
 
@@ -165,12 +165,16 @@ impl StreamId {
 pub(crate) struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
     database: Arc<Database>,
+    _flattened_server_buf: Vec<u8>,
+    _flattened_client_buf: Vec<u8>,
 }
 impl Reassembler {
     pub(crate) fn new(database: Arc<Database>) -> Self {
         Reassembler {
-            reassemblies: HashMap::new(),
             database,
+            reassemblies: HashMap::new(),
+            _flattened_client_buf: Vec::new(),
+            _flattened_server_buf: Vec::new(),
         }
     }
 
@@ -211,7 +215,7 @@ impl Reassembler {
         if is_done {
             incr_counter!(streams_completed);
             let stream = self.reassemblies.remove(&id).unwrap();
-            stream.finalize(&self.database);
+            stream.finalize(&self.database, &mut self._flattened_client_buf, &mut self._flattened_server_buf);
         }
     }
 
