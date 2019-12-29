@@ -1,6 +1,6 @@
 use pcap_parser::data::{PacketData, ETHERTYPE_IPV4, ETHERTYPE_IPV6};
 use pcap_parser::traits::PcapReaderIterator;
-use pcap_parser::{Block, PcapBlockOwned, PcapError, PcapNGReader};
+use pcap_parser::{Block, LegacyPcapReader, PcapBlockOwned, PcapError, PcapNGReader};
 use pktparse;
 use std::fs::File;
 use std::net::IpAddr;
@@ -74,7 +74,13 @@ fn handle_tcp(reassembler: &mut Reassembler, data: &[u8], addrs: (IpAddr, IpAddr
 
 pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
     let file = File::open(path).unwrap();
-    let mut reader = PcapNGReader::new(65536, file).expect("PcapNGReader");
+    let mut reader = if path.ends_with(".pcapng") {
+        Box::new(PcapNGReader::new(65536, file).expect("PcapNGReader"))
+            as Box<dyn PcapReaderIterator<std::fs::File>>
+    } else {
+        Box::new(LegacyPcapReader::new(65536, file).expect("PcapNGReader"))
+            as Box<dyn PcapReaderIterator<std::fs::File>>
+    };
     let mut if_linktypes = Vec::new();
     loop {
         match reader.next() {
@@ -115,9 +121,20 @@ pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                     }
                     PcapBlockOwned::NG(_) => {
                         // can be statistics (ISB), name resolution (NRB), etc.
-                        eprintln!("unsupported block");
+                        panic!("unsupported pcapng block");
                     }
-                    PcapBlockOwned::Legacy(_) | PcapBlockOwned::LegacyHeader(_) => unreachable!(),
+                    PcapBlockOwned::Legacy(block) => {
+                        let linktype = if_linktypes[0];
+                        let res = pcap_parser::data::get_packetdata(block.data, linktype, block.caplen as usize);
+                        if let Some(res) = res {
+                            handle_packetdata(reassembler, res);
+                        } else {
+                            panic!("packet without data");
+                        }
+                    }
+                    PcapBlockOwned::LegacyHeader(header) => {
+                        if_linktypes.push(header.network);
+                    }
                 }
                 reader.consume(offset);
             }
