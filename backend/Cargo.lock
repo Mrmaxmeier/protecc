@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.21"
+version = "0.1.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "proc-macro2 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1055,7 +1055,7 @@ version = "0.1.0-beta.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "async-stream 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "async-trait 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
+ "async-trait 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-core 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1408,7 +1408,7 @@ dependencies = [
 "checksum arrayvec 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)" = "cd9fd44efafa8690358b7408d253adf110036b88f55672a933f01d616ad9b1b9"
 "checksum async-stream 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "58982858be7540a465c790b95aaea6710e5139bf8956b1d1344d014fa40100b0"
 "checksum async-stream-impl 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "393356ed99aa7bff0ac486dde592633b83ab02bd254d8c209d5b9f1d0f533480"
-"checksum async-trait 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)" = "8b6dd385bb33043b833ba049048d57bdbb4d654a121ed68c71871ca51ff67070"
+"checksum async-trait 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)" = "c8df72488e87761e772f14ae0c2480396810e51b2c2ade912f97f0f7e5b95e3c"
 "checksum atty 0.2.13 (registry+https://github.com/rust-lang/crates.io-index)" = "1803c647a3ec87095e7ae7acfca019e98de5ec9a7d01343f611cf3152ed71a90"
 "checksum autocfg 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "1d49d90015b3c36167a20fe2810c5cd875ad504b39cff3d4eae7977e6b7c1cb2"
 "checksum backtrace 0.3.40 (registry+https://github.com/rust-lang/crates.io-index)" = "924c76597f0d9ca25d762c25a4d369d51267536465dc5064bdf0eb073ed477ea"

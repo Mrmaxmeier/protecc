@@ -24,7 +24,7 @@ struct Stream {
     highest_ack: Option<u32>,
     is_closed: bool,
     latest_packet: Option<u64>,
-    packets: Vec<Packet>,
+    packets: Vec<Packet>, // TODO(footprint/perf): smallvec this
 }
 impl Stream {
     fn new() -> Self {
@@ -33,7 +33,7 @@ impl Stream {
             highest_ack: None,
             is_closed: false,
             latest_packet: None,
-            packets: vec![],
+            packets: Vec::with_capacity(4),
         }
     }
 
@@ -229,9 +229,12 @@ impl Reassembler {
                 wip_bytes += pkt.data.len();
             }
         }
-        // dbg!(self.reassemblies.len());
-        // dbg!(wip_bytes);
-        // TODO: implement this
-        self.reassemblies.clear();
+        dbg!(self.reassemblies.len());
+        dbg!(wip_bytes);
+        // TODO: check time / drain_filter
+        for (_, stream) in self.reassemblies.drain() {
+            stream.finalize(&self.database, &mut self._flattened_client_buf, &mut self._flattened_server_buf);
+            incr_counter!(streams_timeout_expired);
+        }
     }
 }

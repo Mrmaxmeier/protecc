@@ -14,6 +14,7 @@ pub(crate) struct Counters {
     pub(crate) packets_without_stream: u64,
     pub(crate) packets_tcp: u64,
     pub(crate) streams_completed: u64,
+    pub(crate) streams_timeout_expired: u64,
     pub(crate) pcap_blocks: u64,
     pub(crate) pcaps_imported: u64,
     pub(crate) db_services: u64,
@@ -22,7 +23,7 @@ pub(crate) struct Counters {
     pub(crate) query_rows_returned: u64,
 }
 
-pub(crate) fn _incr_counter_impl<F: Fn(&mut Counters)>(counter: &str, f: F) {
+pub(crate) fn _incr_counter_impl<F: Fn(&mut Counters)>(_counter: &str, f: F) {
     TLS_COUNTERS.with(|c| f(&mut *c.borrow_mut()));
 }
 

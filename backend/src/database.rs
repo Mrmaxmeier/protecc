@@ -37,7 +37,7 @@ pub(crate) enum Sender {
 
 impl Stream {
     pub(crate) fn service(&self) -> u16 {
-        return self.server.1;
+        self.server.1
     }
 }
 
@@ -92,7 +92,7 @@ impl Service {
         self.streams.push(stream_id);
         if self.streams.len() == SERVICE_PACKET_THRESHOLD {
             incr_counter!(db_stat_service_promotion);
-            let mut tag_index = TagIndex::default();
+            let tag_index = TagIndex::default();
             let streams = db.streams.read().unwrap();
             for StreamID(idx) in &self.streams {
                 tag_index.push(&streams[*idx]);
@@ -106,7 +106,6 @@ pub(crate) struct Database {
     pub(crate) streams: RwLock<Vec<Stream>>,
     pub(crate) tag_index: Mutex<TagIndex>,
     pub(crate) services: RwLock<HashMap<u16, Arc<Mutex<Service>>>>,
-    pub(crate) counters: Mutex<crate::counters::Counters>,
     pub(crate) payload_db: rocksdb::DB,
 }
 
@@ -123,14 +122,13 @@ impl Database {
             streams: RwLock::new(Vec::new()),
             tag_index: Mutex::new(TagIndex::new()),
             services: RwLock::new(HashMap::new()),
-            counters: Mutex::new(crate::counters::Counters::default()),
             payload_db,
         }
     }
 
     fn store_data(&self, data: &[u8]) -> StreamPayloadID {
         use std::hash::Hasher;
-        let mut hasher = metrohash::MetroHash64::with_seed(0x1337133713371337);
+        let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
         hasher.write(data);
         let id = StreamPayloadID(hasher.finish());
         self.payload_db.put(id.0.to_be_bytes(), data).expect("Failed to write to RocksDB");

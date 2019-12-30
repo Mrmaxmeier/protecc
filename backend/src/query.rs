@@ -16,13 +16,20 @@ pub(crate) struct Query {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct QueryFilter {
-    // TODO: complex tag search
-// TODO: regex search
-// TODO: search by ip
+    service: Option<u16>,
+/* TODO(filters):
+ * - tag expression
+ * - stream regex
+ * - length
+ * - ip
+ */
 }
 
 impl QueryFilter {
     fn matches(&self, stream: &Stream) -> bool {
+        if let Some(service) = self.service {
+            if service != stream.service() { return false; }
+        }
         true
     }
 }
@@ -53,8 +60,28 @@ impl Query {
                 .get(&port)
                 .map(|service| service.lock().unwrap().streams.len())
                 .unwrap_or(0),
-            QueryKind::Tagged(..) => todo!(),
-            QueryKind::ServiceTagged(..) => todo!(),
+            QueryKind::Tagged(tag) => {
+                let tag_index = db.tag_index.lock().unwrap();
+                if let Some(service) = tag_index.tagged.get(&tag) {
+                    service.len()
+                } else {
+                    0
+                }
+            },
+            QueryKind::ServiceTagged(service, tag) => {
+                let services = db.services.read().unwrap();
+
+                if let Some(service) = services.get(&service) {
+                    let service = service.lock().unwrap();
+                    if let Some(service) = service.tag_index.as_ref().expect("TODO").tagged.get(&tag) {
+                        service.len()
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                }
+            },
         };
         Cursor {
             query: self,

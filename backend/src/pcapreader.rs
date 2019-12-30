@@ -109,7 +109,7 @@ pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                         }
                     }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
-                        assert!(if_linktypes.len() > 0);
+                        assert!(!if_linktypes.is_empty());
                         let linktype = if_linktypes[0];
                         let blen = (spb.block_len1 - 16) as usize;
                         let res = pcap_parser::data::get_packetdata(spb.data, linktype, blen);
