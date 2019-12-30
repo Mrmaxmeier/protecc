@@ -13,6 +13,7 @@ You can edit this file as you like.
     , "psci-support"
     , "routing"
     , "web-socket"
+    , "random"
     ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]

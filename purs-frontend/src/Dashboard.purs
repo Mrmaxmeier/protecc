@@ -12,6 +12,7 @@ import Halogen.HTML.CSS as HC
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties (classes)
 import Halogen.HTML.Properties as HP
+import Halogen.Query.HalogenM (mapAction)
 import SemanticUI as S
 import Socket as Socket
 import SocketIO as SIO
@@ -21,6 +22,7 @@ data Query a
 
 data Action
   = SocketConnect
+  | CounterMessage Counters
   | Init
 
 type Counters
@@ -50,10 +52,12 @@ component =
     }
   where
   handleAction = case _ of
-    Init -> void $ Socket.subscribe SIO.connectSource (const SocketConnect)
+    Init -> void $ mapAction (const SocketConnect) $ Socket.subscribe SIO.connectSource
     SocketConnect -> do
-      socket <- liftEffect Socket.get
-      liftEffect $ SIO.send socket "test" "memes"
+      streamId <- Socket.open "counters" unit
+      _ <- mapAction CounterMessage $ H.subscribe $ Socket.messageSource streamId
+      pure unit
+    CounterMessage counters -> H.modify_ $ _ { counters = Just counters }
 
 initialState :: ∀ i. i -> State
 initialState = const { counters: Nothing }

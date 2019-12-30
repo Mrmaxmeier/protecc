@@ -14,6 +14,7 @@ import Halogen.HTML as HH
 import Halogen.HTML.CSS as HC
 import Halogen.HTML.Properties (classes)
 import Halogen.HTML.Properties as HP
+import Halogen.Query.HalogenM (mapAction)
 import Routing (match)
 import Routing.Match (Match, end)
 import SemanticUI as S
@@ -86,9 +87,9 @@ handleAction = case _ of
 
 init :: H.HalogenM State Action Slot Message Aff Unit
 init = do
-  _ <- Socket.subscribe SocketIO.connectSource (const SocketConnect)
-  _ <- Socket.subscribe SocketIO.reconnectingSource SocketReconnecting
-  _ <- Socket.subscribe SocketIO.disconnectSource SocketDisconnect
+  _ <- mapAction (const SocketConnect) $ Socket.subscribe SocketIO.connectSource
+  _ <- mapAction SocketReconnecting $ Socket.subscribe SocketIO.reconnectingSource
+  _ <- mapAction SocketDisconnect $ Socket.subscribe SocketIO.disconnectSource
   pure unit
 
 -- Routing
