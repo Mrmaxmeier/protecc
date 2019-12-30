@@ -28,15 +28,19 @@ data Action
 type Counters
   = { packets :: Int
     , streams :: Int
-    , reassemblyErrors :: Int
-    , packetsUnhandled :: Int
-    , packetsMalformed :: Int
-    , packetsWithoutStream :: Int
-    , packetsTcp :: Int
-    , streamsCompleted :: Int
-    , pcapBlocks :: Int
-    , dbServices :: Int
-    , dbStatServicePromotion :: Int
+    , reassembly_errors :: Int
+    , packets_unhandled :: Int
+    , packets_malformed :: Int
+    , packets_without_stream :: Int
+    , packets_tcp :: Int
+    , streams_completed :: Int
+    , streams_timeout_expired :: Int
+    , pcap_blocks :: Int
+    , pcaps_imported :: Int
+    , db_services :: Int
+    , db_stat_service_promotion :: Int
+    , query_rows_scanned :: Int
+    , query_rows_returned :: Int
     }
 
 type State
@@ -69,7 +73,7 @@ render state =
         $ map (\f -> f state.counters)
             [ renderStatistic "Streams" _.streams
             , renderStatistic "Packets" _.packets
-            , renderStatistic "Reassembly Errors" _.reassemblyErrors
+            , renderStatistic "Reassembly Errors" _.reassembly_errors
             ]
     ]
 
