@@ -48,7 +48,7 @@ type StreamMessage
     , arg :: Json
     }
 
--- data CloseMessage = Int
+-- newtype CloseMessage = CloseMessage Int
 type OpenMessage
   = { id :: StreamId
     , type :: String
