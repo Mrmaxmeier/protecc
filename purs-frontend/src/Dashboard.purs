@@ -63,19 +63,17 @@ component =
       pure unit
     CounterMessage counters -> H.modify_ $ _ { counters = Just counters }
 
-initialState :: ∀ i. i -> State
-initialState = const { counters: Nothing }
+  initialState = const { counters: Nothing }
 
-render :: ∀ a. State -> H.ComponentHTML a () Aff
-render state =
-  div [ HC.style (CSS.paddingTop $ CSS.px 20.0) ]
-    [ div [ classes [ S.ui, S.three, S.statistics ] ]
-        $ map (\f -> f state.counters)
-            [ renderStatistic "Streams" _.streams
-            , renderStatistic "Packets" _.packets
-            , renderStatistic "Reassembly Errors" _.reassembly_errors
-            ]
-    ]
+  render state =
+    div [ HC.style (CSS.paddingTop $ CSS.px 20.0) ]
+      [ div [ classes [ S.ui, S.three, S.statistics ] ]
+          $ map (\f -> f state.counters)
+              [ renderStatistic "Streams" _.streams
+              , renderStatistic "Packets" _.packets
+              , renderStatistic "Reassembly Errors" _.reassembly_errors
+              ]
+      ]
 
 renderStatistic :: ∀ a. String -> (Counters -> Int) -> Maybe Counters -> H.ComponentHTML a () Aff
 renderStatistic label value counters =
