@@ -6,6 +6,7 @@ module Socket
   , closeSource
   , open
   , close
+  , send
   , StreamId
   ) where
 
@@ -21,11 +22,11 @@ import Data.Int (pow)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Effect (Effect)
 import Effect.Aff (Aff)
-import Effect.Console (log)
+import Effect.Console (error)
 import Effect.Random (randomInt)
 import Foreign.Object (Object)
 import Halogen as H
-import Halogen.Query.EventSource (EventSource, effectEventSource, emit)
+import Halogen.Query.EventSource (EventSource, Finalizer(..), effectEventSource, emit)
 import Halogen.Query.HalogenM (SubscriptionId)
 import SocketIO as SIO
 
@@ -39,16 +40,16 @@ foreign import registerCloseListener :: StreamId -> (Effect Unit) -> Effect Unit
 
 foreign import removeListener :: StreamId -> Effect Unit
 
-foreign import getListener :: StreamId -> Effect (Maybe (Json -> Effect Unit))
+foreign import getListener :: StreamId -> (∀ a. Maybe a) -> (∀ a. a -> Maybe a) -> Effect (Maybe (Json -> Effect Unit))
 
-foreign import getCloseListener :: StreamId -> Effect (Maybe (Effect Unit))
+foreign import getCloseListener :: StreamId -> (∀ a. Maybe a) -> (∀ a. a -> Maybe a) -> Effect (Maybe (Effect Unit))
 
 type StreamMessage
   = { id :: StreamId
     , arg :: Json
     }
 
--- newtype CloseMessage = CloseMessage Int
+-- type CloseMessage = StreamId
 type OpenMessage
   = { id :: StreamId
     , type :: String
@@ -72,14 +73,14 @@ decodeString s = decodeJson =<< jsonParser s
 
 handleStreamMessage :: String -> Effect Unit
 handleStreamMessage s = case decodeString s of
-  Left error -> log $ "Error parsing stream message: " <> error
+  Left e -> error $ "Error parsing stream message: " <> e
   Right (msg :: StreamMessage) -> do
-    listener <- getListener msg.id
-    maybe (log $ "No listener registered to handle message " <> s) (\f -> f msg.arg) listener
+    listener <- getListener msg.id Nothing Just
+    maybe (error $ "No listener registered to handle message " <> s) (\f -> f msg.arg) listener
 
 handleCloseMessage :: String -> Effect Unit
 handleCloseMessage s = case decodeString s of
-  Left error -> log $ "Error parsing close message: " <> error
+  Left e -> error $ "Error parsing close message: " <> e
   Right id -> removeListener id
 
 init :: Effect Unit
@@ -99,10 +100,10 @@ messageSource id =
   effectEventSource \emitter -> do
     registerListener id
       ( \json -> case decodeJson json of
-          Left error -> log $ "Could not decode message of id " <> show id <> ": " <> error
+          Left e -> error $ "Could not decode message with id " <> show id <> ": " <> e
           Right arg -> emit emitter arg
       )
-    pure mempty
+    pure $ Finalizer $ closeEffect id
 
 closeSource :: StreamId -> EventSource Aff Unit
 closeSource id =
@@ -115,15 +116,22 @@ open typ o =
   H.liftEffect do
     socket <- get
     id <- randomInt 0 (pow 2 30)
-    log $ "random id: " <> show id
     SIO.send socket "open" (stringify $ encodeJson { id: id, arg: encodeJson o, type: typ })
     pure $ StreamId id
 
+closeEffect :: StreamId -> Effect Unit
+closeEffect id = do
+  socket <- get
+  SIO.send socket "close" (stringify $ encodeJson id)
+  listener <- getCloseListener id Nothing Just
+  fromMaybe (pure unit) listener
+  removeListener id
+
 close :: ∀ state a slot m. StreamId -> H.HalogenM state a slot m Aff Unit
-close id =
+close = H.liftEffect <<< closeEffect
+
+send :: ∀ state o a slot m. EncodeJson o => o -> StreamId -> H.HalogenM state a slot m Aff Unit
+send o id =
   H.liftEffect do
     socket <- get
-    SIO.send socket "close" (stringify $ encodeJson id)
-    listener <- getCloseListener id
-    fromMaybe (pure unit) listener
-    removeListener id
+    SIO.send socket "stream" (stringify $ encodeJson $ { id: id, arg: encodeJson o })

@@ -16,7 +16,7 @@ import Halogen.Query.HalogenM (mapAction)
 import SemanticUI as S
 import Socket as Socket
 import SocketIO as SIO
-import Util (WMaybe, wmaybe)
+import Util (WMaybe, wmaybe, rec, unrec, Rec)
 
 data Query a
   = NoOpQ
@@ -27,22 +27,23 @@ data Action
   | Init
 
 type Counters
-  = { packets :: WMaybe Int
-    , streams :: WMaybe Int
-    , reassembly_errors :: WMaybe Int
-    , packets_unhandled :: WMaybe Int
-    , packets_malformed :: WMaybe Int
-    , packets_without_stream :: WMaybe Int
-    , packets_tcp :: WMaybe Int
-    , streams_completed :: WMaybe Int
-    , streams_timeout_expired :: WMaybe Int
-    , pcap_blocks :: WMaybe Int
-    , pcaps_imported :: WMaybe Int
-    , db_services :: WMaybe Int
-    , db_stat_service_promotion :: WMaybe Int
-    , query_rows_scanned :: WMaybe Int
-    , query_rows_returned :: WMaybe Int
-    }
+  = Rec
+      ( packets :: WMaybe Int
+      , streams :: WMaybe Int
+      , reassembly_errors :: WMaybe Int
+      , packets_unhandled :: WMaybe Int
+      , packets_malformed :: WMaybe Int
+      , packets_without_stream :: WMaybe Int
+      , packets_tcp :: WMaybe Int
+      , streams_completed :: WMaybe Int
+      , streams_timeout_expired :: WMaybe Int
+      , pcap_blocks :: WMaybe Int
+      , pcaps_imported :: WMaybe Int
+      , db_services :: WMaybe Int
+      , db_stat_service_promotion :: WMaybe Int
+      , query_rows_scanned :: WMaybe Int
+      , query_rows_returned :: WMaybe Int
+      )
 
 type State
   = { counters :: Counters
@@ -56,6 +57,7 @@ component =
     , eval: H.mkEval $ H.defaultEval { initialize = Just Init, handleAction = handleAction }
     }
   where
+  handleAction :: ∀ s. Action -> H.HalogenM State Action s o Aff Unit
   handleAction = case _ of
     Init -> void $ mapAction (const SocketConnect) $ Socket.subscribe SIO.connectSource
     SocketConnect -> do
@@ -72,9 +74,9 @@ component =
   render state =
     div [ HC.style (CSS.paddingTop $ CSS.px 20.0) ]
       [ div [ classes [ S.ui, S.three, S.statistics ] ]
-          [ renderStatistic "Streams" state.counters.streams
-          , renderStatistic "Packets" state.counters.packets
-          , renderStatistic "Reassembly Errors" state.counters.reassembly_errors
+          [ renderStatistic "Streams" (unrec state.counters).streams
+          , renderStatistic "Packets" (unrec state.counters).packets
+          , renderStatistic "Reassembly Errors" (unrec state.counters).reassembly_errors
           ]
       ]
 

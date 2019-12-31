@@ -40,19 +40,27 @@ exports.removeListener = function (id) {
 }
 
 exports.getListener = function (id) {
-    return function () {
-        if (listeners[id])
-            return Data_Maybe.Just.create(listeners[id]);
-        else
-            return Data_Maybe.Nothing.value;
+    return function (nothing) {
+        return function (just) {
+            return function () {
+                if (listeners[id])
+                    return just(listeners[id]);
+                else
+                    return nothing;
+            }
+        }
     }
 }
 
 exports.getCloseListener = function (id) {
-    return function () {
-        if (closeListeners[id])
-            return Data_Maybe.Just.create(closeListeners[id]);
-        else
-            return Data_Maybe.Nothing.value;
+    return function (nothing) {
+        return function (just) {
+            return function () {
+                if (closeListeners[id])
+                    return Data_Maybe.Just.create(closeListeners[id]);
+                else
+                    return Data_Maybe.Nothing.value;
+            }
+        }
     }
 }
