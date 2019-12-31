@@ -110,8 +110,7 @@ instance gDecodeJsonNil :: GRecDecodeJson () RL.Nil where
   gRecDecodeJson _ _ = Right {}
 
 instance gDecodeJsonCons ::
-  ( DecodeJson value
-  , Applicative a
+  ( DecodeJson (a value)
   , Plus a
   , GRecDecodeJson rowTail tail
   , IsSymbol field
@@ -129,5 +128,5 @@ instance gDecodeJsonCons ::
     case FO.lookup fieldName object of
       Just jsonVal -> do
         val <- decodeJson jsonVal
-        Right $ Record.insert sProxy (pure val) rest
+        Right $ Record.insert sProxy val rest
       Nothing -> Right $ Record.insert sProxy empty rest

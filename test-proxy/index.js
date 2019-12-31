@@ -40,7 +40,9 @@ http.listen(3000, function () {
     console.log('listening on *:3000');
 });
 
-function randInt(max) {
+function randIntOrNothing(max) {
+    if (Math.random() > 0.5)
+        return null;
     return Math.floor(Math.random() * Math.floor(max));
 }
 
@@ -52,7 +54,23 @@ function send(socket, id, data) {
 function counterStream(id, socket) {
     console.log("Opening counters stream " + id)
     var int = setInterval(function () {
-        send(socket, id, { packets: randInt(1337), streams: randInt(1337), packets_unhandeled: randInt(1337) });
+        send(socket, id, {
+            packets: randIntOrNothing(133337)
+            , streams: randIntOrNothing(133337)
+            , reassembly_errors: randIntOrNothing(133337)
+            , packets_unhandled: randIntOrNothing(133337)
+            , packets_malformed: randIntOrNothing(133337)
+            , packets_without_stream: randIntOrNothing(133337)
+            , packets_tcp: randIntOrNothing(133337)
+            , streams_completed: randIntOrNothing(133337)
+            , streams_timeout_expired: randIntOrNothing(133337)
+            , pcap_blocks: randIntOrNothing(133337)
+            , pcaps_imported: randIntOrNothing(133337)
+            , db_services: randIntOrNothing(133337)
+            , db_stat_service_promotion: randIntOrNothing(133337)
+            , query_rows_scanned: randIntOrNothing(133337)
+            , query_rows_returned: randIntOrNothing(133337)
+        });
     }, 1000);
     socket.on("disconnect", function () {
         console.log("Counters stream " + id + " closed");
