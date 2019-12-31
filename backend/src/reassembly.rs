@@ -133,7 +133,9 @@ impl StreamReassembly {
         let mut client_pos = 0;
         let mut server_pos = 0;
         for (sender, packet) in packets.into_iter() {
-            if packet.data.is_empty() { continue } // TODO: does this break things? check for PSH?
+            if packet.data.is_empty() {
+                continue;
+            } // TODO: does this break things? check for PSH?
             use database::Sender::*;
             let pos = match sender {
                 Client => client_pos,
@@ -215,7 +217,11 @@ impl Reassembler {
         if is_done {
             incr_counter!(streams_completed);
             let stream = self.reassemblies.remove(&id).unwrap();
-            stream.finalize(&self.database, &mut self._flattened_client_buf, &mut self._flattened_server_buf);
+            stream.finalize(
+                &self.database,
+                &mut self._flattened_client_buf,
+                &mut self._flattened_server_buf,
+            );
         }
     }
 
@@ -231,9 +237,13 @@ impl Reassembler {
         }
         dbg!(self.reassemblies.len());
         dbg!(wip_bytes);
-        // TODO: check time / drain_filter
+        // TODO/FIXME: check time / drain_filter
         for (_, stream) in self.reassemblies.drain() {
-            stream.finalize(&self.database, &mut self._flattened_client_buf, &mut self._flattened_server_buf);
+            stream.finalize(
+                &self.database,
+                &mut self._flattened_client_buf,
+                &mut self._flattened_server_buf,
+            );
             incr_counter!(streams_timeout_expired);
         }
     }

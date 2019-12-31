@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, RwLock};
 
-
 use crate::incr_counter;
 
 use serde::{Deserialize, Serialize};
@@ -50,7 +49,6 @@ impl StreamID {
         self.0
     }
 }
-
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct StreamPayloadID(u64);
@@ -131,8 +129,17 @@ impl Database {
         let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
         hasher.write(data);
         let id = StreamPayloadID(hasher.finish());
-        self.payload_db.put(id.0.to_be_bytes(), data).expect("Failed to write to RocksDB");
+        self.payload_db
+            .put(id.0.to_be_bytes(), data)
+            .expect("Failed to write to RocksDB");
         id
+    }
+
+    pub(crate) fn datablob(&self, id: StreamPayloadID) -> Option<Vec<u8>> {
+        // TODO(perf): read into pooled buffer
+        self.payload_db
+            .get(id.0.to_be_bytes())
+            .expect("failed to read from RocksDB")
     }
 
     pub(crate) fn push_raw(

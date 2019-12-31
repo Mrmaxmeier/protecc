@@ -15,20 +15,42 @@ pub(crate) struct Query {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+enum IntExpr<T> {
+    Eq(T),
+    Le(T),
+    Ge(T),
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct QueryFilter {
     service: Option<u16>,
-/* TODO(filters):
- * - tag expression
- * - stream regex
- * - length
- * - ip
- */
+    tag: Option<TagID>, // TODO: tag expression
+    regex: Option<String>,
+    length: Option<IntExpr<usize>>,
 }
 
 impl QueryFilter {
-    fn matches(&self, stream: &Stream) -> bool {
+    fn matches(&self, stream: &Stream, db: &Database) -> bool {
         if let Some(service) = self.service {
-            if service != stream.service() { return false; }
+            if service != stream.service() {
+                return false;
+            }
+        }
+        if let Some(tag) = self.tag {
+            if !stream.tags.contains(&tag) {
+                return false;
+            }
+        }
+        if let Some(regex) = self.regex.as_ref() {
+            let re = regex::bytes::Regex::new(&regex).unwrap(); // TODO: caching, error handling?
+            let client_payload = db.datablob(stream.client_data_id);
+            let server_payload = db.datablob(stream.server_data_id);
+
+            if !(client_payload.map(|p| re.is_match(&p)).unwrap_or(false)
+                || server_payload.map(|p| re.is_match(&p)).unwrap_or(false))
+            {
+                return false;
+            }
         }
         true
     }
@@ -67,21 +89,38 @@ impl Query {
                 } else {
                     0
                 }
-            },
-            QueryKind::ServiceTagged(service, tag) => {
+            }
+            QueryKind::ServiceTagged(port, tag) => {
                 let services = db.services.read().unwrap();
 
-                if let Some(service) = services.get(&service) {
+                if let Some(service) = services.get(&port) {
                     let service = service.lock().unwrap();
-                    if let Some(service) = service.tag_index.as_ref().expect("TODO").tagged.get(&tag) {
-                        service.len()
+                    if let Some(tag_index) = service.tag_index.as_ref() {
+                        if let Some(service) = tag_index.tagged.get(&tag) {
+                            service.len()
+                        } else {
+                            0
+                        }
                     } else {
-                        0
+                        // note: this service doesn't provide an index for tags.
+                        // fall back to linear scan over tagged values
+                        assert!(self.filter.is_none(), "TODO");
+                        return Cursor {
+                            scan_max: service.streams.len(),
+                            scan_offset: 0,
+                            query: Query {
+                                kind: QueryKind::Service(port),
+                                filter: Some(QueryFilter {
+                                    tag: Some(tag),
+                                    ..QueryFilter::default()
+                                }),
+                            },
+                        };
                     }
                 } else {
                     0
                 }
-            },
+            }
         };
         Cursor {
             query: self,
@@ -99,7 +138,7 @@ impl Cursor {
         match &self.query.kind {
             QueryKind::All => {
                 let streams = db.streams.read().unwrap();
-                self.limit_and_filter(buffer, streams.iter().rev().skip(self.scan_offset))
+                self.limit_and_filter(buffer, streams.iter().rev().skip(self.scan_offset), db)
             }
             QueryKind::Service(port) => {
                 let services = db.services.read().unwrap();
@@ -113,6 +152,7 @@ impl Cursor {
                             .rev()
                             .skip(self.scan_offset)
                             .map(|stream_id| &all_streams[stream_id.idx()]),
+                        db,
                     )
                 } else {
                     self.clone()
@@ -129,6 +169,7 @@ impl Cursor {
                             .rev()
                             .skip(self.scan_offset)
                             .map(|stream_id| &all_streams[stream_id.idx()]),
+                        db,
                     )
                 } else {
                     self.clone()
@@ -148,6 +189,7 @@ impl Cursor {
                                     .rev()
                                     .skip(self.scan_offset)
                                     .map(|stream_id| &all_streams[stream_id.idx()]),
+                                db,
                             )
                         } else {
                             self.clone()
@@ -162,7 +204,12 @@ impl Cursor {
         }
     }
 
-    fn limit_and_filter<'a, I>(&'a self, buffer: &'a mut Vec<Stream>, streams: I) -> Cursor
+    fn limit_and_filter<'a, I>(
+        &'a self,
+        buffer: &'a mut Vec<Stream>,
+        streams: I,
+        db: &Database,
+    ) -> Cursor
     where
         I: Iterator<Item = &'a Stream>,
     {
@@ -170,7 +217,7 @@ impl Cursor {
         let mut processed_cnt = 0;
         for stream in streams {
             incr_counter!(query_rows_scanned);
-            if self.query.filter.as_ref().map(|f| f.matches(stream)) != Some(false) {
+            if self.query.filter.as_ref().map(|f| f.matches(stream, db)) != Some(false) {
                 incr_counter!(query_rows_returned);
                 buffer.push(stream.clone());
                 returned_cnt += 1;

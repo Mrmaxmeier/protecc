@@ -4,6 +4,7 @@ use pcap_parser::{Block, LegacyPcapReader, PcapBlockOwned, PcapError, PcapNGRead
 use pktparse;
 use std::fs::File;
 use std::net::IpAddr;
+use std::time::{Duration, SystemTime};
 
 use crate::incr_counter;
 use crate::reassembly::{Packet, Reassembler};
@@ -82,6 +83,7 @@ pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
             as Box<dyn PcapReaderIterator<std::fs::File>>
     };
     let mut if_linktypes = Vec::new();
+    let mut if_tsconfig = Vec::new();
     loop {
         match reader.next() {
             Ok((offset, block)) => {
@@ -93,9 +95,23 @@ pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                     }
                     PcapBlockOwned::NG(Block::InterfaceDescription(ref idb)) => {
                         if_linktypes.push(idb.linktype);
+                        if_tsconfig.push((idb.if_tsoffset, idb.if_tsresol));
                     }
                     PcapBlockOwned::NG(Block::EnhancedPacket(ref epb)) => {
                         assert!((epb.if_id as usize) < if_linktypes.len(), "invalid pcapng");
+                        let (ts_offset, ts_resol) = if_tsconfig[epb.if_id as usize];
+                        let (ts_secs, ts_frac, frac_unit) = pcap_parser::pcapng::build_ts(
+                            epb.ts_high,
+                            epb.ts_low,
+                            ts_offset,
+                            ts_resol,
+                        );
+                        let ts = SystemTime::UNIX_EPOCH
+                            .checked_add(
+                                ts_secs * Duration::SECOND
+                                    + ts_frac * Duration::from_nanos(1_000_000_000 / frac_unit),
+                            )
+                            .expect("pcap timestamp overflow");
                         let linktype = if_linktypes[epb.if_id as usize];
                         let res = pcap_parser::data::get_packetdata(
                             epb.data,
@@ -109,6 +125,7 @@ pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                         }
                     }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
+                        todo!("how should we handle timestamps for SimplePacketBlocks?");
                         assert!(!if_linktypes.is_empty());
                         let linktype = if_linktypes[0];
                         let blen = (spb.block_len1 - 16) as usize;
@@ -124,8 +141,18 @@ pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                         panic!("unsupported pcapng block");
                     }
                     PcapBlockOwned::Legacy(block) => {
+                        let ts = SystemTime::UNIX_EPOCH
+                            .checked_add(
+                                block.ts_sec * Duration::SECOND
+                                    + block.ts_usec * Duration::MICROSECOND,
+                            )
+                            .expect("pcap timestamp overflow");
                         let linktype = if_linktypes[0];
-                        let res = pcap_parser::data::get_packetdata(block.data, linktype, block.caplen as usize);
+                        let res = pcap_parser::data::get_packetdata(
+                            block.data,
+                            linktype,
+                            block.caplen as usize,
+                        );
                         if let Some(res) = res {
                             handle_packetdata(reassembler, res);
                         } else {

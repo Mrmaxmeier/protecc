@@ -1,4 +1,9 @@
-#![feature(drain_filter)]
+#![feature(drain_filter, duration_constants)]
+
+// for heaptrack
+use std::alloc::System;
+#[global_allocator]
+static GLOBAL: System = System;
 
 mod api;
 pub(crate) mod counters;
@@ -12,7 +17,7 @@ use reassembly::Reassembler;
 
 use std::env::args;
 use std::sync::Arc;
-use tokio::prelude::*;
+// use tokio::prelude::*;
 use tonic::transport::Server;
 
 #[tokio::main]
@@ -34,11 +39,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = Vec::new();
     let mut cursor = query.into_cursor(&database);
 
+    dbg!(&cursor);
     while cursor.has_next() {
         cursor = cursor.execute(&database, &mut buf);
-        dbg!(&cursor);
-        dbg!(buf.len());
     }
+    dbg!(&cursor);
+    dbg!(buf.len());
 
     println!("--------------");
     buf.clear();
