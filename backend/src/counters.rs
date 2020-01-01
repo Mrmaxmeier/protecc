@@ -1,10 +1,17 @@
+use derive_more::{Add, AddAssign};
+use lazy_static::lazy_static;
 use std::cell::RefCell;
+use std::sync::Mutex;
 
 std::thread_local! {
     pub(crate) static TLS_COUNTERS: RefCell<Counters> = RefCell::new(Counters::default());
 }
 
-#[derive(Debug, Default)]
+lazy_static! {
+    static ref COUNTERS: Mutex<Counters> = Mutex::new(Counters::default());
+}
+
+#[derive(Debug, Default, Add, AddAssign)]
 pub(crate) struct Counters {
     pub(crate) packets: u64,
     pub(crate) streams: u64,
@@ -28,7 +35,11 @@ pub(crate) fn _incr_counter_impl<F: Fn(&mut Counters)>(_counter: &str, f: F) {
 }
 
 pub(crate) fn flush_tls() {
-    // TODO
+    let mut counters = COUNTERS.lock().unwrap();
+    TLS_COUNTERS.with(|c| {
+        let tls_counters = std::mem::replace(&mut *c.borrow_mut(), Counters::default());
+        *counters += tls_counters;
+    });
 }
 
 #[macro_export]

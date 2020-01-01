@@ -26,7 +26,7 @@ impl Tools for ToolApiImpl {
         println!("[RegisterStreamTagger]");
         let stream = request.into_inner();
 
-        let output = async_stream::try_stream! {
+        let _output = async_stream::try_stream! {
             futures::pin_mut!(stream);
             unimplemented!()
         };
@@ -38,7 +38,7 @@ impl Tools for ToolApiImpl {
         Pin<Box<dyn Stream<Item = Result<api::Stream, Status>> + Send + Sync + 'static>>;
     async fn register_stream_mapper(
         &self,
-        request: Request<Streaming<RegisterStreamMapperRequest>>,
+        _request: Request<Streaming<RegisterStreamMapperRequest>>,
     ) -> Result<Response<Self::RegisterStreamMapperStream>, Status> {
         unimplemented!()
     }
@@ -53,7 +53,7 @@ impl Tools for ToolApiImpl {
     >;
     async fn register_stream_reducer(
         &self,
-        request: Request<Streaming<RegisterStreamReducerRequest>>,
+        _request: Request<Streaming<RegisterStreamReducerRequest>>,
     ) -> Result<Response<Self::RegisterStreamReducerStream>, Status> {
         unimplemented!()
     }
@@ -62,7 +62,7 @@ impl Tools for ToolApiImpl {
         Pin<Box<dyn Stream<Item = Result<api::UdpPacket, Status>> + Send + Sync + 'static>>;
     async fn register_packet_tagger(
         &self,
-        request: Request<Streaming<RegisterPacketTaggerRequest>>,
+        _request: Request<Streaming<RegisterPacketTaggerRequest>>,
     ) -> Result<Response<Self::RegisterPacketTaggerStream>, Status> {
         unimplemented!()
     }
