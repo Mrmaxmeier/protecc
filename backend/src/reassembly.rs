@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use pktparse::tcp::TcpHeader;
 use std::cmp::max;
@@ -14,7 +15,7 @@ use crate::database::Database;
 pub(crate) struct Packet {
     pub(crate) src_ip: IpAddr,
     pub(crate) dst_ip: IpAddr,
-    pub(crate) timestamp: u64,
+    pub(crate) timestamp: Option<SystemTime>,
     pub(crate) tcp_header: TcpHeader,
     pub(crate) data: Vec<u8>,
 }
@@ -38,7 +39,13 @@ impl Stream {
     }
 
     fn add(&mut self, p: Packet) {
-        self.latest_packet = Some(max(self.latest_packet.unwrap_or(0), p.timestamp));
+        let timestamp_secs = p
+            .timestamp
+            .unwrap()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        self.latest_packet = Some(max(self.latest_packet.unwrap_or(0), timestamp_secs));
         if p.tcp_header.sequence_no >= self.highest_ack.unwrap_or(0)
             && (p.tcp_header.flag_psh || p.tcp_header.flag_syn || p.tcp_header.flag_fin)
         {
@@ -101,7 +108,7 @@ impl StreamReassembly {
     fn is_done(&self) -> bool {
         self.reset || (self.client_to_server.is_closed && self.server_to_client.is_closed)
     }
-    fn finalize(self, db: &Database, _flat_client: &mut Vec<u8>, _flat_server: &mut Vec<u8>) {
+    async fn finalize(self, db: &Database, _flat_client: &mut Vec<u8>, _flat_server: &mut Vec<u8>) {
         let StreamReassembly {
             client,
             server,
@@ -149,6 +156,7 @@ impl StreamReassembly {
         }
 
         db.push_raw(client, server, segments, _flat_client, _flat_server)
+            .await;
     }
 }
 
@@ -180,7 +188,7 @@ impl Reassembler {
         }
     }
 
-    pub(crate) fn advance_state(&mut self, p: Packet) {
+    pub(crate) async fn advance_state(&mut self, p: Packet) {
         let id = StreamId::new(
             p.src_ip,
             p.tcp_header.source_port,
@@ -217,15 +225,17 @@ impl Reassembler {
         if is_done {
             incr_counter!(streams_completed);
             let stream = self.reassemblies.remove(&id).unwrap();
-            stream.finalize(
-                &self.database,
-                &mut self._flattened_client_buf,
-                &mut self._flattened_server_buf,
-            );
+            stream
+                .finalize(
+                    &self.database,
+                    &mut self._flattened_client_buf,
+                    &mut self._flattened_server_buf,
+                )
+                .await;
         }
     }
 
-    pub(crate) fn expire(&mut self) {
+    pub(crate) async fn expire(&mut self) {
         let mut wip_bytes = 0;
         for (_, r) in self.reassemblies.iter() {
             for pkt in &r.client_to_server.packets {
@@ -239,11 +249,13 @@ impl Reassembler {
         dbg!(wip_bytes);
         // TODO/FIXME: check time / drain_filter
         for (_, stream) in self.reassemblies.drain() {
-            stream.finalize(
-                &self.database,
-                &mut self._flattened_client_buf,
-                &mut self._flattened_server_buf,
-            );
+            stream
+                .finalize(
+                    &self.database,
+                    &mut self._flattened_client_buf,
+                    &mut self._flattened_server_buf,
+                )
+                .await;
             incr_counter!(streams_timeout_expired);
         }
     }

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::incr_counter;
 
@@ -86,12 +87,12 @@ impl Service {
             tag_index: None,
         }
     }
-    fn push(&mut self, stream_id: StreamID, db: &Database) {
+    async fn push(&mut self, stream_id: StreamID, db: &Database) {
         self.streams.push(stream_id);
         if self.streams.len() == SERVICE_PACKET_THRESHOLD {
             incr_counter!(db_stat_service_promotion);
             let tag_index = TagIndex::default();
-            let streams = db.streams.read().unwrap();
+            let streams = db.streams.read().await;
             for StreamID(idx) in &self.streams {
                 tag_index.push(&streams[*idx]);
             }
@@ -102,8 +103,8 @@ impl Service {
 
 pub(crate) struct Database {
     pub(crate) streams: RwLock<Vec<Stream>>,
-    pub(crate) tag_index: Mutex<TagIndex>,
-    pub(crate) services: RwLock<HashMap<u16, Arc<Mutex<Service>>>>,
+    pub(crate) tag_index: RwLock<TagIndex>,
+    pub(crate) services: RwLock<HashMap<u16, Arc<RwLock<Service>>>>,
     pub(crate) payload_db: rocksdb::DB,
 }
 
@@ -118,7 +119,7 @@ impl Database {
         */
         Database {
             streams: RwLock::new(Vec::new()),
-            tag_index: Mutex::new(TagIndex::new()),
+            tag_index: RwLock::new(TagIndex::new()),
             services: RwLock::new(HashMap::new()),
             payload_db,
         }
@@ -142,7 +143,7 @@ impl Database {
             .expect("failed to read from RocksDB")
     }
 
-    pub(crate) fn push_raw(
+    pub(crate) async fn push_raw(
         &self,
         client: (IpAddr, u16),
         server: (IpAddr, u16),
@@ -161,15 +162,15 @@ impl Database {
             tags: HashSet::new(),
             features: HashMap::new(),
         };
-        self.push(stream);
+        self.push(stream).await;
     }
 
-    pub(crate) fn push(&self, stream: Stream) {
+    pub(crate) async fn push(&self, stream: Stream) {
         // TODO: hold writer lock while parsing whole pcap?
         assert!(stream.tags.is_empty());
         let service = stream.service();
         let stream_id = {
-            let mut streams = self.streams.write().unwrap();
+            let mut streams = self.streams.write().await;
             let id = streams.len();
             streams.push(stream);
             StreamID(id)
@@ -177,14 +178,15 @@ impl Database {
 
         self.services
             .write()
-            .unwrap()
+            .await
             .entry(service)
             .or_insert_with(|| {
                 incr_counter!(db_services);
-                Arc::new(Mutex::new(Service::new()))
+                Arc::new(RwLock::new(Service::new()))
             })
-            .lock()
-            .unwrap()
-            .push(stream_id, &self);
+            .write()
+            .await
+            .push(stream_id, &self)
+            .await;
     }
 }

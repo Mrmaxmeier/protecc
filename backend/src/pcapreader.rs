@@ -9,55 +9,63 @@ use std::time::{Duration, SystemTime};
 use crate::incr_counter;
 use crate::reassembly::{Packet, Reassembler};
 
-fn handle_packetdata(reassembler: &mut Reassembler, packet: PacketData) {
+fn handle_packetdata(packet: PacketData) -> Option<Packet> {
     match packet {
-        PacketData::L2(payload) => handle_l2(reassembler, payload),
-        PacketData::L3(ETHERTYPE_IPV4, payload) => handle_ip4(reassembler, payload),
-        PacketData::L3(ETHERTYPE_IPV6, payload) => handle_ip6(reassembler, payload),
-        _ => incr_counter!(packets_unhandled),
+        PacketData::L2(payload) => handle_l2(payload),
+        PacketData::L3(ETHERTYPE_IPV4, payload) => handle_ip4(payload),
+        PacketData::L3(ETHERTYPE_IPV6, payload) => handle_ip6(payload),
+        _ => {
+            incr_counter!(packets_unhandled);
+            None
+        }
     }
 }
 
-fn handle_l2(reassembler: &mut Reassembler, data: &[u8]) {
+fn handle_l2(data: &[u8]) -> Option<Packet> {
     let (payload, header) = pktparse::ethernet::parse_ethernet_frame(data).unwrap();
     use pktparse::ethernet::EtherType;
     match header.ethertype {
-        EtherType::IPv4 => handle_ip4(reassembler, payload),
-        EtherType::IPv6 => handle_ip6(reassembler, payload),
-        _ => incr_counter!(packets_unhandled),
+        EtherType::IPv4 => handle_ip4(payload),
+        EtherType::IPv6 => handle_ip6(payload),
+        _ => {
+            incr_counter!(packets_unhandled);
+            None
+        }
     }
 }
 
-fn handle_ip4(reassembler: &mut Reassembler, data: &[u8]) {
+fn handle_ip4(data: &[u8]) -> Option<Packet> {
     if let Ok((payload, header)) = pktparse::ipv4::parse_ipv4_header(data) {
         use pktparse::ip::IPProtocol;
         match header.protocol {
             IPProtocol::TCP => {
                 let addrs = (header.source_addr.into(), header.dest_addr.into());
-                handle_tcp(reassembler, payload, addrs);
+                return handle_tcp(payload, addrs);
             }
             _ => incr_counter!(packets_unhandled),
         }
     } else {
         incr_counter!(packets_malformed);
     }
+    None
 }
-fn handle_ip6(reassembler: &mut Reassembler, data: &[u8]) {
+fn handle_ip6(data: &[u8]) -> Option<Packet> {
     if let Ok((payload, header)) = pktparse::ipv6::parse_ipv6_header(data) {
         use pktparse::ip::IPProtocol;
         match header.next_header {
             IPProtocol::TCP => {
                 let addrs = (header.source_addr.into(), header.dest_addr.into());
-                handle_tcp(reassembler, payload, addrs);
+                return handle_tcp(payload, addrs);
             }
             _ => incr_counter!(packets_unhandled),
         }
     } else {
         incr_counter!(packets_malformed);
     }
+    None
 }
 
-fn handle_tcp(reassembler: &mut Reassembler, data: &[u8], addrs: (IpAddr, IpAddr)) {
+fn handle_tcp(data: &[u8], addrs: (IpAddr, IpAddr)) -> Option<Packet> {
     if let Ok((payload, header)) = pktparse::tcp::parse_tcp_header(data) {
         incr_counter!(packets_tcp);
         let packet = Packet {
@@ -65,15 +73,17 @@ fn handle_tcp(reassembler: &mut Reassembler, data: &[u8], addrs: (IpAddr, IpAddr
             dst_ip: addrs.1,
             data: payload.into(),
             tcp_header: header,
-            timestamp: 0,
+            timestamp: None,
         };
-        reassembler.advance_state(packet);
+        Some(packet)
+    // reassembler.advance_state(packet);
     } else {
         incr_counter!(packets_malformed);
+        None
     }
 }
 
-pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
+pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
     let file = File::open(path).unwrap();
     let mut reader = if path.ends_with(".pcapng") {
         Box::new(PcapNGReader::new(65536, file).expect("PcapNGReader"))
@@ -119,22 +129,27 @@ pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                             epb.caplen as usize,
                         );
                         if let Some(res) = res {
-                            handle_packetdata(reassembler, res);
+                            if let Some(mut packet) = handle_packetdata(res) {
+                                packet.timestamp = Some(ts);
+                                reassembler.advance_state(packet).await;
+                            }
                         } else {
                             panic!("packet without data");
                         }
                     }
-                    PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
+                    PcapBlockOwned::NG(Block::SimplePacket(ref _spb)) => {
                         todo!("how should we handle timestamps for SimplePacketBlocks?");
+                        /*
                         assert!(!if_linktypes.is_empty());
                         let linktype = if_linktypes[0];
                         let blen = (spb.block_len1 - 16) as usize;
                         let res = pcap_parser::data::get_packetdata(spb.data, linktype, blen);
                         if let Some(res) = res {
-                            handle_packetdata(reassembler, res);
+                            let _: () = handle_packetdata(res);
                         } else {
                             panic!("packet without data");
                         }
+                        */
                     }
                     PcapBlockOwned::NG(_) => {
                         // can be statistics (ISB), name resolution (NRB), etc.
@@ -154,7 +169,10 @@ pub(crate) fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                             block.caplen as usize,
                         );
                         if let Some(res) = res {
-                            handle_packetdata(reassembler, res);
+                            if let Some(mut packet) = handle_packetdata(res) {
+                                packet.timestamp = Some(ts);
+                                reassembler.advance_state(packet).await;
+                            }
                         } else {
                             panic!("packet without data");
                         }

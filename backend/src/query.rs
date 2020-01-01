@@ -72,18 +72,19 @@ pub(crate) enum QueryKind {
 }
 
 impl Query {
-    pub(crate) fn into_cursor(self, db: &Database) -> Cursor {
+    pub(crate) async fn into_cursor(self, db: &Database) -> Cursor {
         let scan_max = match self.kind {
-            QueryKind::All => db.streams.read().unwrap().len(),
-            QueryKind::Service(port) => db
-                .services
-                .read()
-                .unwrap()
-                .get(&port)
-                .map(|service| service.lock().unwrap().streams.len())
-                .unwrap_or(0),
+            QueryKind::All => db.streams.read().await.len(),
+            QueryKind::Service(port) => {
+                let services = db.services.read().await;
+                if let Some(service) = services.get(&port) {
+                    service.read().await.streams.len()
+                } else {
+                    0
+                }
+            }
             QueryKind::Tagged(tag) => {
-                let tag_index = db.tag_index.lock().unwrap();
+                let tag_index = db.tag_index.read().await;
                 if let Some(service) = tag_index.tagged.get(&tag) {
                     service.len()
                 } else {
@@ -91,10 +92,10 @@ impl Query {
                 }
             }
             QueryKind::ServiceTagged(port, tag) => {
-                let services = db.services.read().unwrap();
+                let services = db.services.read().await;
 
                 if let Some(service) = services.get(&port) {
-                    let service = service.lock().unwrap();
+                    let service = service.read().await;
                     if let Some(tag_index) = service.tag_index.as_ref() {
                         if let Some(service) = tag_index.tagged.get(&tag) {
                             service.len()
@@ -134,17 +135,17 @@ impl Cursor {
     pub(crate) fn has_next(&self) -> bool {
         self.scan_offset != self.scan_max
     }
-    pub(crate) fn execute(&self, db: &Database, buffer: &mut Vec<Stream>) -> Cursor {
+    pub(crate) async fn execute(&self, db: &Database, buffer: &mut Vec<Stream>) -> Cursor {
         match &self.query.kind {
             QueryKind::All => {
-                let streams = db.streams.read().unwrap();
+                let streams = db.streams.read().await;
                 self.limit_and_filter(buffer, streams.iter().rev().skip(self.scan_offset), db)
             }
             QueryKind::Service(port) => {
-                let services = db.services.read().unwrap();
+                let services = db.services.read().await;
                 if let Some(service) = services.get(&port) {
-                    let all_streams = db.streams.read().unwrap();
-                    let scan_streams = &service.lock().unwrap().streams;
+                    let all_streams = db.streams.read().await;
+                    let scan_streams = &service.read().await.streams;
                     self.limit_and_filter(
                         buffer,
                         scan_streams
@@ -159,9 +160,9 @@ impl Cursor {
                 }
             }
             QueryKind::Tagged(tag_id) => {
-                let tag_index = db.tag_index.lock().unwrap();
+                let tag_index = db.tag_index.read().await;
                 if let Some(scan_streams) = tag_index.tagged.get(tag_id) {
-                    let all_streams = db.streams.read().unwrap();
+                    let all_streams = db.streams.read().await;
                     self.limit_and_filter(
                         buffer,
                         scan_streams
@@ -176,12 +177,12 @@ impl Cursor {
                 }
             }
             QueryKind::ServiceTagged(port, tag_id) => {
-                let services = db.services.read().unwrap();
+                let services = db.services.read().await;
                 if let Some(service) = services.get(&port) {
-                    let service = service.lock().unwrap();
+                    let service = service.read().await;
                     if let Some(ref tag_index) = service.tag_index {
                         if let Some(scan_streams) = tag_index.tagged.get(tag_id) {
-                            let all_streams = db.streams.read().unwrap();
+                            let all_streams = db.streams.read().await;
                             self.limit_and_filter(
                                 buffer,
                                 scan_streams

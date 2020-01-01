@@ -17,7 +17,6 @@ use reassembly::Reassembler;
 
 use std::env::args;
 use std::sync::Arc;
-// use tokio::prelude::*;
 use tonic::transport::Server;
 
 #[tokio::main]
@@ -27,9 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for path in args().skip(1) {
         println!("importing pcap {:?}", path);
-        pcapreader::read_pcap_file(&path, &mut reassembler);
+        pcapreader::read_pcap_file(&path, &mut reassembler).await;
         // std::thread::sleep(std::time::Duration::from_millis(100));
-        reassembler.expire();
+        reassembler.expire().await;
     }
 
     let query = query::Query {
@@ -37,11 +36,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         filter: None,
     };
     let mut buf = Vec::new();
-    let mut cursor = query.into_cursor(&database);
+    let mut cursor = query.into_cursor(&database).await;
 
     dbg!(&cursor);
     while cursor.has_next() {
-        cursor = cursor.execute(&database, &mut buf);
+        cursor = cursor.execute(&database, &mut buf).await;
     }
     dbg!(&cursor);
     dbg!(buf.len());
@@ -52,8 +51,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kind: query::QueryKind::Service(8080),
         filter: None,
     }
-    .into_cursor(&database);
-    dbg!(cursor.execute(&database, &mut buf));
+    .into_cursor(&database)
+    .await;
+    dbg!(cursor.execute(&database, &mut buf).await);
 
     let addr = "[::1]:10000".parse().unwrap();
     println!("serving on {:?}", addr);
