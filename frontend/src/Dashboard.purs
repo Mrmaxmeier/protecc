@@ -23,7 +23,7 @@ data Query a
 
 data Action
   = SocketConnect
-  | CounterMessage Counters
+  | CounterMessage { counters :: Counters }
   | Init
 
 type Counters
@@ -66,7 +66,7 @@ component =
       pure unit
     CounterMessage counters -> do
       state <- H.get
-      H.put $ state { counters = counters <> state.counters }
+      H.put $ state { counters = counters.counters <> state.counters }
 
   initialState :: i -> State
   initialState = const ({ counters: mempty })
