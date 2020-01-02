@@ -27,6 +27,7 @@ struct ReqFrame {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 enum RequestPayload {
     Watch(StreamKind),
     Cancel,
@@ -36,18 +37,21 @@ enum RequestPayload {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 enum ResponsePayload {
     Counters(crate::counters::Counters),
     Error(String),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 enum StreamKind {
     Counters,
     Query(query::Query),
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[serde(rename_all = "camelCase")]
 enum DebugDenialOfService {
     HoldReadLock,
     HoldWriteLock,
@@ -68,17 +72,12 @@ impl ConnectionHandler {
         match kind {
             StreamKind::Counters => {
                 let mut out_stream = self.stream_tx.clone();
-                loop {
-                    println!("counter tick");
-                    let counters = {
-                        // TODO(refactor): tokio::sync::watch
-                        crate::counters::COUNTERS.lock().unwrap().clone()
-                    };
+                let mut watcher = crate::counters::subscribe();
+                while let Some(counters) = watcher.recv().await {
                     out_stream.send(RespFrame {
                         id: req_id,
                         payload: ResponsePayload::Counters(counters),
                     }).await.unwrap();
-                    tokio::time::delay_for(std::time::Duration::SECOND).await;
                 }
             }
             StreamKind::Query(..) => todo!(),

@@ -191,5 +191,4 @@ pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
         }
     }
     incr_counter!(pcaps_imported);
-    crate::counters::flush_tls();
 }

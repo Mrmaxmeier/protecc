@@ -1,4 +1,5 @@
-#![feature(drain_filter, duration_constants)]
+#![feature(drain_filter, duration_constants, async_closure)]
+#![recursion_limit="512"] // for futures::select!
 
 // for heaptrack
 use std::alloc::System;
@@ -23,13 +24,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Arc::new(database::Database::new());
     let mut reassembler = Reassembler::new(database.clone());
 
-    for path in args().skip(1) {
-        println!("importing pcap {:?}", path);
-        pcapreader::read_pcap_file(&path, &mut reassembler).await;
-        // std::thread::sleep(std::time::Duration::from_millis(100));
-        reassembler.expire().await;
-    }
+    // tokio::spawn((async move || {
+        let pcaps = args().skip(1).collect::<Vec<_>>();
+        for path in &pcaps {
+            println!("importing pcap {:?}", path);
+            pcapreader::read_pcap_file(&path, &mut reassembler).await;
+            // std::thread::sleep(std::time::Duration::from_millis(100));
+            reassembler.expire().await;
+        }
+    // })());
 
+    /*
     let query = query::Query {
         kind: query::QueryKind::All,
         filter: None,
@@ -53,14 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .into_cursor(&database)
     .await;
     dbg!(cursor.execute(&database, &mut buf).await);
-
-    /*
-    let addr = "[::1]:10000".parse().unwrap();
-    println!("serving on {:?}", addr);
-    Server::builder()
-        .add_service(api::tools_server::ToolsServer::new(ToolApiImpl {}))
-        .serve(addr)
-        .await?;
     */
 
     let addr = "[::1]:10000".parse::<std::net::SocketAddr>().unwrap();
