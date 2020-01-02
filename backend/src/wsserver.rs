@@ -71,7 +71,7 @@ impl ConnectionHandler {
                 loop {
                     println!("counter tick");
                     let counters = {
-                        // TODO: tokio::sync::watch
+                        // TODO(refactor): tokio::sync::watch
                         crate::counters::COUNTERS.lock().unwrap().clone()
                     };
                     out_stream.send(RespFrame {

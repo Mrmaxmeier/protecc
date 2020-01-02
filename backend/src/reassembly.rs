@@ -11,6 +11,16 @@ use crate::incr_counter;
 
 use crate::database::Database;
 
+const PACKET_EXPIRE_THRESHOLD_SECS: u64 = 60 * 5;
+
+fn packet_time_secs(p: &Packet) -> u64 {
+    p.timestamp
+        .unwrap()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
 #[derive(Debug)]
 pub(crate) struct Packet {
     pub(crate) src_ip: IpAddr,
@@ -30,7 +40,7 @@ struct Stream {
 impl Stream {
     fn new() -> Self {
         Stream {
-            unacked: Default::default(),
+            unacked: Vec::new(),
             highest_ack: None,
             is_closed: false,
             latest_packet: None,
@@ -39,12 +49,8 @@ impl Stream {
     }
 
     fn add(&mut self, p: Packet) {
-        let timestamp_secs = p
-            .timestamp
-            .unwrap()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        // TODO: acked vs non-acked
+        let timestamp_secs = packet_time_secs(&p);
         self.latest_packet = Some(max(self.latest_packet.unwrap_or(0), timestamp_secs));
         if p.tcp_header.sequence_no >= self.highest_ack.unwrap_or(0)
             && (p.tcp_header.flag_psh || p.tcp_header.flag_syn || p.tcp_header.flag_fin)
@@ -79,6 +85,7 @@ struct StreamReassembly {
     client: (IpAddr, u16),
     client_to_server: Stream,
     server_to_client: Stream,
+    latest_timestamp: u64,
     reset: bool,
 }
 impl StreamReassembly {
@@ -97,6 +104,8 @@ impl StreamReassembly {
         }
     }
     fn add(&mut self, p: Packet) {
+        let timestamp_secs = packet_time_secs(&p);
+        self.latest_timestamp = timestamp_secs;
         if p.tcp_header.flag_rst {
             self.reset = true
         }
@@ -175,6 +184,7 @@ impl StreamId {
 pub(crate) struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
     database: Arc<Database>,
+    latest_timestamp: u64,
     _flattened_server_buf: Vec<u8>,
     _flattened_client_buf: Vec<u8>,
 }
@@ -183,12 +193,17 @@ impl Reassembler {
         Reassembler {
             database,
             reassemblies: HashMap::new(),
+            latest_timestamp: 0,
             _flattened_client_buf: Vec::new(),
             _flattened_server_buf: Vec::new(),
         }
     }
 
     pub(crate) async fn advance_state(&mut self, p: Packet) {
+        let timestamp_secs = packet_time_secs(&p);
+        assert!(timestamp_secs >= self.latest_timestamp);
+        self.latest_timestamp = timestamp_secs;
+
         let id = StreamId::new(
             p.src_ip,
             p.tcp_header.source_port,
@@ -209,6 +224,7 @@ impl Reassembler {
                     client_to_server: Stream::new(),
                     server_to_client: Stream::new(),
                     reset: false,
+                    latest_timestamp: timestamp_secs,
                 },
             );
         }
@@ -236,27 +252,20 @@ impl Reassembler {
     }
 
     pub(crate) async fn expire(&mut self) {
-        let mut wip_bytes = 0;
-        for (_, r) in self.reassemblies.iter() {
-            for pkt in &r.client_to_server.packets {
-                wip_bytes += pkt.data.len();
+        let reassemblies = std::mem::replace(&mut self.reassemblies, HashMap::new());
+        for (key, stream) in reassemblies.into_iter() {
+            if stream.latest_timestamp + PACKET_EXPIRE_THRESHOLD_SECS < self.latest_timestamp {
+                stream
+                    .finalize(
+                        &self.database,
+                        &mut self._flattened_client_buf,
+                        &mut self._flattened_server_buf,
+                    )
+                    .await;
+                incr_counter!(streams_timeout_expired);
+            } else {
+                self.reassemblies.insert(key, stream);
             }
-            for pkt in &r.server_to_client.packets {
-                wip_bytes += pkt.data.len();
-            }
-        }
-        dbg!(self.reassemblies.len());
-        dbg!(wip_bytes);
-        // TODO/FIXME: check time / drain_filter
-        for (_, stream) in self.reassemblies.drain() {
-            stream
-                .finalize(
-                    &self.database,
-                    &mut self._flattened_client_buf,
-                    &mut self._flattened_server_buf,
-                )
-                .await;
-            incr_counter!(streams_timeout_expired);
         }
     }
 }

@@ -17,6 +17,7 @@ TODO(perf/footprint):
 MAYBE(footprint):
 - global cache of ipaddrs
 */
+
 // Note: Stream should be small and cheap to clone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Stream {
@@ -166,7 +167,7 @@ impl Database {
     }
 
     pub(crate) async fn push(&self, stream: Stream) {
-        // TODO: hold writer lock while parsing whole pcap?
+        // TODO(perf?): hold writer lock while parsing whole pcap?
         assert!(stream.tags.is_empty());
         let service = stream.service();
         let stream_id = {
