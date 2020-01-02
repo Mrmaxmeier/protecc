@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tokio::stream::StreamExt;
 use tokio::sync::{mpsc, watch};
+use tokio::time::DelayQueue;
 
 type CountersCell = Arc<Mutex<Option<Counters>>>;
 
@@ -47,51 +48,35 @@ fn aggregate_counters() -> (
 ) {
     let (agg_tx, mut agg_rx) = mpsc::unbounded_channel::<CountersCell>();
     let (counters_tx, counters_rx) = watch::channel(Counters::default());
-    let mut delay_queue = tokio::time::DelayQueue::new();
+    let mut delay_queue = DelayQueue::new();
 
     let mut counters = Counters::default();
     tokio::spawn((async move || {
+        async fn delay_queue_next(dq: &mut DelayQueue<CountersCell>) -> CountersCell {
+            // for some stupid reason, delayqueue.next() returns with Ready(None) even though it's empty.
+            loop {
+                let elem = dq.next().await;
+                match elem {
+                    Some(x) => return x.expect("tokio time error").into_inner(),
+                    None => futures::pending!(),
+                }
+            }
+        }
         loop {
             futures::select! {
                 elem = agg_rx.recv().fuse() => {
-                    println!("counter update queued");
                     delay_queue.insert(elem.unwrap(), std::time::Duration::SECOND);
                 },
-                elem = delay_queue.next().fuse() => {
-                    if elem.is_some() {
-                        let elem = elem.expect("end of delay queue!?").expect("delay queue time error").into_inner();
-                        let mut delta = elem.lock().unwrap();
-                        let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
-                        // TODO: check_for_pow_2(&counters, &delta);
-                        counters += delta;
-                        counters_tx.broadcast(counters.clone()).unwrap();
-                    } else {
-                        // TODO: wtf is going on here. why does delay_queue.next().fuse return None randomly
-                    }
+                elem = delay_queue_next(&mut delay_queue).fuse() => {
+                    let mut delta = elem.lock().unwrap();
+                    let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
+                    // TODO: check_for_pow_2(&counters, &delta);
+                    counters += delta;
+                    counters_tx.broadcast(counters.clone()).unwrap();
                 },
             };
         }
     })());
-
-    /*
-        tokio::spawn((async move || {
-            while let Some(elem) = agg_rx.recv().await {
-                delay_queue.insert(elem, std::time::Duration::SECOND);
-            }
-        })());
-
-        tokio::spawn((async move || {
-            let mut counters = Counters::default();
-            while let Some(elem) = delay_queue.next().await {
-                let elem = elem.unwrap().into_inner();
-                let mut delta = elem.lock().unwrap();
-                let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
-                // TODO: check_for_pow_2(&counters, &delta);
-                counters += delta;
-                counters_tx.broadcast(counters.clone()).unwrap();
-            }
-        })());
-    */
 
     (agg_tx, counters_rx)
 }
