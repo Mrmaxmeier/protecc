@@ -9,7 +9,7 @@ edition = "2018"
 #bytes = "0.4"
 #prost = "0.5"
 #prost-derive = "0.5"
-tokio = { version = "0.2", features = ["macros", "sync", "tcp", "rt-core", "rt-threaded"]}
+tokio = { version = "0.2", features = ["macros", "sync", "tcp", "rt-core", "rt-threaded", "time"]}
 tokio-tungstenite = { git = "https://github.com/dbcfd/tokio-tungstenite", branch="tokio2" }
 futures = { version = "0.3.1", default-features = false, features = ["alloc"] }
 #async-stream = "0.2.0"

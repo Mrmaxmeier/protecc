@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
+use futures::channel::mpsc;
 use futures::future::FutureExt;
 use futures::sink::SinkExt;
 use futures::StreamExt;
@@ -56,9 +57,29 @@ enum DebugDenialOfService {
 struct ConnectionHandler {
     db: Arc<Database>,
     cancel_chans: Mutex<HashMap<u64, Weak<Mutex<Option<oneshot::Sender<()>>>>>>, // TODO: refactor this
+    stream_tx: mpsc::Sender<RespFrame>,
 }
 
 impl ConnectionHandler {
+    async fn watch(&self, kind: &StreamKind, req_id: u64) {
+        // {"id": 0, "payload": {"Watch": "Counters"}}
+        // {"id": 0, "payload": "Cancel"}
+        match kind {
+            StreamKind::Counters => {
+                let mut out_stream = self.stream_tx.clone();
+                loop {
+                    println!("counter tick");
+                    out_stream.send(RespFrame {
+                        id: req_id,
+                        payload: ResponsePayload::Counters(crate::counters::Counters::default()),
+                    }).await.unwrap();
+                    tokio::time::delay_for(std::time::Duration::SECOND).await;
+                }
+            }
+            StreamKind::Query(..) => todo!(),
+        }
+    }
+
     async fn dos(&self, kind: DebugDenialOfService) {
         // {"id": 0, "payload": {"DoS": "HoldWriteLock"}}
         // {"id": 1, "payload": {"DoS": "HoldWriteLock"}}
@@ -95,30 +116,45 @@ impl ConnectionHandler {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let tx = Arc::new(Mutex::new(Some(tx)));
         {
-            self.cancel_chans.lock().await.insert(id, Arc::downgrade(&tx));
+            self.cancel_chans
+                .lock()
+                .await
+                .insert(id, Arc::downgrade(&tx));
         }
         let _ = rx.await;
     }
 
     async fn handle_req(self: Arc<Self>, req: ReqFrame, mut close_rx: broadcast::Receiver<()>) {
+        // TODO(refactor)
         match &req.payload {
             RequestPayload::DoS(dos) => {
                 futures::select! {
                     _ = self.dos(*dos).fuse() => {},
                     _ = close_rx.recv().fuse() => {
-                        println!("dropping req due to closed connection: {:?}", req)
+                        println!("req cancelled due to closed connection: {:?}", req)
                     }
                     _ = self.clone().await_cancel(req.id).fuse() => {
-                        println!("dropping req due to cancel message: {:?}", req)
+                        println!("req cancelled due to cancel message: {:?}", req)
                     }
                 };
-            },
+            }
+            RequestPayload::Watch(kind) => {
+                futures::select! {
+                    _ = self.watch(kind, req.id).fuse() => {},
+                    _ = close_rx.recv().fuse() => {
+                        println!("req cancelled due to closed connection: {:?}", req)
+                    }
+                    _ = self.clone().await_cancel(req.id).fuse() => {
+                        println!("req cancelled due to cancel message: {:?}", req)
+                    }
+                };
+            }
             RequestPayload::Cancel => {
                 let cancel_chans = self.cancel_chans.lock().await;
                 if let Some(tx) = cancel_chans.get(&req.id).and_then(|tx| tx.upgrade()) {
                     let _ = tx.lock().await.take().unwrap().send(());
                 }
-            },
+            }
             _ => todo!(),
         };
     }
@@ -135,43 +171,73 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
         .expect("Error during the websocket handshake occurred");
 
     println!("New WebSocket connection: {}", addr);
+
+    let (stream_tx, stream_rx) = mpsc::channel::<RespFrame>(8);
+
+
     let conn_handler = Arc::new(ConnectionHandler {
         db: database,
         cancel_chans: tokio::sync::Mutex::new(HashMap::new()),
+        stream_tx,
     });
 
+    // NOTE: this is sort of redundant with cancel_chans.
+    // It provides nice unwinding semantics though.
     let (close_tx, _) = broadcast::channel(1);
 
-    let (mut write, mut read) = ws_stream.split();
+    let (mut write, read) = ws_stream.split();
+    enum SelectKind {
+        In(Result<Message, tokio_tungstenite::tungstenite::error::Error>),
+        Out(RespFrame),
+    }
+
+    let mut read =
+        futures::stream::select(read.map(SelectKind::In), stream_rx.map(SelectKind::Out));
+    // TODO(upstream): why futures::channel::mpsc instread of tokio::sync::mpsc?
+    // ^ why does tokio::sync::mpsc::Receiver not implement futures::Stream?
+
     while let Some(msg) = read.next().await {
-        let msg = msg.unwrap();
         match msg {
-            Message::Text(text) => {
-                let frame = serde_json::from_str::<ReqFrame>(&text);
-                if let Ok(frame) = frame {
-                    dbg!(&frame);
-                    write
-                        .send(Message::Text(serde_json::to_string(&frame).unwrap()))
-                        .await
-                        .expect("failed to send");
-                    tokio::spawn(conn_handler.clone().handle_req(frame, close_tx.subscribe()));
-                } else {
-                    let resp = RespFrame {
-                        id: 0,
-                        payload: ResponsePayload::Error(format!("{:?}", frame)),
-                    };
-                    write
-                        .send(Message::Text(serde_json::to_string(&resp).unwrap()))
-                        .await
-                        .expect("failed to send");
+            SelectKind::In(rmsg) => {
+                let msg = rmsg.expect("read.next().is_err()");
+                match msg {
+                    Message::Text(text) => {
+                        let frame = serde_json::from_str::<ReqFrame>(&text);
+                        if let Ok(frame) = frame {
+                            dbg!(&frame);
+                            write
+                                .send(Message::Text(serde_json::to_string(&frame).unwrap()))
+                                .await
+                                .expect("failed to send");
+                            tokio::spawn(conn_handler.clone().handle_req(
+                                frame,
+                                close_tx.subscribe(),
+                            ));
+                        } else {
+                            let resp = RespFrame {
+                                id: 0,
+                                payload: ResponsePayload::Error(format!("{:?}", frame)),
+                            };
+                            write
+                                .send(Message::Text(serde_json::to_string(&resp).unwrap()))
+                                .await
+                                .expect("failed to send");
+                        }
+                    }
+                    Message::Close(..) => {
+                        let _ = write.send(msg).await;
+                        break;
+                    }
+                    Message::Ping(_) => {} // handled by tungstenite
+                    _ => panic!("unhandled msg frame {:?}", msg),
                 }
             }
-            Message::Close(..) => {
-                let _ = write.send(msg).await;
-                break;
+            SelectKind::Out(msg) => {
+                write
+                    .send(Message::Text(serde_json::to_string(&msg).unwrap()))
+                    .await
+                    .expect("failed to send");
             }
-            Message::Ping(_) => {} // handled by tungstenite
-            _ => panic!("unhandled msg frame {:?}", msg),
         }
         conn_handler.gc_cancel_chans().await;
     }
