@@ -11,8 +11,8 @@ use tokio::sync::{broadcast, oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::database::Database;
-use crate::query;
 use crate::incr_counter;
+use crate::query;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct RespFrame {
@@ -40,6 +40,7 @@ enum RequestPayload {
 #[serde(rename_all = "camelCase")]
 enum ResponsePayload {
     Counters(crate::counters::Counters),
+    Cursor(query::Cursor),
     Error(String),
 }
 
@@ -66,18 +67,21 @@ struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    async fn watch(&self, kind: &StreamKind, req_id: u64) {
-        // {"id": 0, "payload": {"Watch": "Counters"}}
-        // {"id": 0, "payload": "Cancel"}
+    async fn watch(&self, req_id: u64, kind: &StreamKind) {
+        // {"id": 0, "payload": {"watch": "counters"}}
+        // {"id": 0, "payload": "cancel"}
         match kind {
             StreamKind::Counters => {
                 let mut out_stream = self.stream_tx.clone();
                 let mut watcher = crate::counters::subscribe();
                 while let Some(counters) = watcher.recv().await {
-                    out_stream.send(RespFrame {
-                        id: req_id,
-                        payload: ResponsePayload::Counters(counters),
-                    }).await.unwrap();
+                    out_stream
+                        .send(RespFrame {
+                            id: req_id,
+                            payload: ResponsePayload::Counters(counters),
+                        })
+                        .await
+                        .unwrap();
                 }
             }
             StreamKind::Query(..) => todo!(),
@@ -85,10 +89,10 @@ impl ConnectionHandler {
     }
 
     async fn dos(&self, kind: DebugDenialOfService) {
-        // {"id": 0, "payload": {"DoS": "HoldWriteLock"}}
-        // {"id": 1, "payload": {"DoS": "HoldWriteLock"}}
-        // {"id": 0, "payload": "Cancel"}
-        // {"id": 1, "payload": "Cancel"}
+        // {"id": 0, "payload": {"doS": "holdWriteLock"}}
+        // {"id": 1, "payload": {"doS": "holdWriteLock"}}
+        // {"id": 0, "payload": "cancel"}
+        // {"id": 1, "payload": "cancel"}
         use DebugDenialOfService::*;
         match kind {
             HoldReadLock => {
@@ -108,6 +112,22 @@ impl ConnectionHandler {
                 let _guard = self.db.streams.read().await;
                 panic!("{:?}", kind);
             }
+        }
+    }
+
+    async fn query2cursor(&self, req_id: u64, query: &query::Query) {
+        let mut out_stream = self.stream_tx.clone();
+        let cursor = query.clone().into_cursor(&*self.db).await;
+        out_stream
+            .send(RespFrame {
+                id: req_id,
+                payload: ResponsePayload::Cursor(cursor.clone()),
+            })
+            .await
+            .unwrap();
+        if cursor.has_next() {
+            let mut buf = Vec::new();
+            cursor.execute(&*self.db, &mut buf).await;
         }
     }
 
@@ -144,7 +164,18 @@ impl ConnectionHandler {
             }
             RequestPayload::Watch(kind) => {
                 futures::select! {
-                    _ = self.watch(kind, req.id).fuse() => {},
+                    _ = self.watch(req.id, kind).fuse() => {},
+                    _ = close_rx.recv().fuse() => {
+                        println!("req cancelled due to closed connection: {:?}", req)
+                    }
+                    _ = self.clone().await_cancel(req.id).fuse() => {
+                        println!("req cancelled due to cancel message: {:?}", req)
+                    }
+                };
+            }
+            RequestPayload::Query2Cursor(query) => {
+                futures::select! {
+                    _ = self.query2cursor(req.id, query).fuse() => {},
                     _ = close_rx.recv().fuse() => {
                         println!("req cancelled due to closed connection: {:?}", req)
                     }
@@ -178,7 +209,6 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
     incr_counter!(ws_connections);
 
     let (stream_tx, stream_rx) = mpsc::channel::<RespFrame>(8);
-
 
     let conn_handler = Arc::new(ConnectionHandler {
         db: database,
@@ -215,10 +245,9 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
                                 .send(Message::Text(serde_json::to_string(&frame).unwrap()))
                                 .await
                                 .expect("failed to send");
-                            tokio::spawn(conn_handler.clone().handle_req(
-                                frame,
-                                close_tx.subscribe(),
-                            ));
+                            tokio::spawn(
+                                conn_handler.clone().handle_req(frame, close_tx.subscribe()),
+                            );
                         } else {
                             let resp = RespFrame {
                                 id: 0,
