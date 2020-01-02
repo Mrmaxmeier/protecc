@@ -9,10 +9,10 @@ std::thread_local! {
 }
 
 lazy_static! {
-    static ref COUNTERS: Mutex<Counters> = Mutex::new(Counters::default());
+    pub(crate) static ref COUNTERS: Mutex<Counters> = Mutex::new(Counters::default());
 }
 
-#[derive(Debug, Default, Add, AddAssign, Serialize, Deserialize)] // Note: We're not using Deserialize
+#[derive(Debug, Default, Clone, Add, AddAssign, Serialize, Deserialize)] // Note: We're not using Deserialize
 pub(crate) struct Counters {
     pub(crate) packets: u64,
     pub(crate) streams: u64,
@@ -29,10 +29,14 @@ pub(crate) struct Counters {
     pub(crate) db_stat_service_promotion: u64,
     pub(crate) query_rows_scanned: u64,
     pub(crate) query_rows_returned: u64,
+    pub(crate) ws_connections: u64,
+    pub(crate) ws_rx: u64,
+    pub(crate) ws_tx: u64,
 }
 
 pub(crate) fn _incr_counter_impl<F: Fn(&mut Counters)>(_counter: &str, f: F) {
     TLS_COUNTERS.with(|c| f(&mut *c.borrow_mut()));
+    flush_tls(); // TODO(perf)
 }
 
 pub(crate) fn flush_tls() {

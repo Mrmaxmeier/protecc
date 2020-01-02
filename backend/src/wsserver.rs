@@ -12,6 +12,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::database::Database;
 use crate::query;
+use crate::incr_counter;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct RespFrame {
@@ -69,9 +70,13 @@ impl ConnectionHandler {
                 let mut out_stream = self.stream_tx.clone();
                 loop {
                     println!("counter tick");
+                    let counters = {
+                        // TODO: tokio::sync::watch
+                        crate::counters::COUNTERS.lock().unwrap().clone()
+                    };
                     out_stream.send(RespFrame {
                         id: req_id,
-                        payload: ResponsePayload::Counters(crate::counters::Counters::default()),
+                        payload: ResponsePayload::Counters(counters),
                     }).await.unwrap();
                     tokio::time::delay_for(std::time::Duration::SECOND).await;
                 }
@@ -171,6 +176,7 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
         .expect("Error during the websocket handshake occurred");
 
     println!("New WebSocket connection: {}", addr);
+    incr_counter!(ws_connections);
 
     let (stream_tx, stream_rx) = mpsc::channel::<RespFrame>(8);
 
@@ -199,6 +205,7 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
     while let Some(msg) = read.next().await {
         match msg {
             SelectKind::In(rmsg) => {
+                incr_counter!(ws_rx);
                 let msg = rmsg.expect("read.next().is_err()");
                 match msg {
                     Message::Text(text) => {
@@ -233,6 +240,7 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
                 }
             }
             SelectKind::Out(msg) => {
+                incr_counter!(ws_tx);
                 write
                     .send(Message::Text(serde_json::to_string(&msg).unwrap()))
                     .await
