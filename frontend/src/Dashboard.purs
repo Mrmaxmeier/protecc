@@ -28,10 +28,7 @@ data Action
 
 type Counters
   = Rec
-      ( packets :: WMaybe Int
-      , streams :: WMaybe Int
-      , reassembly_errors :: WMaybe Int
-      , packets_unhandled :: WMaybe Int
+      ( packets_unhandled :: WMaybe Int
       , packets_malformed :: WMaybe Int
       , packets_without_stream :: WMaybe Int
       , packets_tcp :: WMaybe Int
@@ -74,9 +71,9 @@ component =
   render state =
     div [ HC.style (CSS.paddingTop $ CSS.px 20.0) ]
       [ div [ classes [ S.ui, S.three, S.statistics ] ]
-          [ renderStatistic "Streams" (unrec state.counters).streams
-          , renderStatistic "Packets" (unrec state.counters).packets
-          , renderStatistic "Reassembly Errors" (unrec state.counters).reassembly_errors
+          [ renderStatistic "Streams" (unrec state.counters).streams_completed
+          , renderStatistic "Packets" (unrec state.counters).packets_tcp
+          , renderStatistic "Packets without Stream" (unrec state.counters).packets_without_stream
           ]
       ]
 

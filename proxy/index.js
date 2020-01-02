@@ -24,7 +24,6 @@ io.on('connection', function (socket) {
         console.log('open: ' + s);
         ws.send(JSON.stringify({ id: arg.id, payload: { watch: arg.type } }));
         connections[arg.id] = send;
-        console.log(arg.id + ": " + send);
     });
     socket.on('stream', function (s) {
         const arg = JSON.parse(s);
