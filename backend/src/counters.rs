@@ -26,6 +26,8 @@ pub(crate) struct Counters {
     pub(crate) packets_malformed: u64,
     pub(crate) packets_without_stream: u64,
     pub(crate) packets_tcp: u64,
+    pub(crate) packet_bytes: u64,
+    pub(crate) pcap_processing_milliseconds: u64,
     pub(crate) streams_completed: u64,
     pub(crate) streams_timeout_expired: u64,
     pub(crate) pcap_blocks: u64,
@@ -78,7 +80,7 @@ fn aggregate_counters() -> (
     (agg_tx, counters_rx)
 }
 
-pub(crate) fn _incr_counter_impl<F: Fn(&mut Counters)>(_counter: &str, f: F) {
+pub(crate) fn update_counters<F: Fn(&mut Counters)>(f: F) {
     TLS_COUNTERS.with(|c| {
         let mut ctrs = c.lock().unwrap();
         match ctrs.as_mut() {
@@ -96,13 +98,8 @@ pub(crate) fn _incr_counter_impl<F: Fn(&mut Counters)>(_counter: &str, f: F) {
 #[macro_export]
 macro_rules! incr_counter {
     ($x:ident) => {{
-        crate::counters::_incr_counter_impl(stringify!($x), |c| {
+        crate::counters::update_counters(|c| {
             c.$x += 1;
-            /*
-            if c.$x.is_power_of_two() {
-                println!("counter {}: {}", stringify!($x), c.$x);
-            }
-            */
         });
         ()
     }};

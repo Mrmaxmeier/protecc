@@ -84,6 +84,9 @@ fn handle_tcp(data: &[u8], addrs: (IpAddr, IpAddr)) -> Option<Packet> {
 }
 
 pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
+    let start = std::time::Instant::now();
+
+
     let file = File::open(path).unwrap();
     let mut reader = if path.ends_with(".pcapng") {
         Box::new(PcapNGReader::new(65536, file).expect("PcapNGReader"))
@@ -128,6 +131,7 @@ pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                             linktype,
                             epb.caplen as usize,
                         );
+                        crate::counters::update_counters(|c| c.packet_bytes += epb.caplen as u64);
                         if let Some(res) = res {
                             if let Some(mut packet) = handle_packetdata(res) {
                                 packet.timestamp = Some(ts);
@@ -168,6 +172,7 @@ pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                             linktype,
                             block.caplen as usize,
                         );
+                        crate::counters::update_counters(|c| c.packet_bytes += block.caplen as u64);
                         if let Some(res) = res {
                             if let Some(mut packet) = handle_packetdata(res) {
                                 packet.timestamp = Some(ts);
@@ -191,4 +196,5 @@ pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
         }
     }
     incr_counter!(pcaps_imported);
+    crate::counters::update_counters(|c| c.pcap_processing_milliseconds += start.elapsed().as_millis() as u64);
 }
