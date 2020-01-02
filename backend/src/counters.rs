@@ -2,6 +2,7 @@ use derive_more::{Add, AddAssign};
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::sync::Mutex;
+use serde::{Serialize, Deserialize};
 
 std::thread_local! {
     pub(crate) static TLS_COUNTERS: RefCell<Counters> = RefCell::new(Counters::default());
@@ -11,7 +12,7 @@ lazy_static! {
     static ref COUNTERS: Mutex<Counters> = Mutex::new(Counters::default());
 }
 
-#[derive(Debug, Default, Add, AddAssign)]
+#[derive(Debug, Default, Add, AddAssign, Serialize, Deserialize)] // Note: We're not using Deserialize
 pub(crate) struct Counters {
     pub(crate) packets: u64,
     pub(crate) streams: u64,

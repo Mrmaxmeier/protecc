@@ -5,19 +5,18 @@ use std::alloc::System;
 #[global_allocator]
 static GLOBAL: System = System;
 
-mod api;
 pub(crate) mod counters;
 mod database;
 mod pcapreader;
 mod query;
 pub(crate) mod reassembly;
+mod wsserver;
 
-use crate::api::ToolApiImpl;
 use reassembly::Reassembler;
 
 use std::env::args;
 use std::sync::Arc;
-use tonic::transport::Server;
+use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -55,11 +54,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await;
     dbg!(cursor.execute(&database, &mut buf).await);
 
+    /*
     let addr = "[::1]:10000".parse().unwrap();
     println!("serving on {:?}", addr);
     Server::builder()
         .add_service(api::tools_server::ToolsServer::new(ToolApiImpl {}))
         .serve(addr)
         .await?;
+    */
+
+    let addr = "[::1]:10000".parse::<std::net::SocketAddr>().unwrap();
+    let try_socket = TcpListener::bind(&addr).await;
+    let mut listener = try_socket.expect("Failed to bind");
+    println!("Listening on: {}", addr);
+    
+    while let Ok((stream, _)) = listener.accept().await {
+        tokio::spawn(wsserver::accept_connection(stream, database.clone()));
+    }
+
+
     Ok(())
 }
