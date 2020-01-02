@@ -16,14 +16,15 @@ io.on('connection', function (socket) {
     console.log('client connected');
 
     const send = function (arg) {
-        socket.emit('stream', JSON.stringify({ id: arg.id, data: arg.payload }));
+        socket.emit('stream', JSON.stringify({ id: arg.id, arg: arg.payload }));
     }
 
     socket.on('open', function (s) {
         const arg = JSON.parse(s);
         console.log('open: ' + s);
-        ws.send(JSON.stringify({ id: arg.id, payload: { Watch: arg.type } }));
+        ws.send(JSON.stringify({ id: arg.id, payload: { watch: arg.type } }));
         connections[arg.id] = send;
+        console.log(arg.id + ": " + send);
     });
     socket.on('stream', function (s) {
         const arg = JSON.parse(s);
