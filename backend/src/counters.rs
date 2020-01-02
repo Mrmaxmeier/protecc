@@ -1,8 +1,8 @@
 use derive_more::{Add, AddAssign};
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::sync::Mutex;
-use serde::{Serialize, Deserialize};
 
 std::thread_local! {
     pub(crate) static TLS_COUNTERS: RefCell<Counters> = RefCell::new(Counters::default());

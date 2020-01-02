@@ -67,11 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let try_socket = TcpListener::bind(&addr).await;
     let mut listener = try_socket.expect("Failed to bind");
     println!("Listening on: {}", addr);
-    
+
     while let Ok((stream, _)) = listener.accept().await {
         tokio::spawn(wsserver::accept_connection(stream, database.clone()));
     }
-
 
     Ok(())
 }
