@@ -22,9 +22,6 @@ pub(crate) fn subscribe() -> watch::Receiver<Counters> {
 
 #[derive(Debug, Default, Clone, Add, AddAssign, Serialize, Deserialize)] // Note: We're not using Deserialize
 pub(crate) struct Counters {
-    pub(crate) packets: u64,
-    pub(crate) streams: u64,
-    pub(crate) reassembly_errors: u64,
     pub(crate) packets_unhandled: u64,
     pub(crate) packets_malformed: u64,
     pub(crate) packets_without_stream: u64,
