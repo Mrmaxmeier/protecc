@@ -63,7 +63,6 @@ exports.onMessageImpl = function (socket) {
         return function (callback) {
             return function () {
                 socket.on(cmd, (arg) => {
-                    console.log(cmd + " received: " + arg);
                     callback(arg)();
                 })
             }
