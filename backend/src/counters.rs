@@ -1,9 +1,9 @@
 use derive_more::{Add, AddAssign};
+use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tokio::stream::StreamExt;
 use tokio::sync::{mpsc, watch};
-use futures::FutureExt;
 
 type CountersCell = Arc<Mutex<Option<Counters>>>;
 
@@ -18,7 +18,6 @@ lazy_static::lazy_static! {
 pub(crate) fn subscribe() -> watch::Receiver<Counters> {
     GLOBAL_COUNTERS_CHANS.1.clone()
 }
-
 
 #[derive(Debug, Default, Clone, Add, AddAssign, Serialize, Deserialize)] // Note: We're not using Deserialize
 pub(crate) struct Counters {
@@ -52,47 +51,47 @@ fn aggregate_counters() -> (
 
     let mut counters = Counters::default();
     tokio::spawn((async move || {
-    loop {
-        futures::select! {
-            elem = agg_rx.recv().fuse() => {
-                println!("counter update queued");
-                delay_queue.insert(elem.unwrap(), std::time::Duration::SECOND);
-            },
-            elem = delay_queue.next().fuse() => {
-                if elem.is_some() {
-                    let elem = elem.expect("end of delay queue!?").expect("delay queue time error").into_inner();
-                    let mut delta = elem.lock().unwrap();
-                    let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
-                    // TODO: check_for_pow_2(&counters, &delta);
-                    counters += delta;
-                    counters_tx.broadcast(counters.clone()).unwrap();
-                } else {
-                    // TODO: wtf is going on here. why does delay_queue.next().fuse return None randomly
-                }
-            },
-        };
-    }
-})());
-
-/*
-    tokio::spawn((async move || {
-        while let Some(elem) = agg_rx.recv().await {
-            delay_queue.insert(elem, std::time::Duration::SECOND);
+        loop {
+            futures::select! {
+                elem = agg_rx.recv().fuse() => {
+                    println!("counter update queued");
+                    delay_queue.insert(elem.unwrap(), std::time::Duration::SECOND);
+                },
+                elem = delay_queue.next().fuse() => {
+                    if elem.is_some() {
+                        let elem = elem.expect("end of delay queue!?").expect("delay queue time error").into_inner();
+                        let mut delta = elem.lock().unwrap();
+                        let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
+                        // TODO: check_for_pow_2(&counters, &delta);
+                        counters += delta;
+                        counters_tx.broadcast(counters.clone()).unwrap();
+                    } else {
+                        // TODO: wtf is going on here. why does delay_queue.next().fuse return None randomly
+                    }
+                },
+            };
         }
     })());
 
-    tokio::spawn((async move || {
-        let mut counters = Counters::default();
-        while let Some(elem) = delay_queue.next().await {
-            let elem = elem.unwrap().into_inner();
-            let mut delta = elem.lock().unwrap();
-            let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
-            // TODO: check_for_pow_2(&counters, &delta);
-            counters += delta;
-            counters_tx.broadcast(counters.clone()).unwrap();
-        }
-    })());
-*/
+    /*
+        tokio::spawn((async move || {
+            while let Some(elem) = agg_rx.recv().await {
+                delay_queue.insert(elem, std::time::Duration::SECOND);
+            }
+        })());
+
+        tokio::spawn((async move || {
+            let mut counters = Counters::default();
+            while let Some(elem) = delay_queue.next().await {
+                let elem = elem.unwrap().into_inner();
+                let mut delta = elem.lock().unwrap();
+                let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
+                // TODO: check_for_pow_2(&counters, &delta);
+                counters += delta;
+                counters_tx.broadcast(counters.clone()).unwrap();
+            }
+        })());
+    */
 
     (agg_tx, counters_rx)
 }
