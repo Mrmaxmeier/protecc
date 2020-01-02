@@ -241,10 +241,6 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
                         let frame = serde_json::from_str::<ReqFrame>(&text);
                         if let Ok(frame) = frame {
                             dbg!(&frame);
-                            write
-                                .send(Message::Text(serde_json::to_string(&frame).unwrap()))
-                                .await
-                                .expect("failed to send");
                             tokio::spawn(
                                 conn_handler.clone().handle_req(frame, close_tx.subscribe()),
                             );
