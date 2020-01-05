@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use tokio::stream::StreamExt;
 use tokio::sync::{mpsc, watch};
 use tokio::time::DelayQueue;
+use std::collections::HashMap;
 
 type CountersCell = Arc<Mutex<Option<Counters>>>;
 
@@ -20,7 +21,7 @@ pub(crate) fn subscribe() -> watch::Receiver<Counters> {
     GLOBAL_COUNTERS_CHANS.1.clone()
 }
 
-#[derive(Debug, Default, Clone, Add, AddAssign, Serialize, Deserialize)] // Note: We're not using Deserialize
+#[derive(Debug, Default, Clone, Add, AddAssign, Serialize, Deserialize)]
 pub(crate) struct Counters {
     pub(crate) packets_unhandled: u64,
     pub(crate) packets_malformed: u64,
@@ -41,6 +42,21 @@ pub(crate) struct Counters {
     pub(crate) ws_tx: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[repr(transparent)]
+pub(crate) struct CountersAsMapHack(HashMap<String,u64>);
+impl CountersAsMapHack {
+    fn from_counters(counters: &Counters) -> Self {
+        let val = serde_json::to_value(counters).unwrap();
+        serde_json::from_value(val).unwrap()
+    }
+
+    fn into_counters(&self) -> Counters {
+        let val = serde_json::to_value(self).unwrap();
+        serde_json::from_value(val).unwrap()
+    }
+}
+
 fn aggregate_counters() -> (
     mpsc::UnboundedSender<CountersCell>,
     watch::Receiver<Counters>,
@@ -50,7 +66,7 @@ fn aggregate_counters() -> (
     let mut delay_queue = DelayQueue::new();
 
     let mut counters = Counters::default();
-    tokio::spawn((async move || {
+    tokio::spawn(async move {
         async fn delay_queue_next(dq: &mut DelayQueue<CountersCell>) -> CountersCell {
             // for some stupid reason, delayqueue.next() returns with Ready(None) even though it's empty.
             loop {
@@ -69,15 +85,28 @@ fn aggregate_counters() -> (
                 elem = delay_queue_next(&mut delay_queue).fuse() => {
                     let mut delta = elem.lock().unwrap();
                     let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
-                    // TODO: check_for_pow_2(&counters, &delta);
+                    let before = CountersAsMapHack::from_counters(&counters);
                     counters += delta;
+                    let after = CountersAsMapHack::from_counters(&counters);
+                    for (k, a) in before.0.iter() {
+                        let b = after.0.get(k).unwrap();
+                        if check_for_pow2(*a, *b) {
+                            println!("{}: {} (>= {:#x})", k, b, (a+1).checked_next_power_of_two().unwrap());
+                        }
+                    }
                     counters_tx.broadcast(counters.clone()).unwrap();
                 },
             };
         }
-    })());
+    });
 
     (agg_tx, counters_rx)
+}
+
+fn check_for_pow2(from: u64, to: u64) -> bool {
+    (from+1).checked_next_power_of_two()
+        .map(|x| to >= x)
+        .unwrap_or(false)
 }
 
 pub(crate) fn update_counters<F: Fn(&mut Counters)>(f: F) {

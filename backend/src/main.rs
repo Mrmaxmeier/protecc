@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Arc::new(database::Database::new());
     let mut reassembler = Reassembler::new(database.clone());
 
-    let fut = tokio::spawn((async move || {
+    let fut = tokio::spawn(async move {
         let addr = "[::1]:10000".parse::<std::net::SocketAddr>().unwrap();
         let try_socket = TcpListener::bind(&addr).await;
         let mut listener = try_socket.expect("Failed to bind");
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Ok((stream, _)) = listener.accept().await {
             tokio::spawn(wsserver::accept_connection(stream, database.clone()));
         }
-    })());
+    });
 
     // TODO: move pcap parser into own thread
     let pcaps = args().skip(1).collect::<Vec<_>>();

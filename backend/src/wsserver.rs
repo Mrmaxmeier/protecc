@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
 use futures::channel::mpsc;
+use futures::future::Future;
 use futures::future::FutureExt;
 use futures::sink::SinkExt;
 use futures::StreamExt;
@@ -88,7 +89,7 @@ impl ConnectionHandler {
         }
     }
 
-    async fn dos(&self, kind: DebugDenialOfService) {
+    async fn dos(&self, kind: &DebugDenialOfService) {
         // {"id": 0, "payload": {"doS": "holdWriteLock"}}
         // {"id": 1, "payload": {"doS": "holdWriteLock"}}
         // {"id": 0, "payload": "cancel"}
@@ -115,20 +116,14 @@ impl ConnectionHandler {
         }
     }
 
-    async fn query2cursor(&self, req_id: u64, query: &query::Query) {
-        let mut out_stream = self.stream_tx.clone();
+    async fn query2cursor(&self, query: &query::Query) -> ResponsePayload {
         let cursor = query.clone().into_cursor(&*self.db).await;
-        out_stream
-            .send(RespFrame {
-                id: req_id,
-                payload: ResponsePayload::Cursor(cursor.clone()),
-            })
-            .await
-            .unwrap();
         if cursor.has_next() {
+            // TODO: remove
             let mut buf = Vec::new();
             cursor.execute(&*self.db, &mut buf).await;
         }
+        ResponsePayload::Cursor(cursor)
     }
 
     async fn gc_cancel_chans(&self) {
@@ -148,50 +143,56 @@ impl ConnectionHandler {
         let _ = rx.await;
     }
 
-    async fn handle_req(self: Arc<Self>, req: ReqFrame, mut close_rx: broadcast::Receiver<()>) {
-        // TODO(refactor)
-        match &req.payload {
-            RequestPayload::DoS(dos) => {
-                futures::select! {
-                    _ = self.dos(*dos).fuse() => {},
-                    _ = close_rx.recv().fuse() => {
-                        println!("req cancelled due to closed connection: {:?}", req)
-                    }
-                    _ = self.clone().await_cancel(req.id).fuse() => {
-                        println!("req cancelled due to cancel message: {:?}", req)
-                    }
-                };
+    async fn setup_cancellation<T: Future>(
+        self: Arc<Self>,
+        req: &ReqFrame,
+        mut close_rx: broadcast::Receiver<()>,
+        f: T,
+    ) {
+        futures::select! {
+            _ = f.fuse() => {},
+            _ = close_rx.recv().fuse() => {
+                println!("req cancelled due to closed connection: {:?}", req)
             }
-            RequestPayload::Watch(kind) => {
-                futures::select! {
-                    _ = self.watch(req.id, kind).fuse() => {},
-                    _ = close_rx.recv().fuse() => {
-                        println!("req cancelled due to closed connection: {:?}", req)
-                    }
-                    _ = self.clone().await_cancel(req.id).fuse() => {
-                        println!("req cancelled due to cancel message: {:?}", req)
-                    }
-                };
+            _ = self.clone().await_cancel(req.id).fuse() => {
+                println!("req cancelled due to cancel message: {:?}", req)
             }
-            RequestPayload::Query2Cursor(query) => {
-                futures::select! {
-                    _ = self.query2cursor(req.id, query).fuse() => {},
-                    _ = close_rx.recv().fuse() => {
-                        println!("req cancelled due to closed connection: {:?}", req)
-                    }
-                    _ = self.clone().await_cancel(req.id).fuse() => {
-                        println!("req cancelled due to cancel message: {:?}", req)
-                    }
-                };
-            }
-            RequestPayload::Cancel => {
-                let cancel_chans = self.cancel_chans.lock().await;
-                if let Some(tx) = cancel_chans.get(&req.id).and_then(|tx| tx.upgrade()) {
-                    let _ = tx.lock().await.take().unwrap().send(());
-                }
-            }
-            _ => todo!(),
         };
+    }
+
+    async fn send_out(&self, req: &ReqFrame, contents: impl Future<Output = ResponsePayload>) {
+        let result = contents.await;
+        self.stream_tx
+            .clone()
+            .send(RespFrame {
+                id: req.id,
+                payload: result,
+            })
+            .await
+            .expect("unable to send out response frame");
+    }
+
+    async fn handle_req(self: Arc<Self>, req: ReqFrame, close_rx: broadcast::Receiver<()>) {
+        if let RequestPayload::Cancel = req.payload {
+            let cancel_chans = self.cancel_chans.lock().await;
+            if let Some(tx) = cancel_chans.get(&req.id).and_then(|tx| tx.upgrade()) {
+                let _ = tx.lock().await.take().unwrap().send(());
+            }
+            return;
+        }
+
+        // TODO(refactor)
+        let self_ = self.clone();
+        self.setup_cancellation(&req, close_rx, async {
+            match &req.payload {
+                RequestPayload::DoS(dos) => self_.dos(dos).await,
+                RequestPayload::Watch(kind) => self_.watch(req.id, kind).await,
+                RequestPayload::Query2Cursor(query) => {
+                    self_.send_out(&req, self_.query2cursor(query)).await
+                }
+                _ => todo!(),
+            };
+        }).await;
     }
 }
 
