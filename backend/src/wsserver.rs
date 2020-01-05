@@ -40,7 +40,7 @@ enum RequestPayload {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 enum ResponsePayload {
-    Counters(crate::counters::Counters),
+    Counters(HashMap<String, u64>),
     Cursor(query::Cursor),
     Error(String),
 }
@@ -75,14 +75,18 @@ impl ConnectionHandler {
             StreamKind::Counters => {
                 let mut out_stream = self.stream_tx.clone();
                 let mut watcher = crate::counters::subscribe();
+                let mut prev = HashMap::new();
                 while let Some(counters) = watcher.recv().await {
+                    let mut next = counters.as_hashmap();
+                    next.retain(|k, v| v != prev.get(k).unwrap_or(&0));
                     out_stream
                         .send(RespFrame {
                             id: req_id,
-                            payload: ResponsePayload::Counters(counters),
+                            payload: ResponsePayload::Counters(next),
                         })
                         .await
                         .unwrap();
+                    prev = counters.as_hashmap();
                 }
             }
             StreamKind::Query(..) => todo!(),

@@ -57,6 +57,12 @@ impl CountersAsMapHack {
     }
 }
 
+impl Counters {
+    pub(crate) fn as_hashmap(&self) -> HashMap<String,u64> {
+        CountersAsMapHack::from_counters(self).0
+    }
+}
+
 fn aggregate_counters() -> (
     mpsc::UnboundedSender<CountersCell>,
     watch::Receiver<Counters>,

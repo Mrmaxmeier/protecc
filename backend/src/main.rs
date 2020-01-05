@@ -7,10 +7,11 @@ use std::alloc::System;
 static GLOBAL: System = System;
 
 pub(crate) mod counters;
+pub(crate) mod reassembly;
+pub(crate) mod pipeline;
 mod database;
 mod pcapreader;
 mod query;
-pub(crate) mod reassembly;
 mod wsserver;
 
 use reassembly::Reassembler;

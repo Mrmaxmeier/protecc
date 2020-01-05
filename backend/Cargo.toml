@@ -5,14 +5,9 @@ authors = []
 edition = "2018"
 
 [dependencies]
-#tonic = "0.1.0-beta.1"
-#bytes = "0.4"
-#prost = "0.5"
-#prost-derive = "0.5"
 tokio = { version = "0.2", features = ["macros", "sync", "tcp", "rt-core", "rt-threaded", "time", "stream"]}
 tokio-tungstenite = { git = "https://github.com/dbcfd/tokio-tungstenite", branch="tokio2" }
 futures = { version = "0.3.1", default-features = false, features = ["alloc"] }
-#async-stream = "0.2.0"
 pktparse = "0.4.1"
 pcap-parser = { version = "0.8.2", features = ["data"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -25,6 +20,3 @@ lazy_static = "1.4.0"
 
 [patch.crates-io]
 tokio = { git = "https://github.com/jxs/tokio" } # for RwLock
-
-#[build-dependencies]
-#tonic-build = "0.1.0-beta.1"
