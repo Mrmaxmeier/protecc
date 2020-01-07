@@ -50,11 +50,12 @@ impl CountersAsMapHack {
         let val = serde_json::to_value(counters).unwrap();
         serde_json::from_value(val).unwrap()
     }
-
+/*
     fn into_counters(&self) -> Counters {
         let val = serde_json::to_value(self).unwrap();
         serde_json::from_value(val).unwrap()
     }
+*/
 }
 
 impl Counters {

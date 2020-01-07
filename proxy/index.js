@@ -38,7 +38,7 @@ io.on('connection', function (socket) {
     socket.on('close', function (s) {
         const arg = JSON.parse(s);
         console.log('close: ' + s);
-        ws.send(JSON.stringify({ id: arg.id, payload: "Cancel" }));
+        ws.send(JSON.stringify({ id: arg.id, payload: "cancel" }));
         delete connections[arg.id];
     });
 });

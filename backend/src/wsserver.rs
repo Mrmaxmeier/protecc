@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 use futures::channel::mpsc;
 use futures::future::Future;
@@ -63,7 +63,7 @@ enum DebugDenialOfService {
 
 struct ConnectionHandler {
     db: Arc<Database>,
-    cancel_chans: Mutex<HashMap<u64, Weak<Mutex<Option<oneshot::Sender<()>>>>>>, // TODO: refactor this
+    cancel_chans: Mutex<HashMap<u64, oneshot::Sender<()>>>,
     stream_tx: mpsc::Sender<RespFrame>,
 }
 
@@ -130,19 +130,10 @@ impl ConnectionHandler {
         ResponsePayload::Cursor(cursor)
     }
 
-    async fn gc_cancel_chans(&self) {
-        let mut chans = self.cancel_chans.lock().await;
-        chans.retain(|_, v| v.strong_count() > 0);
-    }
-
     async fn await_cancel(self: Arc<Self>, id: u64) {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let tx = Arc::new(Mutex::new(Some(tx)));
         {
-            self.cancel_chans
-                .lock()
-                .await
-                .insert(id, Arc::downgrade(&tx));
+            self.cancel_chans.lock().await.insert(id, tx);
         }
         let _ = rx.await;
     }
@@ -159,9 +150,13 @@ impl ConnectionHandler {
                 println!("req cancelled due to closed connection: {:?}", req)
             }
             _ = self.clone().await_cancel(req.id).fuse() => {
-                println!("req cancelled due to cancel message: {:?}", req)
+                println!("req cancelled due to cancel message: {:?}", req);
+                return;
             }
         };
+
+        let mut cancel_chans = self.cancel_chans.lock().await;
+        let _ = cancel_chans.remove(&req.id); // drop cancel channel if present
     }
 
     async fn send_out(&self, req: &ReqFrame, contents: impl Future<Output = ResponsePayload>) {
@@ -178,10 +173,8 @@ impl ConnectionHandler {
 
     async fn handle_req(self: Arc<Self>, req: ReqFrame, close_rx: broadcast::Receiver<()>) {
         if let RequestPayload::Cancel = req.payload {
-            let cancel_chans = self.cancel_chans.lock().await;
-            if let Some(tx) = cancel_chans.get(&req.id).and_then(|tx| tx.upgrade()) {
-                let _ = tx.lock().await.take().unwrap().send(());
-            }
+            let mut cancel_chans = self.cancel_chans.lock().await;
+            let _ = cancel_chans.remove(&req.id); // drop cancel channel if present
             return;
         }
 
@@ -196,7 +189,8 @@ impl ConnectionHandler {
                 }
                 _ => todo!(),
             };
-        }).await;
+        })
+        .await;
     }
 }
 
@@ -276,7 +270,6 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
                     .expect("failed to send");
             }
         }
-        conn_handler.gc_cancel_chans().await;
     }
 
     println!("WebSocket connection dropped: {}", addr);
