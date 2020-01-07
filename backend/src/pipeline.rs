@@ -1,8 +1,8 @@
+use crate::database::{Stream, StreamID};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::database::{Stream, StreamID};
-use tokio::sync::{watch, RwLock};
 use std::sync::Arc;
+use tokio::sync::{watch, RwLock};
 
 #[derive(Debug, Clone)]
 struct NodeStatus {
@@ -11,10 +11,10 @@ struct NodeStatus {
     state: Option<Value>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct ExecutionPlan {
-    map_stage: Vec<Arc<PipelineNode>>, // wait for these acks
-    tag_stage: Vec<Arc<PipelineNode>>, // wait for these acks
+    map_stage: Vec<Arc<PipelineNode>>,    // wait for these acks
+    tag_stage: Vec<Arc<PipelineNode>>,    // wait for these acks
     reduce_stage: Vec<Arc<PipelineNode>>, // wait for these acks
 }
 
@@ -29,9 +29,7 @@ pub(crate) struct PipelineManager {
 impl PipelineManager {
     pub(crate) fn new() -> Self {
         let (selfdestruct_tx, selfdestruct_rx) = watch::channel(false);
-        let (execution_plan_tx, execution_plan_rx) = watch::channel(ExecutionPlan {
-            stages: Vec::new()
-        });
+        let (execution_plan_tx, execution_plan_rx) = watch::channel(ExecutionPlan::default());
         PipelineManager {
             nodes: Vec::new(),
             execution_plan: Vec::new(),
@@ -69,7 +67,7 @@ pub(crate) enum PipelineKind {
 pub(crate) struct PipelineRegistration {
     name: String,
     kind: PipelineKind,
-    ignore_payloads: bool,
+    ignore_payloads: Option<bool>,
     filter: crate::query::QueryFilter,
 }
 

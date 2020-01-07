@@ -7,6 +7,7 @@ import json
 connect_message = {
     "registerActor": {
         "name": "Sample Tagger",
+        "kind": "Tagger",
         "filter": {"service": 8080},
     }
 }

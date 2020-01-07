@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::database::Database;
+use crate::database::{Database, StreamID};
 use crate::incr_counter;
 use crate::query;
 
@@ -35,6 +35,9 @@ enum RequestPayload {
     StepCursor(query::Cursor),
     Query2Cursor(query::Query),
     DoS(DebugDenialOfService),
+    ToggleWindowAttach(u64),
+    GrowWindow(u64),
+    FetchStreamPayload(StreamID),
     RegisterActor(crate::pipeline::PipelineRegistration),
 }
 
@@ -45,13 +48,18 @@ enum ResponsePayload {
     Cursor(query::Cursor),
     NewStream(crate::pipeline::NewStreamNotification),
     Error(String),
+    WindowUpdate {
+        new: Vec<()>,
+        extended: Vec<()>,
+        deleted: Vec<()>, // for tags
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 enum StreamKind {
     Counters,
-    Query(query::Query),
+    Window(query::Query),
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -91,7 +99,7 @@ impl ConnectionHandler {
                     prev = counters.as_hashmap();
                 }
             }
-            StreamKind::Query(..) => todo!(),
+            StreamKind::Window(..) => todo!(),
         }
     }
 
@@ -261,5 +269,6 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
     }
 
     println!("WebSocket connection dropped: {}", addr);
+    // NOTE: this aborts all in-flight requests and releases all held locks.
     conn_handler.cancel_chans.lock().await.drain();
 }

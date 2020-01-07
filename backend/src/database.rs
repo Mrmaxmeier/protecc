@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{watch, RwLock};
 
 use crate::incr_counter;
 use crate::pipeline::PipelineManager;
@@ -105,6 +105,10 @@ impl Service {
 
 pub(crate) struct Database {
     pub(crate) streams: RwLock<Vec<Stream>>,
+    /*
+    pub(crate) stream_notification_rx: watch::Receiver<StreamID>,
+    pub(crate) stream_notification_tx: watch::Sender<StreamID>,
+    */
     pub(crate) tag_index: RwLock<TagIndex>,
     pub(crate) services: RwLock<HashMap<u16, Arc<RwLock<Service>>>>,
     pub(crate) pipeline: RwLock<PipelineManager>,
