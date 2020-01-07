@@ -35,6 +35,7 @@ enum RequestPayload {
     StepCursor(query::Cursor),
     Query2Cursor(query::Query),
     DoS(DebugDenialOfService),
+    RegisterActor(crate::pipeline::PipelineRegistration),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -42,6 +43,7 @@ enum RequestPayload {
 enum ResponsePayload {
     Counters(HashMap<String, u64>),
     Cursor(query::Cursor),
+    NewStream(crate::pipeline::NewStreamNotification),
     Error(String),
 }
 

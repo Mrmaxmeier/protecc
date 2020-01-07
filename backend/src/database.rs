@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::incr_counter;
+use crate::pipeline::PipelineManager;
 
 use serde::{Deserialize, Serialize};
 
@@ -106,6 +107,7 @@ pub(crate) struct Database {
     pub(crate) streams: RwLock<Vec<Stream>>,
     pub(crate) tag_index: RwLock<TagIndex>,
     pub(crate) services: RwLock<HashMap<u16, Arc<RwLock<Service>>>>,
+    pub(crate) pipeline: RwLock<PipelineManager>,
     pub(crate) payload_db: rocksdb::DB,
 }
 
@@ -122,6 +124,7 @@ impl Database {
             streams: RwLock::new(Vec::new()),
             tag_index: RwLock::new(TagIndex::new()),
             services: RwLock::new(HashMap::new()),
+            pipeline: RwLock::new(PipelineManager::new()),
             payload_db,
         }
     }
