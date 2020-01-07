@@ -8,7 +8,7 @@ use futures::future::FutureExt;
 use futures::sink::SinkExt;
 use futures::StreamExt;
 use tokio::net::TcpStream;
-use tokio::sync::{broadcast, oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::database::Database;
@@ -138,19 +138,11 @@ impl ConnectionHandler {
         let _ = rx.await;
     }
 
-    async fn setup_cancellation<T: Future>(
-        self: Arc<Self>,
-        req: &ReqFrame,
-        mut close_rx: broadcast::Receiver<()>,
-        f: T,
-    ) {
+    async fn setup_cancellation<T: Future>(self: Arc<Self>, req: &ReqFrame, f: T) {
         futures::select! {
             _ = f.fuse() => {},
-            _ = close_rx.recv().fuse() => {
-                println!("req cancelled due to closed connection: {:?}", req)
-            }
             _ = self.clone().await_cancel(req.id).fuse() => {
-                println!("req cancelled due to cancel message: {:?}", req);
+                println!("req cancelled: {:?}", req);
                 return;
             }
         };
@@ -171,7 +163,7 @@ impl ConnectionHandler {
             .expect("unable to send out response frame");
     }
 
-    async fn handle_req(self: Arc<Self>, req: ReqFrame, close_rx: broadcast::Receiver<()>) {
+    async fn handle_req(self: Arc<Self>, req: ReqFrame) {
         if let RequestPayload::Cancel = req.payload {
             let mut cancel_chans = self.cancel_chans.lock().await;
             let _ = cancel_chans.remove(&req.id); // drop cancel channel if present
@@ -180,7 +172,7 @@ impl ConnectionHandler {
 
         // TODO(refactor)
         let self_ = self.clone();
-        self.setup_cancellation(&req, close_rx, async {
+        self.setup_cancellation(&req, async {
             match &req.payload {
                 RequestPayload::DoS(dos) => self_.dos(dos).await,
                 RequestPayload::Watch(kind) => self_.watch(req.id, kind).await,
@@ -215,10 +207,6 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
         stream_tx,
     });
 
-    // NOTE: this is sort of redundant with cancel_chans.
-    // It provides nice unwinding semantics though.
-    let (close_tx, _) = broadcast::channel(1);
-
     let (mut write, read) = ws_stream.split();
     enum SelectKind {
         In(Result<Message, tokio_tungstenite::tungstenite::error::Error>),
@@ -240,9 +228,7 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
                         let frame = serde_json::from_str::<ReqFrame>(&text);
                         if let Ok(frame) = frame {
                             dbg!(&frame);
-                            tokio::spawn(
-                                conn_handler.clone().handle_req(frame, close_tx.subscribe()),
-                            );
+                            tokio::spawn(conn_handler.clone().handle_req(frame));
                         } else {
                             let resp = RespFrame {
                                 id: 0,
@@ -273,5 +259,5 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
     }
 
     println!("WebSocket connection dropped: {}", addr);
-    drop(write); // NOTE: this canceles all waiting / lock-bearing in-flight requests
+    conn_handler.cancel_chans.lock().await.drain();
 }
