@@ -38,14 +38,6 @@ impl PipelineManager {
             selfdestruct_rx,
         }
     }
-    fn recalc(&mut self) {
-        self.execution_plan.clear();
-        self.nodes.sort_by_key(|node| match node.kind {
-            PipelineKind::Mapper => 0,
-            PipelineKind::Tagger => 1,
-            PipelineKind::Reducer => 2,
-        });
-    }
 }
 
 #[derive(Debug)]

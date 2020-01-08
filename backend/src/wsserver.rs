@@ -11,9 +11,10 @@ use tokio::net::TcpStream;
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::database::{Database, StreamID};
+use crate::database::{Database, Stream, StreamID};
 use crate::incr_counter;
 use crate::query;
+use crate::window::{Window, WindowHandle};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct RespFrame {
@@ -35,8 +36,10 @@ enum RequestPayload {
     StepCursor(query::Cursor),
     Query2Cursor(query::Query),
     DoS(DebugDenialOfService),
-    ToggleWindowAttach(u64),
-    GrowWindow(u64),
+    WindowUpdate {
+        id: u64,
+        params: crate::window::WindowParameters,
+    },
     FetchStreamPayload(StreamID),
     RegisterActor(crate::pipeline::PipelineRegistration),
 }
@@ -48,18 +51,17 @@ enum ResponsePayload {
     Cursor(query::Cursor),
     NewStream(crate::pipeline::NewStreamNotification),
     Error(String),
-    WindowUpdate {
-        new: Vec<crate::database::Stream>,
-        extended: Vec<()>,
-        deleted: Vec<()>, // for tags
-    },
+    WindowUpdate(crate::window::WindowUpdate),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 enum StreamKind {
     Counters,
-    Window(query::QueryIndex),
+    Window {
+        index: query::QueryIndex,
+        params: crate::window::WindowParameters,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -74,6 +76,7 @@ enum DebugDenialOfService {
 struct ConnectionHandler {
     db: Arc<Database>,
     cancel_chans: Mutex<HashMap<u64, oneshot::Sender<()>>>,
+    windows: Mutex<HashMap<u64, Arc<WindowHandle>>>,
     stream_tx: mpsc::Sender<RespFrame>,
 }
 
@@ -100,23 +103,27 @@ impl ConnectionHandler {
                     prev = counters.as_hashmap();
                 }
             }
-            StreamKind::Window(index) => {
+            StreamKind::Window { index, params } => {
                 let mut out_stream = self.stream_tx.clone();
                 let db = self.db.clone();
 
-                let window = crate::window::Window::new(*index, &*db);
+                let (mut window, window_handle) = crate::window::Window::new(index, db).await;
+                window_handle.update(params.clone()).await;
+                {
+                    self.windows.lock().await.insert(req_id, window_handle);
+                }
 
-                out_stream
-                    .send(RespFrame {
-                        id: req_id,
-                        payload: ResponsePayload::WindowUpdate {
-                            deleted: Vec::new(),
-                            extended: Vec::new(),
-                            new: Vec::new(),
-                        },
-                    })
-                    .await
-                    .unwrap();
+                loop {
+                    let window_update = window.next_update().await;
+
+                    out_stream
+                        .send(RespFrame {
+                            id: req_id,
+                            payload: ResponsePayload::WindowUpdate(window_update),
+                        })
+                        .await
+                        .unwrap();
+                }
             }
         }
     }
@@ -207,6 +214,12 @@ impl ConnectionHandler {
                 RequestPayload::Query2Cursor(query) => {
                     self_.send_out(&req, self_.query2cursor(query)).await
                 }
+                RequestPayload::WindowUpdate { id, params } => {
+                    let windows = self_.windows.lock().await;
+                    if let Some(window) = windows.get(id) {
+                        window.update(params.clone()).await;
+                    }
+                }
                 _ => todo!(),
             };
         })
@@ -231,7 +244,8 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
 
     let conn_handler = Arc::new(ConnectionHandler {
         db: database,
-        cancel_chans: tokio::sync::Mutex::new(HashMap::new()),
+        cancel_chans: Mutex::new(HashMap::new()),
+        windows: Mutex::new(HashMap::new()),
         stream_tx,
     });
 

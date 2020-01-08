@@ -8,7 +8,7 @@ use crate::incr_counter;
 use crate::pipeline::PipelineManager;
 use crate::reassembly::StreamReassembly;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /*
 TODO(perf/footprint):
@@ -23,6 +23,7 @@ MAYBE(footprint):
 
 // Note: Stream should be small and cheap to clone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Stream {
     pub(crate) id: StreamID,
     pub(crate) client: (IpAddr, u16),
@@ -35,6 +36,7 @@ pub(crate) struct Stream {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) enum Sender {
     Client,
     Server,
@@ -59,13 +61,37 @@ const SERVICE_PACKET_THRESHOLD: usize = 0x400;
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct StreamID(usize);
 impl StreamID {
+    pub(crate) fn new(idx: usize) -> Self {
+        StreamID(idx)
+    }
     pub(crate) fn idx(&self) -> usize {
         self.0
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub(crate) struct StreamPayloadID(u64);
+
+impl Serialize for StreamPayloadID {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        format!("{}", self.0).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for StreamPayloadID {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(String::deserialize(deserializer)?
+            .parse::<u64>()
+            .map(StreamPayloadID)
+            .unwrap())
+    }
+}
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct TagID(u64);
@@ -178,6 +204,7 @@ impl Database {
         segments: Vec<Segment>,
         client_data: &[u8],
         server_data: &[u8],
+        streamid_tx: &mut watch::Sender<StreamID>, // TODO refactor
     ) {
         tracyrs::zone!("Database::push_raw");
         let client_data_id = self.store_data(client_data);
@@ -192,10 +219,10 @@ impl Database {
             tags: HashSet::new(),
             features: HashMap::new(),
         };
-        self.push(stream).await;
+        self.push(stream, streamid_tx).await;
     }
 
-    pub(crate) async fn push(&self, mut stream: Stream) {
+    pub(crate) async fn push(&self, mut stream: Stream, streamid_tx: &mut watch::Sender<StreamID>) {
         // TODO: refactor
         // TODO(perf?): hold writer lock while parsing whole pcap?
         assert!(stream.tags.is_empty());
@@ -207,6 +234,8 @@ impl Database {
             streams.push(stream);
             id
         };
+
+        streamid_tx.broadcast(stream_id).unwrap();
 
         self.services
             .write()
@@ -234,7 +263,7 @@ impl Database {
             let stream = rx.next().await.unwrap();
             tracyrs::zone!("ingest_streams", "ingesting stream");
             stream
-                .finalize(&*self, &mut client_buf, &mut server_buf)
+                .finalize(&*self, &mut client_buf, &mut server_buf, &mut streamid_tx)
                 .await;
         }
     }

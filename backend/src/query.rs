@@ -63,7 +63,7 @@ pub(crate) struct Cursor {
     pub(crate) scan_max: usize,    // for progress indicators
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum QueryIndex {
     All,

@@ -128,6 +128,7 @@ impl StreamReassembly {
         db: &Database,
         _flat_client: &mut Vec<u8>,
         _flat_server: &mut Vec<u8>,
+        id_tx: &mut tokio::sync::watch::Sender<crate::database::StreamID>,
     ) {
         let StreamReassembly {
             client,
@@ -154,6 +155,7 @@ impl StreamReassembly {
             )
             .collect::<Vec<_>>();
 
+        // TODO: better sort
         packets.sort_by(|a, b| a.1.timestamp.cmp(&b.1.timestamp));
 
         let mut segments = Vec::with_capacity(packets.len());
@@ -180,7 +182,7 @@ impl StreamReassembly {
             });
         }
 
-        db.push_raw(client, server, segments, _flat_client, _flat_server)
+        db.push_raw(client, server, segments, _flat_client, _flat_server, id_tx)
             .await;
     }
 }
