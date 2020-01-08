@@ -11,10 +11,10 @@ use tokio::net::TcpStream;
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::database::{Database, Stream, StreamID};
+use crate::database::{Database, StreamID};
 use crate::incr_counter;
 use crate::query;
-use crate::window::{Window, WindowHandle};
+use crate::window::WindowHandle;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct RespFrame {
@@ -49,6 +49,7 @@ enum RequestPayload {
 enum ResponsePayload {
     Counters(HashMap<String, u64>),
     Cursor(query::Cursor),
+    CursorResult(query::Cursor, Vec<crate::database::Stream>, bool),
     NewStream(crate::pipeline::NewStreamNotification),
     Error(String),
     WindowUpdate(crate::window::WindowUpdate),
@@ -109,20 +110,22 @@ impl ConnectionHandler {
 
                 let (mut window, window_handle) = crate::window::Window::new(index, db).await;
                 window_handle.update(params.clone()).await;
+
                 {
                     self.windows.lock().await.insert(req_id, window_handle);
                 }
 
                 loop {
-                    let window_update = window.next_update().await;
-
-                    out_stream
-                        .send(RespFrame {
-                            id: req_id,
-                            payload: ResponsePayload::WindowUpdate(window_update),
-                        })
-                        .await
-                        .unwrap();
+                    if let Some(window_update) = window.next_update().await {
+                        let payload = ResponsePayload::WindowUpdate(window_update);
+                        out_stream
+                            .send(RespFrame {
+                                id: req_id,
+                                payload,
+                            })
+                            .await
+                            .unwrap();
+                    }
                 }
             }
         }
@@ -157,12 +160,14 @@ impl ConnectionHandler {
 
     async fn query2cursor(&self, query: &query::Query) -> ResponsePayload {
         let cursor = query.clone().into_cursor(&*self.db).await;
-        if cursor.has_next() {
-            // TODO: remove
-            let mut buf = Vec::new();
-            cursor.execute(&*self.db, &mut buf).await;
-        }
         ResponsePayload::Cursor(cursor)
+    }
+
+    async fn step_cursor(&self, cursor: &query::Cursor) -> ResponsePayload {
+        let mut buf = Vec::new();
+        let cursor = cursor.execute(&*self.db, &mut buf).await;
+        let has_next = cursor.has_next();
+        ResponsePayload::CursorResult(cursor, buf, has_next)
     }
 
     async fn await_cancel(self: Arc<Self>, id: u64) {
@@ -199,6 +204,7 @@ impl ConnectionHandler {
     }
 
     async fn handle_req(self: Arc<Self>, req: ReqFrame) {
+        tracyrs::zone!("ConnHandler::handle_req");
         if let RequestPayload::Cancel = req.payload {
             let mut cancel_chans = self.cancel_chans.lock().await;
             let _ = cancel_chans.remove(&req.id); // drop cancel channel if present
@@ -220,10 +226,21 @@ impl ConnectionHandler {
                         window.update(params.clone()).await;
                     }
                 }
+                RequestPayload::StepCursor(cursor) => {
+                    self_.send_out(&req, self_.step_cursor(cursor)).await
+                }
                 _ => todo!(),
             };
         })
         .await;
+
+        match &req.payload {
+            RequestPayload::Watch(StreamKind::Window { .. }) => {
+                let mut windows = self_.windows.lock().await;
+                let _ = windows.remove(&req.id);
+            }
+            _ => { /* no cleanup */ }
+        }
     }
 }
 
@@ -273,7 +290,7 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
                             tokio::spawn(conn_handler.clone().handle_req(frame));
                         } else {
                             let resp = RespFrame {
-                                id: 0,
+                                id: 0x4141_4141,
                                 payload: ResponsePayload::Error(format!("{:?}", frame)),
                             };
                             write
