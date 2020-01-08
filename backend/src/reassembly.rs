@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::SystemTime;
+use tokio::sync::mpsc;
 
 use pktparse::tcp::TcpHeader;
 use std::cmp::max;
@@ -30,6 +31,7 @@ pub(crate) struct Packet {
     pub(crate) data: Vec<u8>,
 }
 
+#[derive(Debug)]
 struct Stream {
     unacked: Vec<Packet>,
     highest_ack: Option<u32>,
@@ -37,6 +39,7 @@ struct Stream {
     latest_packet: Option<u64>,
     packets: Vec<Packet>, // TODO(footprint/perf): smallvec this
 }
+
 impl Stream {
     fn new() -> Self {
         Stream {
@@ -49,6 +52,7 @@ impl Stream {
     }
 
     fn add(&mut self, p: Packet) {
+        tracyrs::zone!("Stream::add");
         // TODO: acked vs non-acked
         let timestamp_secs = packet_time_secs(&p);
         self.latest_packet = Some(max(self.latest_packet.unwrap_or(0), timestamp_secs));
@@ -80,7 +84,8 @@ impl Stream {
     }
 }
 
-struct StreamReassembly {
+#[derive(Debug)]
+pub(crate) struct StreamReassembly {
     server: (IpAddr, u16),
     client: (IpAddr, u16),
     client_to_server: Stream,
@@ -117,7 +122,13 @@ impl StreamReassembly {
     fn is_done(&self) -> bool {
         self.reset || (self.client_to_server.is_closed && self.server_to_client.is_closed)
     }
-    async fn finalize(self, db: &Database, _flat_client: &mut Vec<u8>, _flat_server: &mut Vec<u8>) {
+
+    pub(crate) async fn finalize(
+        self,
+        db: &Database,
+        _flat_client: &mut Vec<u8>,
+        _flat_server: &mut Vec<u8>,
+    ) {
         let StreamReassembly {
             client,
             server,
@@ -183,23 +194,21 @@ impl StreamId {
 
 pub(crate) struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
-    database: Arc<Database>,
     latest_timestamp: u64,
-    _flattened_server_buf: Vec<u8>,
-    _flattened_client_buf: Vec<u8>,
+    database_ingest: mpsc::Sender<StreamReassembly>,
 }
 impl Reassembler {
     pub(crate) fn new(database: Arc<Database>) -> Self {
+        let database_ingest = database.ingest_tx.clone();
         Reassembler {
-            database,
             reassemblies: HashMap::new(),
             latest_timestamp: 0,
-            _flattened_client_buf: Vec::new(),
-            _flattened_server_buf: Vec::new(),
+            database_ingest,
         }
     }
 
     pub(crate) async fn advance_state(&mut self, p: Packet) {
+        tracyrs::zone!("Reassembler::advance_state");
         let timestamp_secs = packet_time_secs(&p);
         assert!(timestamp_secs >= self.latest_timestamp);
         self.latest_timestamp = timestamp_secs;
@@ -241,28 +250,19 @@ impl Reassembler {
         if is_done {
             incr_counter!(streams_completed);
             let stream = self.reassemblies.remove(&id).unwrap();
-            stream
-                .finalize(
-                    &self.database,
-                    &mut self._flattened_client_buf,
-                    &mut self._flattened_server_buf,
-                )
-                .await;
+            tracyrs::zone!("database_ingest.send");
+            self.database_ingest.send(stream).await.unwrap();
         }
     }
 
     pub(crate) async fn expire(&mut self) {
+        tracyrs::zone!("Reassembler::expire");
         let reassemblies = std::mem::replace(&mut self.reassemblies, HashMap::new());
         for (key, stream) in reassemblies.into_iter() {
             if stream.latest_timestamp + PACKET_EXPIRE_THRESHOLD_SECS < self.latest_timestamp {
-                stream
-                    .finalize(
-                        &self.database,
-                        &mut self._flattened_client_buf,
-                        &mut self._flattened_server_buf,
-                    )
-                    .await;
                 incr_counter!(streams_timeout_expired);
+                tracyrs::zone!("database_ingest.send");
+                self.database_ingest.send(stream).await.unwrap();
             } else {
                 self.reassemblies.insert(key, stream);
             }

@@ -10,6 +10,7 @@ use crate::incr_counter;
 use crate::reassembly::{Packet, Reassembler};
 
 fn handle_packetdata(packet: PacketData) -> Option<Packet> {
+    tracyrs::zone!("handle_packetdata");
     match packet {
         PacketData::L2(payload) => handle_l2(payload),
         PacketData::L3(ETHERTYPE_IPV4, payload) => handle_ip4(payload),
@@ -84,8 +85,8 @@ fn handle_tcp(data: &[u8], addrs: (IpAddr, IpAddr)) -> Option<Packet> {
 }
 
 pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
+    tracyrs::zone!("pcap_read_file");
     let start = std::time::Instant::now();
-
 
     let file = File::open(path).unwrap();
     let mut reader = if path.ends_with(".pcapng") {
@@ -98,9 +99,13 @@ pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
     let mut if_linktypes = Vec::new();
     let mut if_tsconfig = Vec::new();
     loop {
-        match reader.next() {
+        match {
+            tracyrs::zone!("pcap_read_file", "reader.next");
+            reader.next()
+        } {
             Ok((offset, block)) => {
                 incr_counter!(pcap_blocks);
+                tracyrs::zone!("pcap_read_file", "pcap process block");
                 match block {
                     PcapBlockOwned::NG(Block::SectionHeader(ref _shb)) => {
                         // starting a new section, clear known interfaces
@@ -186,15 +191,21 @@ pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
                         if_linktypes.push(header.network);
                     }
                 }
-                reader.consume(offset);
+                {
+                    tracyrs::zone!("read_pcap_file", "reader.consume");
+                    reader.consume(offset);
+                }
             }
             Err(PcapError::Eof) => break,
             Err(PcapError::Incomplete) => {
+                tracyrs::zone!("read_pcap_file", "reader.refill");
                 reader.refill().unwrap();
             }
             Err(e) => panic!("error while reading: {:?}", e),
         }
     }
     incr_counter!(pcaps_imported);
-    crate::counters::update_counters(|c| c.pcap_processing_milliseconds += start.elapsed().as_millis() as u64);
+    crate::counters::update_counters(|c| {
+        c.pcap_processing_milliseconds += start.elapsed().as_millis() as u64
+    });
 }

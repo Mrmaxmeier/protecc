@@ -7,22 +7,21 @@ use std::alloc::System;
 static GLOBAL: System = System;
 
 pub(crate) mod counters;
-pub(crate) mod reassembly;
-pub(crate) mod pipeline;
 mod database;
 mod pcapreader;
+pub(crate) mod pipeline;
 mod query;
+pub(crate) mod reassembly;
 mod wsserver;
 
 use reassembly::Reassembler;
 
 use std::env::args;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let database = Arc::new(database::Database::new());
+    let database = database::Database::new();
     let mut reassembler = Reassembler::new(database.clone());
 
     let fut = tokio::spawn(async move {

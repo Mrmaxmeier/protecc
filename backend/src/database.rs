@@ -1,10 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
-use tokio::sync::{watch, RwLock};
+use tokio::stream::StreamExt;
+use tokio::sync::{mpsc, watch, RwLock};
 
 use crate::incr_counter;
 use crate::pipeline::PipelineManager;
+use crate::reassembly::StreamReassembly;
 
 use serde::{Deserialize, Serialize};
 
@@ -113,10 +115,11 @@ pub(crate) struct Database {
     pub(crate) services: RwLock<HashMap<u16, Arc<RwLock<Service>>>>,
     pub(crate) pipeline: RwLock<PipelineManager>,
     pub(crate) payload_db: rocksdb::DB,
+    pub(crate) ingest_tx: mpsc::Sender<StreamReassembly>,
 }
 
 impl Database {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new() -> Arc<Self> {
         let payload_db = rocksdb::DB::open_default("stream_payloads.rocksdb").unwrap();
         /*
         if !payload_db.is_empty() {
@@ -124,16 +127,21 @@ impl Database {
             payload_db.clear().unwrap();
         }
         */
-        Database {
+        let (ingest_tx, ingest_rx) = mpsc::channel(256);
+        let db = Arc::new(Database {
             streams: RwLock::new(Vec::new()),
             tag_index: RwLock::new(TagIndex::new()),
             services: RwLock::new(HashMap::new()),
             pipeline: RwLock::new(PipelineManager::new()),
+            ingest_tx,
             payload_db,
-        }
+        });
+        tokio::spawn(db.clone().ingest_streams_from(ingest_rx));
+        db
     }
 
     fn store_data(&self, data: &[u8]) -> StreamPayloadID {
+        tracyrs::zone!("Database::store_data");
         use std::hash::Hasher;
         let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
         hasher.write(data);
@@ -159,6 +167,7 @@ impl Database {
         client_data: &[u8],
         server_data: &[u8],
     ) {
+        tracyrs::zone!("Database::push_raw");
         let client_data_id = self.store_data(client_data);
         let server_data_id = self.store_data(server_data);
         let stream = Stream {
@@ -196,5 +205,21 @@ impl Database {
             .await
             .push(stream_id, &self)
             .await;
+    }
+
+    pub(crate) async fn ingest_streams_from(
+        self: Arc<Self>,
+        mut rx: mpsc::Receiver<StreamReassembly>,
+    ) {
+        tracyrs::zone!("ingest_streams");
+        let mut client_buf = Vec::new();
+        let mut server_buf = Vec::new();
+        loop {
+            let stream = rx.next().await.unwrap();
+            tracyrs::zone!("ingest_streams", "ingesting stream");
+            stream
+                .finalize(&*self, &mut client_buf, &mut server_buf)
+                .await;
+        }
     }
 }

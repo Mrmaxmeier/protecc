@@ -1,11 +1,11 @@
 use derive_more::{Add, AddAssign};
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::stream::StreamExt;
 use tokio::sync::{mpsc, watch};
 use tokio::time::DelayQueue;
-use std::collections::HashMap;
 
 type CountersCell = Arc<Mutex<Option<Counters>>>;
 
@@ -44,22 +44,22 @@ pub(crate) struct Counters {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[repr(transparent)]
-pub(crate) struct CountersAsMapHack(HashMap<String,u64>);
+pub(crate) struct CountersAsMapHack(HashMap<String, u64>);
 impl CountersAsMapHack {
     fn from_counters(counters: &Counters) -> Self {
         let val = serde_json::to_value(counters).unwrap();
         serde_json::from_value(val).unwrap()
     }
-/*
-    fn into_counters(&self) -> Counters {
-        let val = serde_json::to_value(self).unwrap();
-        serde_json::from_value(val).unwrap()
-    }
-*/
+    /*
+        fn into_counters(&self) -> Counters {
+            let val = serde_json::to_value(self).unwrap();
+            serde_json::from_value(val).unwrap()
+        }
+    */
 }
 
 impl Counters {
-    pub(crate) fn as_hashmap(&self) -> HashMap<String,u64> {
+    pub(crate) fn as_hashmap(&self) -> HashMap<String, u64> {
         CountersAsMapHack::from_counters(self).0
     }
 }
@@ -111,7 +111,8 @@ fn aggregate_counters() -> (
 }
 
 fn check_for_pow2(from: u64, to: u64) -> bool {
-    (from+1).checked_next_power_of_two()
+    (from + 1)
+        .checked_next_power_of_two()
         .map(|x| to >= x)
         .unwrap_or(false)
 }
