@@ -10,7 +10,7 @@ const QUERY_SCAN_LIMIT: usize = 0x10000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Query {
-    pub(crate) kind: QueryKind,
+    pub(crate) index: QueryIndex,
     pub(crate) filter: Option<QueryFilter>,
 }
 
@@ -63,8 +63,9 @@ pub(crate) struct Cursor {
     pub(crate) scan_max: usize,    // for progress indicators
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) enum QueryKind {
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum QueryIndex {
     All,
     Service(u16),
     Tagged(TagID),
@@ -73,9 +74,9 @@ pub(crate) enum QueryKind {
 
 impl Query {
     pub(crate) async fn into_cursor(self, db: &Database) -> Cursor {
-        let scan_max = match self.kind {
-            QueryKind::All => db.streams.read().await.len(),
-            QueryKind::Service(port) => {
+        let scan_max = match self.index {
+            QueryIndex::All => db.streams.read().await.len(),
+            QueryIndex::Service(port) => {
                 let services = db.services.read().await;
                 if let Some(service) = services.get(&port) {
                     service.read().await.streams.len()
@@ -83,7 +84,7 @@ impl Query {
                     0
                 }
             }
-            QueryKind::Tagged(tag) => {
+            QueryIndex::Tagged(tag) => {
                 let tag_index = db.tag_index.read().await;
                 if let Some(service) = tag_index.tagged.get(&tag) {
                     service.len()
@@ -91,7 +92,7 @@ impl Query {
                     0
                 }
             }
-            QueryKind::ServiceTagged(port, tag) => {
+            QueryIndex::ServiceTagged(port, tag) => {
                 let services = db.services.read().await;
 
                 if let Some(service) = services.get(&port) {
@@ -110,7 +111,7 @@ impl Query {
                             scan_max: service.streams.len(),
                             scan_offset: 0,
                             query: Query {
-                                kind: QueryKind::Service(port),
+                                index: QueryIndex::Service(port),
                                 filter: Some(QueryFilter {
                                     tag: Some(tag),
                                     ..QueryFilter::default()
@@ -136,12 +137,12 @@ impl Cursor {
         self.scan_offset != self.scan_max
     }
     pub(crate) async fn execute(&self, db: &Database, buffer: &mut Vec<Stream>) -> Cursor {
-        match &self.query.kind {
-            QueryKind::All => {
+        match &self.query.index {
+            QueryIndex::All => {
                 let streams = db.streams.read().await;
                 self.limit_and_filter(buffer, streams.iter().rev().skip(self.scan_offset), db)
             }
-            QueryKind::Service(port) => {
+            QueryIndex::Service(port) => {
                 let services = db.services.read().await;
                 if let Some(service) = services.get(&port) {
                     let all_streams = db.streams.read().await;
@@ -159,7 +160,7 @@ impl Cursor {
                     self.clone()
                 }
             }
-            QueryKind::Tagged(tag_id) => {
+            QueryIndex::Tagged(tag_id) => {
                 let tag_index = db.tag_index.read().await;
                 if let Some(scan_streams) = tag_index.tagged.get(tag_id) {
                     let all_streams = db.streams.read().await;
@@ -176,7 +177,7 @@ impl Cursor {
                     self.clone()
                 }
             }
-            QueryKind::ServiceTagged(port, tag_id) => {
+            QueryIndex::ServiceTagged(port, tag_id) => {
                 let services = db.services.read().await;
                 if let Some(service) = services.get(&port) {
                     let service = service.read().await;

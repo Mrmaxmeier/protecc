@@ -7,12 +7,13 @@ use std::alloc::System;
 static GLOBAL: System = System;
 
 pub(crate) mod counters;
-mod database;
-mod pcapreader;
+pub(crate) mod database;
+pub(crate) mod pcapreader;
 pub(crate) mod pipeline;
-mod query;
+pub(crate) mod query;
 pub(crate) mod reassembly;
-mod wsserver;
+pub(crate) mod window;
+pub(crate) mod wsserver;
 
 use reassembly::Reassembler;
 
@@ -25,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut reassembler = Reassembler::new(database.clone());
 
     let fut = tokio::spawn(async move {
-        let addr = "[::1]:10000".parse::<std::net::SocketAddr>().unwrap();
+        let addr = "0.0.0.0:10000".parse::<std::net::SocketAddr>().unwrap();
         let try_socket = TcpListener::bind(&addr).await;
         let mut listener = try_socket.expect("Failed to bind");
         println!("Listening on: {}", addr);

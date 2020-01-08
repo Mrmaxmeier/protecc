@@ -24,11 +24,12 @@ MAYBE(footprint):
 // Note: Stream should be small and cheap to clone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Stream {
+    pub(crate) id: StreamID,
     pub(crate) client: (IpAddr, u16),
     pub(crate) server: (IpAddr, u16),
     pub(crate) tags: HashSet<TagID>,
     pub(crate) features: HashMap<TagID, f64>,
-    pub(crate) segments: Vec<(Sender, usize)>,
+    pub(crate) segments: Vec<Segment>,
     pub(crate) client_data_id: StreamPayloadID,
     pub(crate) server_data_id: StreamPayloadID,
 }
@@ -39,13 +40,21 @@ pub(crate) enum Sender {
     Server,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Segment {
+    pub(crate) sender: Sender,
+    pub(crate) start: usize,
+    pub(crate) timestamp: u64,
+    pub(crate) flags: u8,
+}
+
 impl Stream {
     pub(crate) fn service(&self) -> u16 {
         self.server.1
     }
 }
 
-const SERVICE_PACKET_THRESHOLD: usize = 0x1000;
+const SERVICE_PACKET_THRESHOLD: usize = 0x400;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct StreamID(usize);
@@ -107,10 +116,7 @@ impl Service {
 
 pub(crate) struct Database {
     pub(crate) streams: RwLock<Vec<Stream>>,
-    /*
     pub(crate) stream_notification_rx: watch::Receiver<StreamID>,
-    pub(crate) stream_notification_tx: watch::Sender<StreamID>,
-    */
     pub(crate) tag_index: RwLock<TagIndex>,
     pub(crate) services: RwLock<HashMap<u16, Arc<RwLock<Service>>>>,
     pub(crate) pipeline: RwLock<PipelineManager>,
@@ -120,23 +126,29 @@ pub(crate) struct Database {
 
 impl Database {
     pub(crate) fn new() -> Arc<Self> {
-        let payload_db = rocksdb::DB::open_default("stream_payloads.rocksdb").unwrap();
-        /*
-        if !payload_db.is_empty() {
-            println!("[WARN] clearing previous stream payload db");
-            payload_db.clear().unwrap();
-        }
-        */
+        tracyrs::zone!("Database::new");
+        let mut opts = rocksdb::Options::default();
+        opts.set_write_buffer_size(256 << 20);
+        opts.set_compression_type(rocksdb::DBCompressionType::Zstd);
+        opts.set_max_background_compactions(4);
+        opts.set_max_background_flushes(2);
+        opts.create_if_missing(true);
+        let payload_db = rocksdb::DB::open(&opts, "stream_payloads.rocksdb").unwrap();
         let (ingest_tx, ingest_rx) = mpsc::channel(256);
+        let (stream_notification_tx, stream_notification_rx) = watch::channel(StreamID(0));
         let db = Arc::new(Database {
             streams: RwLock::new(Vec::new()),
             tag_index: RwLock::new(TagIndex::new()),
             services: RwLock::new(HashMap::new()),
             pipeline: RwLock::new(PipelineManager::new()),
             ingest_tx,
+            stream_notification_rx,
             payload_db,
         });
-        tokio::spawn(db.clone().ingest_streams_from(ingest_rx));
+        tokio::spawn(
+            db.clone()
+                .ingest_streams_from(ingest_rx, stream_notification_tx),
+        );
         db
     }
 
@@ -163,7 +175,7 @@ impl Database {
         &self,
         client: (IpAddr, u16),
         server: (IpAddr, u16),
-        segments: Vec<(Sender, usize)>,
+        segments: Vec<Segment>,
         client_data: &[u8],
         server_data: &[u8],
     ) {
@@ -171,6 +183,7 @@ impl Database {
         let client_data_id = self.store_data(client_data);
         let server_data_id = self.store_data(server_data);
         let stream = Stream {
+            id: StreamID(0),
             client,
             server,
             segments,
@@ -182,15 +195,17 @@ impl Database {
         self.push(stream).await;
     }
 
-    pub(crate) async fn push(&self, stream: Stream) {
+    pub(crate) async fn push(&self, mut stream: Stream) {
+        // TODO: refactor
         // TODO(perf?): hold writer lock while parsing whole pcap?
         assert!(stream.tags.is_empty());
         let service = stream.service();
         let stream_id = {
             let mut streams = self.streams.write().await;
-            let id = streams.len();
+            let id = StreamID(streams.len());
+            stream.id = id;
             streams.push(stream);
-            StreamID(id)
+            id
         };
 
         self.services
@@ -210,6 +225,7 @@ impl Database {
     pub(crate) async fn ingest_streams_from(
         self: Arc<Self>,
         mut rx: mpsc::Receiver<StreamReassembly>,
+        mut streamid_tx: watch::Sender<StreamID>,
     ) {
         tracyrs::zone!("ingest_streams");
         let mut client_buf = Vec::new();

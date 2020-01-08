@@ -49,7 +49,7 @@ enum ResponsePayload {
     NewStream(crate::pipeline::NewStreamNotification),
     Error(String),
     WindowUpdate {
-        new: Vec<()>,
+        new: Vec<crate::database::Stream>,
         extended: Vec<()>,
         deleted: Vec<()>, // for tags
     },
@@ -59,7 +59,7 @@ enum ResponsePayload {
 #[serde(rename_all = "camelCase")]
 enum StreamKind {
     Counters,
-    Window(query::Query),
+    Window(query::QueryIndex),
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -81,6 +81,7 @@ impl ConnectionHandler {
     async fn watch(&self, req_id: u64, kind: &StreamKind) {
         // {"id": 0, "payload": {"watch": "counters"}}
         // {"id": 0, "payload": "cancel"}
+        // {"id": 0, "payload": {"watch": {"window": {"kind": "all"}}}}
         match kind {
             StreamKind::Counters => {
                 let mut out_stream = self.stream_tx.clone();
@@ -99,7 +100,24 @@ impl ConnectionHandler {
                     prev = counters.as_hashmap();
                 }
             }
-            StreamKind::Window(..) => todo!(),
+            StreamKind::Window(index) => {
+                let mut out_stream = self.stream_tx.clone();
+                let db = self.db.clone();
+
+                let window = crate::window::Window::new(*index, &*db);
+
+                out_stream
+                    .send(RespFrame {
+                        id: req_id,
+                        payload: ResponsePayload::WindowUpdate {
+                            deleted: Vec::new(),
+                            extended: Vec::new(),
+                            new: Vec::new(),
+                        },
+                    })
+                    .await
+                    .unwrap();
+            }
         }
     }
 

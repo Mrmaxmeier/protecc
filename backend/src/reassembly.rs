@@ -172,7 +172,12 @@ impl StreamReassembly {
                 Client => client_pos += packet.data.len(),
                 Server => server_pos += packet.data.len(),
             }
-            segments.push((sender, pos));
+            segments.push(crate::database::Segment {
+                sender,
+                start: pos,
+                flags: 0,
+                timestamp: 0,
+            });
         }
 
         db.push_raw(client, server, segments, _flat_client, _flat_server)
