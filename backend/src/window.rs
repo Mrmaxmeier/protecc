@@ -1,6 +1,6 @@
 use crate::database::{Database, Stream, StreamID};
 use crate::query::QueryIndex;
-use futures::FutureExt;
+use futures::{FutureExt, SinkExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::stream::StreamExt;
@@ -30,6 +30,8 @@ pub(crate) struct Window {
     size: usize,
     attached: bool,
 
+    start_id_for_reattach: Option<StreamID>,
+
     latest_id_chan: Throttle<watch::Receiver<StreamID>>,
     params_rx: mpsc::Receiver<WindowParameters>,
 }
@@ -47,6 +49,7 @@ impl Window {
                 start_id,
                 end_id: start_id,
                 attached: true,
+                start_id_for_reattach: None,
                 latest_id_chan: throttle(std::time::Duration::MILLISECOND * 250, latest_id_chan),
                 params_rx,
                 index: *index,
@@ -55,9 +58,25 @@ impl Window {
         )
     }
 
-    pub(crate) async fn params_update(&mut self, params: WindowParameters) -> Option<WindowUpdate> {
-        let WindowParameters { size, attached } = params;
-        self.attached = attached;
+    pub(crate) async fn set_attached(&mut self, attached: bool) -> Option<WindowUpdate> {
+        if self.attached == attached {
+            return None;
+        }
+        if !attached {
+            self.attached = false;
+            None
+        } else {
+            self.attached = true;
+            if let Some(start_id) = self.start_id_for_reattach.take() {
+                self.new_id(start_id).await
+            } else {
+                None
+            }
+        }
+    }
+
+    pub(crate) async fn set_size(&mut self, size: usize) -> Option<WindowUpdate> {
+        assert!(size >= self.size, "TODO: handle window downsizing");
         if size > self.size {
             let old_size = self.size;
             self.size = size;
@@ -88,6 +107,7 @@ impl Window {
     }
     pub(crate) async fn new_id(&mut self, id: StreamID) -> Option<WindowUpdate> {
         if !self.attached {
+            self.start_id_for_reattach = Some(id);
             return None;
         }
 
@@ -110,14 +130,36 @@ impl Window {
         })
     }
 
-    pub(crate) async fn next_update(&mut self) -> Option<WindowUpdate> {
-        futures::select! {
-            params = self.params_rx.recv().fuse() => {
-                self.params_update(params.unwrap()).await
-            },
-            new_id = self.latest_id_chan.next().fuse() => {
-                self.new_id(new_id.unwrap()).await
-            },
+    pub(crate) async fn stream_results_to(
+        &mut self,
+        req_id: u64,
+        mut resp_tx: futures::channel::mpsc::Sender<crate::wsserver::RespFrame>,
+    ) {
+        let resp_frame = move |window_update| {
+            let payload = crate::wsserver::ResponsePayload::WindowUpdate(window_update);
+            crate::wsserver::RespFrame {
+                id: req_id,
+                payload,
+            }
+        };
+
+        loop {
+            futures::select! {
+                params = self.params_rx.recv().fuse() => {
+                    let WindowParameters { size, attached } = params.unwrap();
+                    if let Some(update) = self.set_attached(attached).await {
+                        resp_tx.send(resp_frame(update)).await.unwrap();
+                    }
+                    if let Some(update) = self.set_size(size).await {
+                        resp_tx.send(resp_frame(update)).await.unwrap();
+                    }
+                },
+                new_id = self.latest_id_chan.next().fuse() => {
+                    if let Some(update) = self.new_id(new_id.unwrap()).await {
+                        resp_tx.send(resp_frame(update)).await.unwrap();
+                    }
+                },
+            }
         }
     }
 }

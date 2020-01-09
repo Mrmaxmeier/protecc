@@ -17,9 +17,9 @@ use crate::query;
 use crate::window::WindowHandle;
 
 #[derive(Serialize, Deserialize, Debug)]
-struct RespFrame {
-    id: u64,
-    payload: ResponsePayload,
+pub(crate) struct RespFrame {
+    pub(crate) id: u64,
+    pub(crate) payload: ResponsePayload,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -46,7 +46,7 @@ enum RequestPayload {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-enum ResponsePayload {
+pub(crate) enum ResponsePayload {
     Counters(HashMap<String, u64>),
     Cursor(query::Cursor),
     CursorResult(query::Cursor, Vec<crate::database::Stream>, bool),
@@ -105,28 +105,17 @@ impl ConnectionHandler {
                 }
             }
             StreamKind::Window { index, params } => {
-                let mut out_stream = self.stream_tx.clone();
-                let db = self.db.clone();
-
-                let (mut window, window_handle) = crate::window::Window::new(index, db).await;
+                let (mut window, window_handle) =
+                    crate::window::Window::new(index, self.db.clone()).await;
                 window_handle.update(params.clone()).await;
 
                 {
                     self.windows.lock().await.insert(req_id, window_handle);
                 }
 
-                loop {
-                    if let Some(window_update) = window.next_update().await {
-                        let payload = ResponsePayload::WindowUpdate(window_update);
-                        out_stream
-                            .send(RespFrame {
-                                id: req_id,
-                                payload,
-                            })
-                            .await
-                            .unwrap();
-                    }
-                }
+                window
+                    .stream_results_to(req_id, self.stream_tx.clone())
+                    .await;
             }
         }
     }
