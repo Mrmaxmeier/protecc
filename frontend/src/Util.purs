@@ -10,19 +10,27 @@ module Util
   , decodeRecord
   , class GRecDecodeJson
   , gRecDecodeJson
+  , prettifyJson
+  , logs
+  , logj
+  , errors
+  , errorj
   ) where
 
 import Prelude
 import CSS (a)
 import Control.Plus (class Alt, class Plus, alt, empty)
-import Data.Argonaut.Core (Json, toObject)
+import Data.Argonaut.Core (Json, stringify, toObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Monoid (class MonoidRecord)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
+import Effect.Aff (Aff)
+import Effect.Console (error, log)
 import Foreign.Object as FO
+import Halogen as H
 import Prim.Row as Row
 import Prim.RowList as RL
 import Record as Record
@@ -130,3 +138,17 @@ instance gDecodeJsonCons ::
         val <- decodeJson jsonVal
         Right $ Record.insert sProxy val rest
       Nothing -> Right $ Record.insert sProxy empty rest
+
+foreign import prettifyJson :: String -> String
+
+logs :: ∀ state a slot m. String -> H.HalogenM state a slot m Aff Unit
+logs = H.liftEffect <<< log
+
+logj :: ∀ o state a slot m. EncodeJson o => o -> H.HalogenM state a slot m Aff Unit
+logj = H.liftEffect <<< log <<< prettifyJson <<< stringify <<< encodeJson
+
+errors :: ∀ state a slot m. String -> H.HalogenM state a slot m Aff Unit
+errors = H.liftEffect <<< error
+
+errorj :: ∀ o state a slot m. EncodeJson o => o -> H.HalogenM state a slot m Aff Unit
+errorj = H.liftEffect <<< error <<< prettifyJson <<< stringify <<< encodeJson

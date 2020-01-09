@@ -21,8 +21,11 @@ exports.onErrorImpl = function (socket) {
 exports.onConnectImpl = function (socket) {
     return function (callback) {
         return function () {
+            let cb = callback();
+            if (socket.connected)
+                cb();
             socket.on('connect', () => {
-                callback()();
+                cb();
             });
         };
     };

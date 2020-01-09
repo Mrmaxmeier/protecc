@@ -2,8 +2,11 @@ module Dashboard where
 
 import Prelude
 import CSS as CSS
+import Data.Argonaut.Core (stringify)
+import Data.Argonaut.Encode (encodeJson)
 import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff)
+import Effect.Console (log)
 import Halogen (liftEffect)
 import Halogen as H
 import Halogen.HTML (div)
@@ -16,7 +19,7 @@ import Halogen.Query.HalogenM (mapAction)
 import SemanticUI as S
 import Socket as Socket
 import SocketIO as SIO
-import Util (WMaybe, wmaybe, rec, unrec, Rec)
+import Util (WMaybe, wmaybe, rec, unrec, Rec, prettifyJson)
 
 data Query a
   = NoOpQ
@@ -32,6 +35,8 @@ type Counters
       , packets_malformed :: WMaybe Int
       , packets_without_stream :: WMaybe Int
       , packets_tcp :: WMaybe Int
+      , packet_bytes :: WMaybe Int
+      , pcap_processing_milliseconds :: WMaybe Int
       , streams_completed :: WMaybe Int
       , streams_timeout_expired :: WMaybe Int
       , pcap_blocks :: WMaybe Int
@@ -40,6 +45,9 @@ type Counters
       , db_stat_service_promotion :: WMaybe Int
       , query_rows_scanned :: WMaybe Int
       , query_rows_returned :: WMaybe Int
+      , ws_connections :: WMaybe Int
+      , ws_rx :: WMaybe Int
+      , ws_tx :: WMaybe Int
       )
 
 type State
@@ -56,10 +64,12 @@ component =
   where
   handleAction :: ∀ s. Action -> H.HalogenM State Action s o Aff Unit
   handleAction = case _ of
-    Init -> void $ mapAction (const SocketConnect) $ Socket.subscribe SIO.connectSource
+    Init -> do
+      _ <- Socket.subscribeConnect SocketConnect
+      pure unit
     SocketConnect -> do
-      streamId <- Socket.open "counters" unit
-      _ <- mapAction CounterMessage $ H.subscribe $ Socket.messageSource streamId
+      streamId <- Socket.request { watch: "counters" }
+      _ <- Socket.subscribeResponses CounterMessage streamId
       pure unit
     CounterMessage counters -> do
       state <- H.get
@@ -68,14 +78,18 @@ component =
   initialState :: i -> State
   initialState = const ({ counters: mempty })
 
+  render :: State -> H.ComponentHTML Action () Aff
   render state =
-    div [ HC.style (CSS.paddingTop $ CSS.px 20.0) ]
+    HH.div_
       [ div [ classes [ S.ui, S.three, S.statistics ] ]
-          [ renderStatistic "Streams" (unrec state.counters).streams_completed
-          , renderStatistic "Packets" (unrec state.counters).packets_tcp
-          , renderStatistic "Packets without Stream" (unrec state.counters).packets_without_stream
+          [ renderStatistic "Streams" c.streams_completed
+          , renderStatistic "Packets" c.packets_tcp
+          , renderStatistic "Packets without Stream" c.packets_without_stream
           ]
+      , HH.pre_ [ HH.text $ prettifyJson $ stringify $ encodeJson (unrec state.counters) ]
       ]
+    where
+    c = unrec state.counters
 
   renderStatistic label value =
     div [ classes [ S.statistic ] ]

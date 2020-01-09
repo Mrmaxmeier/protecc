@@ -24,14 +24,6 @@ exports.registerListener = function (id) {
     }
 }
 
-exports.registerCloseListener = function (id) {
-    return function (listener) {
-        return function () {
-            closeListeners[id] = listener;
-        }
-    }
-}
-
 exports.removeListener = function (id) {
     return function () {
         delete listeners[id];
@@ -47,19 +39,6 @@ exports.getListener = function (id) {
                     return just(listeners[id]);
                 else
                     return nothing;
-            }
-        }
-    }
-}
-
-exports.getCloseListener = function (id) {
-    return function (nothing) {
-        return function (just) {
-            return function () {
-                if (closeListeners[id])
-                    return Data_Maybe.Just.create(closeListeners[id]);
-                else
-                    return Data_Maybe.Nothing.value;
             }
         }
     }

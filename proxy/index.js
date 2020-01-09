@@ -11,38 +11,31 @@ app.get('/', function (req, res) {
 
 io.on('connection', function (socket) {
     console.log('client connected');
-    const ws = new WebSocket('ws://[::1]:10000/');
-    var connections = {};
+    const ws = new WebSocket('ws://192.168.1.194:10000/');
 
     ws.on("message", function (s) {
-        console.log('message: ' + s);
-        const arg = JSON.parse(s);
-        connections[arg.id](arg);
+        console.log('server -> client: ' + s);
+        socket.emit('msg', s);
     });
 
-    const send = function (arg) {
-        socket.emit('stream', JSON.stringify({ id: arg.id, arg: arg.payload }));
-    }
+    ws.on("open", function () {
+        socket.on('msg', function (s) {
+            console.log('client -> server: ' + s);
+            ws.send(s);
+        });
+        socket.on('disconnect', function (reason) {
+            console.log("client disconnected");
+            ws.close();
+        });
+    });
 
-    socket.on('open', function (s) {
-        const arg = JSON.parse(s);
-        console.log('open: ' + s);
-        ws.send(JSON.stringify({ id: arg.id, payload: { watch: arg.type } }));
-        connections[arg.id] = send;
+    ws.on("close", function () {
+        console.log("server disconnected");
+        socket.disconnect();
     });
-    socket.on('stream', function (s) {
-        const arg = JSON.parse(s);
-        console.log('stream: ' + s);
-        ws.send(JSON.stringify({ id: arg.id, payload: arg.data }));
-    });
-    socket.on('close', function (s) {
-        const arg = JSON.parse(s);
-        console.log('close: ' + s);
-        ws.send(JSON.stringify({ id: arg.id, payload: "cancel" }));
-        delete connections[arg.id];
-    });
+
 });
 
-http.listen(3000, function () {
-    console.log('listening on *:3000');
+http.listen(4000, function () {
+    console.log('listening on *:4000');
 });

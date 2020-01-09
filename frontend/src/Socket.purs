@@ -3,15 +3,14 @@ module Socket
   , get
   , subscribe
   , messageSource
-  , closeSource
-  , open
-  , close
-  , send
-  , StreamId
+  , cancel
+  , request
+  , subscribeResponses
+  , RequestId
+  , subscribeConnect
   ) where
 
 import Prelude
-import Control.Alt ((<|>))
 import Data.Argonaut.Core (Json, stringify)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
@@ -27,46 +26,39 @@ import Effect.Random (randomInt)
 import Foreign.Object (Object)
 import Halogen as H
 import Halogen.Query.EventSource (EventSource, Finalizer(..), effectEventSource, emit)
-import Halogen.Query.HalogenM (SubscriptionId)
+import Halogen.Query.HalogenM (SubscriptionId, mapAction)
 import SocketIO as SIO
+import Web.HTML.Event.EventTypes (cancel)
 
 foreign import get :: Effect SIO.Socket
 
 foreign import set :: SIO.Socket -> Effect Unit
 
-foreign import registerListener :: StreamId -> (Json -> Effect Unit) -> Effect Unit
+foreign import registerListener :: RequestId -> (Json -> Effect Unit) -> Effect Unit
 
-foreign import registerCloseListener :: StreamId -> (Effect Unit) -> Effect Unit
+foreign import removeListener :: RequestId -> Effect Unit
 
-foreign import removeListener :: StreamId -> Effect Unit
-
-foreign import getListener :: StreamId -> (∀ a. Maybe a) -> (∀ a. a -> Maybe a) -> Effect (Maybe (Json -> Effect Unit))
-
-foreign import getCloseListener :: StreamId -> (∀ a. Maybe a) -> (∀ a. a -> Maybe a) -> Effect (Maybe (Effect Unit))
+foreign import getListener :: RequestId -> (∀ a. Maybe a) -> (∀ a. a -> Maybe a) -> Effect (Maybe (Json -> Effect Unit))
 
 type StreamMessage
-  = { id :: StreamId
-    , arg :: Json
+  = { id :: RequestId
+    , payload :: Json
     }
 
--- type CloseMessage = StreamId
-type OpenMessage
-  = { id :: StreamId
-    , type :: String
-    , arg :: Json
-    }
+newtype RequestId
+  = RequestId Int
 
-newtype StreamId
-  = StreamId Int
+instance eqRequestId :: Eq RequestId where
+  eq (RequestId a) (RequestId b) = a == b
 
-instance showStreamId :: Show StreamId where
-  show (StreamId i) = "StreamId(" <> show i <> ")"
+instance showRequestId :: Show RequestId where
+  show (RequestId i) = "RequestId(" <> show i <> ")"
 
-instance encodeStreamId :: EncodeJson StreamId where
-  encodeJson (StreamId i) = encodeJson i
+instance encodeRequestId :: EncodeJson RequestId where
+  encodeJson (RequestId i) = encodeJson i
 
-instance decodeStreamId :: DecodeJson StreamId where
-  decodeJson j = map StreamId $ decodeJson j
+instance decodeRequestId :: DecodeJson RequestId where
+  decodeJson j = map RequestId $ decodeJson j
 
 decodeString :: ∀ a. DecodeJson a => String -> Either String a
 decodeString s = decodeJson =<< jsonParser s
@@ -76,18 +68,12 @@ handleStreamMessage s = case decodeString s of
   Left e -> error $ "Error parsing stream message: " <> e
   Right (msg :: StreamMessage) -> do
     listener <- getListener msg.id Nothing Just
-    maybe (error $ "No listener registered to handle message " <> s) (\f -> f msg.arg) listener
-
-handleCloseMessage :: String -> Effect Unit
-handleCloseMessage s = case decodeString s of
-  Left e -> error $ "Error parsing close message: " <> e
-  Right id -> removeListener id
+    maybe (error $ "No listener registered to handle message " <> s) (\f -> f msg.payload) listener
 
 init :: Effect Unit
 init = do
-  socket <- SIO.open "ws://localhost:3000"
-  SIO.onMessage socket "stream" handleStreamMessage
-  SIO.onMessage socket "close" handleCloseMessage
+  socket <- SIO.open "ws://192.168.1.108:4000"
+  SIO.onMessage socket "msg" handleStreamMessage
   set socket
 
 subscribe :: ∀ a state slot m. (SIO.Socket -> EventSource Aff a) -> H.HalogenM state a slot m Aff SubscriptionId
@@ -95,43 +81,35 @@ subscribe source = do
   socket <- H.liftEffect get
   H.subscribe $ source socket
 
-messageSource :: ∀ a. DecodeJson a => StreamId -> EventSource Aff a
+messageSource :: ∀ a. DecodeJson a => RequestId -> EventSource Aff a
 messageSource id =
   effectEventSource \emitter -> do
     registerListener id
       ( \json -> case decodeJson json of
-          Left e -> error $ "Could not decode message with id " <> show id <> ": " <> e
+          Left e -> error $ "Could not decode message " <> stringify json <> " with id " <> show id <> ": " <> e
           Right arg -> emit emitter arg
       )
-    pure $ Finalizer $ closeEffect id
+    pure $ Finalizer $ cancelEffect id
 
-closeSource :: StreamId -> EventSource Aff Unit
-closeSource id =
-  effectEventSource \emitter -> do
-    registerCloseListener id $ emit emitter unit
-    pure mempty
+subscribeResponses :: ∀ a1 a2 state slot m. DecodeJson a1 => (a1 -> a2) -> RequestId -> H.HalogenM state a2 slot m Aff SubscriptionId
+subscribeResponses f = mapAction f <<< H.subscribe <<< messageSource
 
-open :: ∀ o state a slot m. EncodeJson o => String -> o -> H.HalogenM state a slot m Aff StreamId
-open typ o =
+subscribeConnect :: ∀ a state slot m. a -> H.HalogenM state a slot m Aff SubscriptionId
+subscribeConnect action = mapAction (const action) $ subscribe SIO.connectSource
+
+request :: ∀ o state a slot m. EncodeJson o => o -> H.HalogenM state a slot m Aff RequestId
+request o =
   H.liftEffect do
     socket <- get
     id <- randomInt 0 (pow 2 30)
-    SIO.send socket "open" (stringify $ encodeJson { id: id, arg: encodeJson o, type: typ })
-    pure $ StreamId id
+    SIO.send socket "msg" (stringify $ encodeJson { id: id, payload: o })
+    pure $ RequestId id
 
-closeEffect :: StreamId -> Effect Unit
-closeEffect id = do
+cancelEffect :: RequestId -> Effect Unit
+cancelEffect id = do
   socket <- get
-  SIO.send socket "close" (stringify $ encodeJson id)
-  listener <- getCloseListener id Nothing Just
-  fromMaybe (pure unit) listener
+  SIO.send socket "msg" (stringify $ encodeJson { id: id, payload: "cancel" })
   removeListener id
 
-close :: ∀ state a slot m. StreamId -> H.HalogenM state a slot m Aff Unit
-close = H.liftEffect <<< closeEffect
-
-send :: ∀ state o a slot m. EncodeJson o => o -> StreamId -> H.HalogenM state a slot m Aff Unit
-send o id =
-  H.liftEffect do
-    socket <- get
-    SIO.send socket "stream" (stringify $ encodeJson $ { id: id, arg: encodeJson o })
+cancel :: ∀ state a slot m. RequestId -> H.HalogenM state a slot m Aff Unit
+cancel = H.liftEffect <<< cancelEffect

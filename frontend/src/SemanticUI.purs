@@ -1,6 +1,7 @@
 module SemanticUI where
 
 import Halogen (ClassName(..))
+import Web.HTML.HTMLInputElement (indeterminate)
 
 ui :: ClassName
 ui = ClassName "ui"
@@ -82,3 +83,30 @@ three = ClassName "three"
 
 four :: ClassName
 four = ClassName "four"
+
+table :: ClassName
+table = ClassName "table"
+
+single :: ClassName
+single = ClassName "single"
+
+line :: ClassName
+line = ClassName "line"
+
+selectable :: ClassName
+selectable = ClassName "selectable"
+
+very :: ClassName
+very = ClassName "very"
+
+compact :: ClassName
+compact = ClassName "compact"
+
+dimmer :: ClassName
+dimmer = ClassName "dimmer"
+
+loader :: ClassName
+loader = ClassName "loader"
+
+indeterminate :: ClassName
+indeterminate = ClassName "indeterminate"

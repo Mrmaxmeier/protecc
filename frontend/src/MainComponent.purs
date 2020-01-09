@@ -8,6 +8,7 @@ import Data.Foldable (oneOf)
 import Data.Maybe (Maybe(..))
 import Data.Symbol (SProxy(..))
 import Effect.Aff (Aff)
+import Effect.Console (log)
 import Halogen as H
 import Halogen.HTML (a, div)
 import Halogen.HTML as HH
@@ -16,16 +17,20 @@ import Halogen.HTML.Properties (classes)
 import Halogen.HTML.Properties as HP
 import Halogen.Query.HalogenM (mapAction)
 import Routing (match)
-import Routing.Match (Match, end)
+import Routing.Match (Match, end, lit)
 import SemanticUI as S
 import Socket as Socket
 import SocketIO as SocketIO
+import Streams as Streams
 
 type Slot
   = ( dashboard :: H.Slot Dashboard.Query Void Unit
+    , streams :: H.Slot Streams.Query Void Unit
     )
 
 _dashboard = SProxy :: SProxy "dashboard"
+
+_streams = SProxy :: SProxy "streams"
 
 data Query a
   = ChangeRoute String a
@@ -95,6 +100,7 @@ init = do
 -- Routing
 data Route
   = Index
+  | Streams
   | NotFound String
 
 pathToRoute :: String -> Route
@@ -105,9 +111,9 @@ pathToRoute path = case match routeMatch path of
 routeMatch :: Match Route
 routeMatch =
   oneOf
-    [ pure Index
+    [ Index <$ end
+    , Streams <$ lit "streams" <* end
     ]
-    <* end
 
 type MenuEntry
   = { name :: String
@@ -117,23 +123,26 @@ type MenuEntry
 dashboardEntry :: MenuEntry
 dashboardEntry = { name: "Dashboard", link: "#" }
 
-memesEntry :: MenuEntry
-memesEntry = { name: "Memes", link: "#memes" }
+streamsEntry :: MenuEntry
+streamsEntry = { name: "Streams", link: "#streams" }
 
 menuEntries :: Array MenuEntry
-menuEntries = [ dashboardEntry, memesEntry ]
+menuEntries = [ dashboardEntry, streamsEntry ]
 
-routeToEntry :: Route -> MenuEntry
-routeToEntry Index = dashboardEntry
-
-routeToEntry (NotFound _) = memesEntry
+routeToEntry :: Route -> Maybe MenuEntry
+routeToEntry = case _ of
+  Index -> Just dashboardEntry
+  Streams -> Just streamsEntry
+  _ -> Nothing
 
 -- rendering
 renderRoute :: Route -> State -> H.ComponentHTML Action Slot Aff
 renderRoute Index state = HH.slot _dashboard unit Dashboard.component unit absurd
 
+renderRoute Streams state = HH.slot _streams unit Streams.component unit absurd
+
 renderRoute (NotFound s) state =
-  div [ classes [ S.ui, S.container ], HC.style (CSS.paddingTop $ CSS.px 20.0) ]
+  div [ classes [ S.ui, S.container ] ]
     [ div [ classes [ S.ui, S.placeholder, S.segment ] ]
         [ div [ classes [ S.ui, S.icon, S.header ] ]
             [ HH.i [ classes [ S.blind, S.icon ] ] []
@@ -144,7 +153,7 @@ renderRoute (NotFound s) state =
 
 renderMenu :: State -> H.ComponentHTML Action Slot Aff
 renderMenu state =
-  div [ classes [ S.ui, S.attached, S.inverted, S.segment ] ]
+  div [ classes [ S.ui, S.attached, S.inverted, S.segment ], HC.style (CSS.marginBottom $ CSS.px 15.0) ]
     [ div [ classes [ S.ui, S.inverted, S.secondary, S.pointing, S.menu ] ]
         [ div [ classes [ S.ui, S.container ] ]
             $ map
@@ -154,7 +163,7 @@ renderMenu state =
         ]
     ]
   where
-  activeIfEqual entry route = if entry == routeToEntry route then [ S.active, S.item ] else [ S.item ]
+  activeIfEqual entry route = if Just entry == routeToEntry route then [ S.active, S.item ] else [ S.item ]
 
 renderSocketState :: SocketState -> H.ComponentHTML Action Slot Aff
 renderSocketState state = div [ classes [ S.ui, S.icon, S.item ] ] [ HH.i [ classes $ [ S.icon ] <> icon ] [] ]
