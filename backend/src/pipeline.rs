@@ -2,7 +2,7 @@ use crate::database::{Stream, StreamID};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::watch;
 
 #[derive(Debug, Clone)]
 struct NodeStatus {
@@ -20,7 +20,7 @@ struct ExecutionPlan {
 
 pub(crate) struct PipelineManager {
     nodes: Vec<Arc<PipelineNode>>,
-    execution_plan: Vec<Vec<usize>>,
+    execution_plan: ExecutionPlan,
     last_streamid: Option<StreamID>,
     execution_plan_rx: watch::Receiver<ExecutionPlan>,
     selfdestruct_rx: watch::Receiver<bool>,
@@ -32,7 +32,7 @@ impl PipelineManager {
         let (execution_plan_tx, execution_plan_rx) = watch::channel(ExecutionPlan::default());
         PipelineManager {
             nodes: Vec::new(),
-            execution_plan: Vec::new(),
+            execution_plan: ExecutionPlan::default(),
             last_streamid: None,
             execution_plan_rx,
             selfdestruct_rx,
@@ -46,6 +46,10 @@ struct PipelineNode {
     last_acked: u64,
     kind: PipelineKind,
     state: Option<NodeStatus>,
+}
+
+impl PipelineNode {
+    pub(crate) async fn submit(self: Arc<Self>) {}
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -50,9 +50,9 @@ pub(crate) enum ResponsePayload {
     Counters(HashMap<String, u64>),
     Cursor(query::Cursor),
     CursorResult(query::Cursor, Vec<crate::database::Stream>, bool),
-    NewStream(crate::pipeline::NewStreamNotification),
     Error(String),
     WindowUpdate(crate::window::WindowUpdate),
+    StreamDetails(StreamDetails),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -63,6 +63,7 @@ enum StreamKind {
         index: query::QueryIndex,
         params: crate::window::WindowParameters,
     },
+    StreamDetails(StreamID),
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -72,6 +73,14 @@ enum DebugDenialOfService {
     HoldWriteLock,
     Panic,
     HoldAndPanic,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StreamDetails {
+    stream: crate::database::Stream,
+    client_payload: Vec<u8>,
+    server_payload: Vec<u8>,
 }
 
 struct ConnectionHandler {
@@ -116,6 +125,32 @@ impl ConnectionHandler {
                 window
                     .stream_results_to(req_id, self.stream_tx.clone())
                     .await;
+            }
+            StreamKind::StreamDetails(stream_id) => {
+                let mut tx = self.stream_tx.clone();
+
+                let db = self.db.clone();
+                let stream = {
+                    let streams = db.streams.read().await;
+                    streams[stream_id.idx()].clone() // might panic, but that's ok
+                };
+                let client_payload = db
+                    .datablob(stream.client_data_id)
+                    .expect("couldn't find client payload");
+                let server_payload = db
+                    .datablob(stream.server_data_id)
+                    .expect("couldn't find server payload");
+                tx.send(RespFrame {
+                    id: req_id,
+                    payload: ResponsePayload::StreamDetails(StreamDetails {
+                        stream,
+                        client_payload,
+                        server_payload,
+                    }),
+                })
+                .await
+                .unwrap();
+                // TODO: stream tag updates?
             }
         }
     }
@@ -257,6 +292,7 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
 
     let (mut write, read) = ws_stream.split();
     enum SelectKind {
+        // TODO(refactor) select!
         In(Result<Message, tokio_tungstenite::tungstenite::error::Error>),
         Out(RespFrame),
     }

@@ -203,12 +203,14 @@ pub(crate) struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
     latest_timestamp: u64,
     database_ingest: mpsc::Sender<StreamReassembly>,
+    tcp_initiations_by_ip: HashMap<IpAddr, u64>,
 }
 impl Reassembler {
     pub(crate) fn new(database: Arc<Database>) -> Self {
         let database_ingest = database.ingest_tx.clone();
         Reassembler {
             reassemblies: HashMap::new(),
+            tcp_initiations_by_ip: HashMap::new(),
             latest_timestamp: 0,
             database_ingest,
         }
@@ -227,16 +229,27 @@ impl Reassembler {
             p.tcp_header.dest_port,
         );
         if !self.reassemblies.contains_key(&id) {
+            let mut client = (p.src_ip, p.tcp_header.source_port);
+            let mut server = (p.dst_ip, p.tcp_header.dest_port);
             if !p.tcp_header.flag_syn {
-                // eprintln!("Packet that does not belong to a stream: {:?} -> {:?} ({} -> {})", p.src_ip, p.dst_ip, p.tcp_header.source_port, p.tcp_header.dest_port);
+                let client_syns = self.tcp_initiations_by_ip.get(&client.0).unwrap_or(&0);
+                let server_syns = self.tcp_initiations_by_ip.get(&server.0).unwrap_or(&0);
+                if server_syns > client_syns {
+                    std::mem::swap(&mut client, &mut server);
+                }
+                eprintln!(
+                    "Packet that does not belong to a stream: {:?} -> {:?} ({} -> {}). Server port guess: {}",
+                    p.src_ip, p.dst_ip, p.tcp_header.source_port, p.tcp_header.dest_port, server.1
+                );
                 incr_counter!(packets_without_stream);
-                return;
+            } else {
+                *self.tcp_initiations_by_ip.entry(client.0).or_default() += 1;
             }
             self.reassemblies.insert(
                 id.clone(),
                 StreamReassembly {
-                    server: (p.dst_ip, p.tcp_header.dest_port),
-                    client: (p.src_ip, p.tcp_header.source_port),
+                    server,
+                    client,
                     client_to_server: Stream::new(),
                     server_to_client: Stream::new(),
                     reset: false,

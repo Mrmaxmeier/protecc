@@ -31,7 +31,9 @@ pub(crate) struct Stream {
     pub(crate) tags: HashSet<TagID>,
     pub(crate) features: HashMap<TagID, f64>,
     pub(crate) segments: Vec<Segment>,
+    pub(crate) client_data_len: u32,
     pub(crate) client_data_id: StreamPayloadID,
+    pub(crate) server_data_len: u32,
     pub(crate) server_data_id: StreamPayloadID,
 }
 
@@ -214,6 +216,8 @@ impl Database {
             client,
             server,
             segments,
+            client_data_len: client_data.len() as u32,
+            server_data_len: server_data.len() as u32,
             client_data_id,
             server_data_id,
             tags: HashSet::new(),
