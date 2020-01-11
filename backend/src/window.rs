@@ -80,7 +80,7 @@ impl Window {
         if size > self.size {
             let old_size = self.size;
             self.size = size;
-            let mut new = Vec::new();
+            let mut extended = Vec::new();
             match self.index {
                 QueryIndex::All => {
                     let streams = self.db.streams.read().await;
@@ -88,18 +88,18 @@ impl Window {
                         self.end_id = if self.end_id.idx() <= self.size {
                             StreamID::new(0)
                         } else {
-                            StreamID::new(self.end_id.idx() - self.size)
+                            StreamID::new(self.start_id.idx() - self.size)
                         }
                     }
                     let slice = &streams[self.end_id.idx()..self.start_id.idx()];
-                    for elem in &slice[old_size..] {
-                        new.push(elem.clone());
+                    for elem in &slice[..(size-old_size)] {
+                        extended.push(elem.clone());
                     }
                 }
                 _ => todo!(),
             }
             return Some(WindowUpdate {
-                new,
+                extended,
                 ..WindowUpdate::default()
             });
         }
@@ -116,6 +116,7 @@ impl Window {
         match self.index {
             QueryIndex::All => {
                 let new_cnt = self.start_id.idx() - prev_start.idx();
+                self.end_id = StreamID::new(self.end_id.idx() + new_cnt);
                 let cnt = new_cnt.min(self.size);
                 let streams = self.db.streams.read().await;
                 for elem in &streams[self.start_id.idx() - cnt..][..cnt] {

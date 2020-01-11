@@ -18,6 +18,7 @@ import Halogen.HTML.Properties as HP
 import Halogen.Query.HalogenM (mapAction)
 import Routing (match)
 import Routing.Match (Match, end, lit)
+import SemanticUI (sdiv)
 import SemanticUI as S
 import Socket as Socket
 import SocketIO as SocketIO
@@ -154,19 +155,19 @@ renderRoute (NotFound s) state =
 renderMenu :: State -> H.ComponentHTML Action Slot Aff
 renderMenu state =
   div [ classes [ S.ui, S.attached, S.inverted, S.segment ], HC.style (CSS.marginBottom $ CSS.px 15.0) ]
-    [ div [ classes [ S.ui, S.inverted, S.secondary, S.pointing, S.menu ] ]
-        [ div [ classes [ S.ui, S.container ] ]
+    [ sdiv [ S.ui, S.inverted, S.secondary, S.pointing, S.menu ]
+        [ sdiv [ S.ui, S.container ]
             $ map
                 (\entry -> a [ classes $ activeIfEqual entry state.route, HP.href entry.link ] [ HH.text entry.name ])
                 menuEntries
-        , div [ classes [ S.right, S.menu ] ] [ renderSocketState state.socketState ]
+        , sdiv [ S.right, S.menu ] [ renderSocketState state.socketState ]
         ]
     ]
   where
   activeIfEqual entry route = if Just entry == routeToEntry route then [ S.active, S.item ] else [ S.item ]
 
 renderSocketState :: SocketState -> H.ComponentHTML Action Slot Aff
-renderSocketState state = div [ classes [ S.ui, S.icon, S.item ] ] [ HH.i [ classes $ [ S.icon ] <> icon ] [] ]
+renderSocketState state = sdiv [ S.ui, S.icon, S.item ] [ HH.i [ classes $ [ S.icon ] <> icon ] [] ]
   where
   icon = case state of
     Connecting -> [ S.yellow, S.sync ]

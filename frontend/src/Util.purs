@@ -15,6 +15,8 @@ module Util
   , logj
   , errors
   , errorj
+  , mwhen
+  , logo
   ) where
 
 import Prelude
@@ -24,9 +26,11 @@ import Data.Argonaut.Core (Json, stringify, toObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
 import Data.Either (Either(..))
+import Data.HeytingAlgebra (tt)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Monoid (class MonoidRecord)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
+import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Console (error, log)
 import Foreign.Object as FO
@@ -141,8 +145,13 @@ instance gDecodeJsonCons ::
 
 foreign import prettifyJson :: String -> String
 
-logs :: ∀ state a slot m. String -> H.HalogenM state a slot m Aff Unit
-logs = H.liftEffect <<< log
+foreign import logoImpl :: ∀ o. o -> Effect Unit
+
+logo :: ∀ state a slot m o. o -> H.HalogenM state a slot m Aff Unit
+logo = H.liftEffect <<< logoImpl
+
+logs :: ∀ state a slot m s. Show s => s -> H.HalogenM state a slot m Aff Unit
+logs = H.liftEffect <<< log <<< show
 
 logj :: ∀ o state a slot m. EncodeJson o => o -> H.HalogenM state a slot m Aff Unit
 logj = H.liftEffect <<< log <<< prettifyJson <<< stringify <<< encodeJson
@@ -152,3 +161,6 @@ errors = H.liftEffect <<< error
 
 errorj :: ∀ o state a slot m. EncodeJson o => o -> H.HalogenM state a slot m Aff Unit
 errorj = H.liftEffect <<< error <<< prettifyJson <<< stringify <<< encodeJson
+
+mwhen :: ∀ m h. Monoid m => HeytingAlgebra h => Eq h => h -> m -> m
+mwhen cond elems = if cond == tt then elems else mempty

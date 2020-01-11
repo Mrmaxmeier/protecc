@@ -1,7 +1,23 @@
 module SemanticUI where
 
+import Prelude
 import Halogen (ClassName(..))
+import Halogen.HTML (HTML)
+import Halogen.HTML as HH
+import Halogen.HTML.Properties (classes)
 import Web.HTML.HTMLInputElement (indeterminate)
+
+sdiv :: ∀ w i. Array ClassName -> Array (HTML w i) -> HTML w i
+sdiv cl = HH.div [ classes cl ]
+
+sbutton :: ∀ w i. Array ClassName -> Array (HTML w i) -> HTML w i
+sbutton cl = HH.button [ classes cl ]
+
+sicon :: ∀ w i. Array ClassName -> HTML w i
+sicon cl = HH.i [ classes $ [ icon ] <> cl ] []
+
+sa :: ∀ w i. Array ClassName -> Array (HTML w i) -> HTML w i
+sa cl = HH.a [ classes cl ]
 
 ui :: ClassName
 ui = ClassName "ui"
@@ -26,9 +42,6 @@ menu = ClassName "menu"
 
 container :: ClassName
 container = ClassName "container"
-
-right :: ClassName
-right = ClassName "right"
 
 item :: ClassName
 item = ClassName "item"
@@ -110,3 +123,60 @@ loader = ClassName "loader"
 
 indeterminate :: ClassName
 indeterminate = ClassName "indeterminate"
+
+left :: ClassName
+left = ClassName "left"
+
+right :: ClassName
+right = ClassName "right"
+
+rail :: ClassName
+rail = ClassName "rail"
+
+toggle :: ClassName
+toggle = ClassName "toggle"
+
+checkbox :: ClassName
+checkbox = ClassName "checkbox"
+
+checked :: ClassName
+checked = ClassName "checked"
+
+basic :: ClassName
+basic = ClassName "basic"
+
+circular :: ClassName
+circular = ClassName "circular"
+
+readOnly :: ClassName
+readOnly = ClassName "read-only"
+
+segments :: ClassName
+segments = ClassName "segments"
+
+center :: ClassName
+center = ClassName "center"
+
+aligned :: ClassName
+aligned = ClassName "aligned"
+
+button :: ClassName
+button = ClassName "button"
+
+angle :: ClassName
+angle = ClassName "angle"
+
+buttons :: ClassName
+buttons = ClassName "buttons"
+
+disabled :: ClassName
+disabled = ClassName "disabled"
+
+large :: ClassName
+large = ClassName "large"
+
+labeled :: ClassName
+labeled = ClassName "labeled"
+
+pagination :: ClassName
+pagination = ClassName "pagination"

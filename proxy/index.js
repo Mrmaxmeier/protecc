@@ -11,10 +11,10 @@ app.get('/', function (req, res) {
 
 io.on('connection', function (socket) {
     console.log('client connected');
-    const ws = new WebSocket('ws://192.168.1.194:10000/');
+    const ws = new WebSocket('ws://localhost:10000/');
 
     ws.on("message", function (s) {
-        console.log('server -> client: ' + s);
+        //console.log('server -> client: ' + s);
         socket.emit('msg', s);
     });
 

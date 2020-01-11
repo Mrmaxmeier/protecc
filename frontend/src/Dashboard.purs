@@ -5,6 +5,7 @@ import CSS as CSS
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Encode (encodeJson)
 import Data.Maybe (Maybe(..))
+import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff)
 import Effect.Console (log)
 import Halogen (liftEffect)
@@ -12,10 +13,13 @@ import Halogen as H
 import Halogen.HTML (div)
 import Halogen.HTML as HH
 import Halogen.HTML.CSS as HC
+import Halogen.HTML.Elements.Keyed as HK
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties (classes)
 import Halogen.HTML.Properties as HP
 import Halogen.Query.HalogenM (mapAction)
+import Numeral as Numeral
+import SemanticUI (sdiv)
 import SemanticUI as S
 import Socket as Socket
 import SocketIO as SIO
@@ -31,23 +35,23 @@ data Action
 
 type Counters
   = Rec
-      ( packets_unhandled :: WMaybe Int
-      , packets_malformed :: WMaybe Int
-      , packets_without_stream :: WMaybe Int
-      , packets_tcp :: WMaybe Int
-      , packet_bytes :: WMaybe Int
-      , pcap_processing_milliseconds :: WMaybe Int
-      , streams_completed :: WMaybe Int
-      , streams_timeout_expired :: WMaybe Int
-      , pcap_blocks :: WMaybe Int
-      , pcaps_imported :: WMaybe Int
-      , db_services :: WMaybe Int
-      , db_stat_service_promotion :: WMaybe Int
-      , query_rows_scanned :: WMaybe Int
-      , query_rows_returned :: WMaybe Int
-      , ws_connections :: WMaybe Int
-      , ws_rx :: WMaybe Int
-      , ws_tx :: WMaybe Int
+      ( packets_unhandled :: WMaybe Number
+      , packets_malformed :: WMaybe Number
+      , packets_without_stream :: WMaybe Number
+      , packets_tcp :: WMaybe Number
+      , packet_bytes :: WMaybe Number
+      , pcap_processing_milliseconds :: WMaybe Number
+      , streams_completed :: WMaybe Number
+      , streams_timeout_expired :: WMaybe Number
+      , pcap_blocks :: WMaybe Number
+      , pcaps_imported :: WMaybe Number
+      , db_services :: WMaybe Number
+      , db_stat_service_promotion :: WMaybe Number
+      , query_rows_scanned :: WMaybe Number
+      , query_rows_returned :: WMaybe Number
+      , ws_connections :: WMaybe Number
+      , ws_rx :: WMaybe Number
+      , ws_tx :: WMaybe Number
       )
 
 type State
@@ -81,18 +85,18 @@ component =
   render :: State -> H.ComponentHTML Action () Aff
   render state =
     HH.div_
-      [ div [ classes [ S.ui, S.three, S.statistics ] ]
-          [ renderStatistic "Streams" c.streams_completed
-          , renderStatistic "Packets" c.packets_tcp
-          , renderStatistic "Packets without Stream" c.packets_without_stream
+      [ sdiv [ S.ui, S.three, S.statistics ]
+          [ renderStatistic "Streams" c.streams_completed Numeral.formatNumber
+          , renderStatistic "Packets" c.packets_tcp Numeral.formatNumber
+          , renderStatistic "Data" c.packet_bytes Numeral.formatBytes
           ]
       , HH.pre_ [ HH.text $ prettifyJson $ stringify $ encodeJson (unrec state.counters) ]
       ]
     where
     c = unrec state.counters
 
-  renderStatistic label value =
-    div [ classes [ S.statistic ] ]
-      [ div [ classes [ S.value ] ] [ HH.text $ wmaybe "?" show value ]
-      , div [ classes [ S.label ] ] [ HH.text label ]
+  renderStatistic label value show =
+    sdiv [ S.statistic ]
+      [ HK.div [ classes [ S.value ] ] [ Tuple "val" (HH.text $ wmaybe "?" show value) ]
+      , sdiv [ S.label ] [ HH.text label ]
       ]
