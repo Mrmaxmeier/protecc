@@ -232,6 +232,11 @@ impl Reassembler {
             let mut client = (p.src_ip, p.tcp_header.source_port);
             let mut server = (p.dst_ip, p.tcp_header.dest_port);
             if !p.tcp_header.flag_syn {
+                if p.data.is_empty() {
+                    incr_counter!(packets_without_stream);
+                    return;
+                }
+
                 let client_syns = self.tcp_initiations_by_ip.get(&client.0).unwrap_or(&0);
                 let server_syns = self.tcp_initiations_by_ip.get(&server.0).unwrap_or(&0);
                 if server_syns > client_syns {
@@ -241,7 +246,7 @@ impl Reassembler {
                     "Packet that does not belong to a stream: {:?} -> {:?} ({} -> {}). Server port guess: {}",
                     p.src_ip, p.dst_ip, p.tcp_header.source_port, p.tcp_header.dest_port, server.1
                 );
-                incr_counter!(packets_without_stream);
+                incr_counter!(streams_without_syn);
             } else {
                 *self.tcp_initiations_by_ip.entry(client.0).or_default() += 1;
             }

@@ -1,3 +1,4 @@
+#![allow(unused, dead_code, unused_variables)] // TODO
 use crate::database::{Stream, StreamID};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
