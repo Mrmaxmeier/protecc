@@ -51,7 +51,7 @@ pub(crate) enum ResponsePayload {
     Counters(HashMap<String, u64>),
     Configuration(crate::configuration::Configuration),
     Cursor(query::Cursor),
-    CursorResult(query::Cursor, Vec<crate::database::Stream>, bool),
+    CursorResult(query::Cursor, Vec<crate::stream::Stream>, bool),
     Error(String),
     WindowUpdate(crate::window::WindowUpdate),
     StreamDetails(StreamDetails),

@@ -1,4 +1,5 @@
-use crate::database::{Database, Stream, TagID};
+use crate::database::{Database, TagID};
+use crate::stream::Stream;
 use serde::{Deserialize, Serialize};
 
 use crate::incr_counter;

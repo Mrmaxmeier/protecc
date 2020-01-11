@@ -1,13 +1,12 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::stream::StreamExt;
-use tokio::sync::{mpsc, watch, RwLock};
-
 use crate::configuration::ConfigurationHandle;
 use crate::incr_counter;
 use crate::pipeline::PipelineManager;
 use crate::reassembly::StreamReassembly;
-pub(crate) use crate::stream::Stream;
+use crate::stream::Stream;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::stream::StreamExt;
+use tokio::sync::{mpsc, watch, RwLock};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -71,6 +70,14 @@ impl<'de> Deserialize<'de> for StreamPayloadID {
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct TagID(pub(crate) u64);
+impl TagID {
+    pub fn from_slug(slug: &[u8]) -> Self {
+        use std::hash::Hasher;
+        let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
+        hasher.write(slug);
+        TagID(hasher.finish())
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct TagIndex {
@@ -83,9 +90,9 @@ impl TagIndex {
             tagged: HashMap::new(),
         }
     }
-    fn push(&self, stream: &Stream) {
-        if !stream.tags.is_empty() {
-            todo!();
+    fn push(&mut self, stream_id: StreamID, tags: &[TagID]) {
+        for tag in tags {
+            self.tagged.entry(*tag).or_default().push(stream_id);
         }
     }
 }
@@ -106,10 +113,12 @@ impl Service {
         self.streams.push(stream_id);
         if self.streams.len() == SERVICE_PACKET_THRESHOLD {
             incr_counter!(db_stat_service_promotion);
-            let tag_index = TagIndex::default();
+            let mut tag_index = TagIndex::default();
             let streams = db.streams.read().await;
             for StreamID(idx) in &self.streams {
-                tag_index.push(&streams[*idx]);
+                let stream = &streams[*idx];
+                let tags = stream.tags.iter().cloned().collect::<Vec<_>>();
+                tag_index.push(stream.id, &tags);
             }
             self.tag_index = Some(tag_index);
         }
@@ -176,11 +185,26 @@ impl Database {
             .expect("failed to read from RocksDB")
     }
 
+    // should only be called with stream_id == self.streams.len()-1
+    async fn push_index(&self, stream_id: StreamID, service: u16, tags: &[TagID]) {
+        let mut services = self.services.write().await;
+        let service_index = services.entry(service).or_insert_with(|| {
+            incr_counter!(db_services);
+            Arc::new(RwLock::new(Service::new()))
+        });
+        service_index.write().await.push(stream_id, &self).await;
+        if !tags.is_empty() {
+            let mut ti = self.tag_index.write().await;
+            ti.push(stream_id, tags);
+            if let Some(tag_index) = service_index.write().await.tag_index.as_mut() {
+                tag_index.push(stream_id, tags);
+            }
+        }
+    }
+
     pub(crate) async fn push(&self, mut stream: Stream) -> StreamID {
-        // TODO: refactor
-        // TODO(perf?): hold writer lock while parsing whole pcap?
-        assert!(stream.tags.is_empty());
         let service = stream.service();
+        let tags = stream.tags.iter().cloned().collect::<Vec<TagID>>();
         let stream_id = {
             let mut streams = self.streams.write().await;
             let id = StreamID(streams.len());
@@ -189,18 +213,11 @@ impl Database {
             id
         };
 
-        self.services
-            .write()
-            .await
-            .entry(service)
-            .or_insert_with(|| {
-                incr_counter!(db_services);
-                Arc::new(RwLock::new(Service::new()))
-            })
-            .write()
-            .await
-            .push(stream_id, &self)
-            .await;
+        crate::counters::update_counters(|c| {
+            c.db_streams_rss += std::mem::size_of::<Stream>() as u64
+        });
+
+        self.push_index(stream_id, service, &tags).await;
 
         stream_id
     }
@@ -211,9 +228,19 @@ impl Database {
         streamid_tx: watch::Sender<StreamID>,
     ) {
         tracyrs::zone!("ingest_streams");
+        let malformed_stream_tag_id = self
+            .configuration_handle
+            .clone()
+            .register_tag("malformed-stream".into())
+            .await;
         while let Some(stream) = rx.next().await {
             tracyrs::zone!("ingest_streams", "ingesting stream");
-            let stream = Stream::from(stream, &self).await;
+            let is_malformed = stream.malformed;
+            let mut stream = Stream::from(stream, &self).await;
+            if is_malformed {
+                stream.tags.insert(malformed_stream_tag_id);
+            }
+            // TODO: pipeline
             let stream_id = self.push(stream).await;
             streamid_tx.broadcast(stream_id).unwrap();
         }

@@ -1,9 +1,16 @@
 #![allow(unused, dead_code, unused_variables)] // TODO
-use crate::database::{Stream, StreamID};
+use crate::database::{StreamID, TagID};
+use crate::stream::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::watch;
+
+enum PipelineResponse {
+    Neutral, // assumed for all packets iff connection to node dies
+    TagWith(TagID),
+    TagWithMultiple(Vec<TagID>),
+}
 
 #[derive(Debug, Clone)]
 struct NodeStatus {

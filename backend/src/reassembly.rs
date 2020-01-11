@@ -91,6 +91,7 @@ pub(crate) struct StreamReassembly {
     pub(crate) server_to_client: Stream,
     pub(crate) latest_timestamp: u64,
     pub(crate) reset: bool,
+    pub(crate) malformed: bool,
 }
 impl StreamReassembly {
     fn get_stream(&mut self, p: &Packet) -> &mut Stream {
@@ -195,6 +196,7 @@ impl Reassembler {
                     server_to_client: Stream::new(),
                     reset: false,
                     latest_timestamp: timestamp_secs,
+                    malformed: !p.tcp_header.flag_syn,
                 },
             );
         }
