@@ -31,7 +31,7 @@ struct ReqFrame {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 enum RequestPayload {
-    Watch(StreamKind),
+    Watch(ResponseStreamKind),
     Cancel,
     StepCursor(query::Cursor),
     Query2Cursor(query::Query),
@@ -48,6 +48,7 @@ enum RequestPayload {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ResponsePayload {
     Counters(HashMap<String, u64>),
+    Configuration(crate::configuration::Configuration),
     Cursor(query::Cursor),
     CursorResult(query::Cursor, Vec<crate::database::Stream>, bool),
     Error(String),
@@ -57,8 +58,9 @@ pub(crate) enum ResponsePayload {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-enum StreamKind {
+enum ResponseStreamKind {
     Counters,
+    Configuration,
     Window {
         index: query::QueryIndex,
         params: crate::window::WindowParameters,
@@ -91,12 +93,12 @@ struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    async fn watch(&self, req_id: u64, kind: &StreamKind) {
+    async fn watch(&self, req_id: u64, kind: &ResponseStreamKind) {
         // {"id": 0, "payload": {"watch": "counters"}}
         // {"id": 0, "payload": "cancel"}
         // {"id": 0, "payload": {"watch": {"window": {"kind": "all"}}}}
         match kind {
-            StreamKind::Counters => {
+            ResponseStreamKind::Counters => {
                 let mut out_stream = self.stream_tx.clone();
                 let mut watcher = crate::counters::subscribe();
                 let mut prev = HashMap::new();
@@ -113,7 +115,20 @@ impl ConnectionHandler {
                     prev = counters.as_hashmap();
                 }
             }
-            StreamKind::Window { index, params } => {
+            ResponseStreamKind::Configuration => {
+                let mut out_stream = self.stream_tx.clone();
+                let mut handle = self.db.configuration_handle.clone();
+                while let Some(config) = handle.rx.recv().await {
+                    out_stream
+                        .send(RespFrame {
+                            id: req_id,
+                            payload: ResponsePayload::Configuration(config),
+                        })
+                        .await
+                        .unwrap();
+                }
+            }
+            ResponseStreamKind::Window { index, params } => {
                 let (mut window, window_handle) =
                     crate::window::Window::new(index, self.db.clone()).await;
                 window_handle.update(params.clone()).await;
@@ -126,7 +141,7 @@ impl ConnectionHandler {
                     .stream_results_to(req_id, self.stream_tx.clone())
                     .await;
             }
-            StreamKind::StreamDetails(stream_id) => {
+            ResponseStreamKind::StreamDetails(stream_id) => {
                 let mut tx = self.stream_tx.clone();
 
                 let db = self.db.clone();
@@ -259,7 +274,7 @@ impl ConnectionHandler {
         .await;
 
         match &req.payload {
-            RequestPayload::Watch(StreamKind::Window { .. }) => {
+            RequestPayload::Watch(ResponseStreamKind::Window { .. }) => {
                 let mut windows = self_.windows.lock().await;
                 let _ = windows.remove(&req.id);
             }

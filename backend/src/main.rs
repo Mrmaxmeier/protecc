@@ -6,6 +6,7 @@ use std::alloc::System;
 #[global_allocator]
 static GLOBAL: System = System;
 
+pub(crate) mod configuration;
 pub(crate) mod counters;
 pub(crate) mod database;
 pub(crate) mod pcapreader;

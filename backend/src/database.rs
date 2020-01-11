@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::stream::StreamExt;
 use tokio::sync::{mpsc, watch, RwLock};
 
+use crate::configuration::ConfigurationHandle;
 use crate::incr_counter;
 use crate::pipeline::PipelineManager;
 use crate::reassembly::StreamReassembly;
@@ -96,7 +97,7 @@ impl<'de> Deserialize<'de> for StreamPayloadID {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub(crate) struct TagID(u64);
+pub(crate) struct TagID(pub(crate) u64);
 
 #[derive(Default)]
 pub(crate) struct TagIndex {
@@ -148,6 +149,7 @@ pub(crate) struct Database {
     pub(crate) tag_index: RwLock<TagIndex>,
     pub(crate) services: RwLock<HashMap<u16, Arc<RwLock<Service>>>>,
     pub(crate) pipeline: RwLock<PipelineManager>,
+    pub(crate) configuration_handle: ConfigurationHandle,
     pub(crate) payload_db: rocksdb::DB,
     pub(crate) ingest_tx: mpsc::Sender<StreamReassembly>,
 }
@@ -164,11 +166,13 @@ impl Database {
         let payload_db = rocksdb::DB::open(&opts, "stream_payloads.rocksdb").unwrap();
         let (ingest_tx, ingest_rx) = mpsc::channel(256);
         let (stream_notification_tx, stream_notification_rx) = watch::channel(StreamID(0));
+        let configuration_handle = crate::configuration::Configuration::spawn();
         let db = Arc::new(Database {
             streams: RwLock::new(Vec::new()),
             tag_index: RwLock::new(TagIndex::new()),
             services: RwLock::new(HashMap::new()),
             pipeline: RwLock::new(PipelineManager::new()),
+            configuration_handle,
             ingest_tx,
             stream_notification_rx,
             payload_db,
