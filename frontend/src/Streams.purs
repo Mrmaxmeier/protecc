@@ -17,8 +17,8 @@ import Halogen.HTML.Events as HE
 import Halogen.Query.HalogenM (mapAction)
 import Socket as Socket
 import SocketIO as SIO
-import Util (logj, logs)
-import WindowTable (Message(..))
+import Util (logj, logo, logs)
+import WindowTable (Message(..), RowDescription)
 import WindowTable as WindowTable
 
 type Slot
@@ -106,7 +106,7 @@ component =
   handleAction = case _ of
     Init -> void $ Socket.subscribeConnect SocketConnect
     WindowTable msg -> case msg of
-      ShowDetails stream -> logj stream
+      ShowDetails stream -> logo stream
     SocketConnect -> do
       stream <- Socket.request { watch: { window: { index: "all", params: WindowTable.initialWindowParams } } }
       _ <- H.modify (_ { windowStream = Just stream })
@@ -118,5 +118,8 @@ component =
   renderRow :: Stream -> Array (H.ComponentHTML (WindowTable.Action Stream) () Aff)
   renderRow stream = [ showCell stream.id, showCell stream.client, showCell stream.server, showCell stream.tags, showCell stream.features ]
 
+  rows :: Array RowDescription
+  rows = [ { name: "Id", width: 1 }, { name: "Client", width: 5 }, { name: "Server", width: 5 }, { name: "Tags", width: 2 }, { name: "Features", width: 3 } ]
+
   render :: State -> H.ComponentHTML Action Slot Aff
-  render state = HH.slot _table unit (WindowTable.component _.id [ "Id", "Client", "Server", "Tags", "Features" ] renderRow) state.windowStream (Just <<< WindowTable)
+  render state = HH.slot _table unit (WindowTable.component _.id rows renderRow) state.windowStream (Just <<< WindowTable)

@@ -9,18 +9,28 @@ app.get('/', function (req, res) {
 });
 
 
+const latency = false;
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 io.on('connection', function (socket) {
     console.log('client connected');
     const ws = new WebSocket('ws://localhost:10000/');
 
-    ws.on("message", function (s) {
+    ws.on("message", async function (s) {
         //console.log('server -> client: ' + s);
+        if (latency)
+            await sleep(500)
         socket.emit('msg', s);
     });
 
     ws.on("open", function () {
-        socket.on('msg', function (s) {
+        socket.on('msg', async function (s) {
             console.log('client -> server: ' + s);
+            if (latency)
+                await sleep(500)
             ws.send(s);
         });
         socket.on('disconnect', function (reason) {

@@ -5,6 +5,7 @@ import Halogen (ClassName(..))
 import Halogen.HTML (HTML)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties (classes)
+import Partial.Unsafe (unsafeCrashWith)
 import Web.HTML.HTMLInputElement (indeterminate)
 
 sdiv :: ∀ w i. Array ClassName -> Array (HTML w i) -> HTML w i
@@ -18,6 +19,26 @@ sicon cl = HH.i [ classes $ [ icon ] <> cl ] []
 
 sa :: ∀ w i. Array ClassName -> Array (HTML w i) -> HTML w i
 sa cl = HH.a [ classes cl ]
+
+width :: Int -> ClassName
+width = case _ of
+  1 -> one
+  2 -> two
+  3 -> three
+  4 -> four
+  5 -> five
+  6 -> six
+  7 -> seven
+  8 -> eight
+  9 -> nine
+  10 -> ten
+  11 -> eleven
+  12 -> twelve
+  13 -> thirteen
+  14 -> fourteen
+  15 -> fifteen
+  16 -> sixteen
+  i -> unsafeCrashWith $ "No width class exists for " <> show i
 
 ui :: ClassName
 ui = ClassName "ui"
@@ -91,11 +112,56 @@ value = ClassName "value"
 label :: ClassName
 label = ClassName "label"
 
+one :: ClassName
+one = ClassName "one"
+
+two :: ClassName
+two = ClassName "two"
+
 three :: ClassName
 three = ClassName "three"
 
 four :: ClassName
 four = ClassName "four"
+
+five :: ClassName
+five = ClassName "five"
+
+six :: ClassName
+six = ClassName "six"
+
+seven :: ClassName
+seven = ClassName "seven"
+
+eight :: ClassName
+eight = ClassName "eight"
+
+nine :: ClassName
+nine = ClassName "nine"
+
+ten :: ClassName
+ten = ClassName "ten"
+
+eleven :: ClassName
+eleven = ClassName "eleven"
+
+twelve :: ClassName
+twelve = ClassName "twelve"
+
+thirteen :: ClassName
+thirteen = ClassName "thirteen"
+
+fourteen :: ClassName
+fourteen = ClassName "fourteen"
+
+fifteen :: ClassName
+fifteen = ClassName "fifteen"
+
+sixteen :: ClassName
+sixteen = ClassName "sixteen"
+
+wide :: ClassName
+wide = ClassName "wide"
 
 table :: ClassName
 table = ClassName "table"
@@ -180,3 +246,12 @@ labeled = ClassName "labeled"
 
 pagination :: ClassName
 pagination = ClassName "pagination"
+
+notched :: ClassName
+notched = ClassName "notched"
+
+circle :: ClassName
+circle = ClassName "circle"
+
+loading :: ClassName
+loading = ClassName "loading"

@@ -20,6 +20,7 @@ import Halogen.HTML.Events (onChange, onClick, onValueChange)
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties (InputType(..), checked, classes, disabled, type_)
 import Halogen.Query.HalogenM (imapState)
+import Partial.Unsafe (unsafeCrashWith)
 import SemanticUI (sa, sbutton, sdiv, sicon)
 import SemanticUI as S
 import Socket (RequestId)
@@ -67,9 +68,11 @@ type InnerState r
     , page :: Int
     }
 
+type RowDescription
+  = { name :: String, width :: Int }
+
 type State r
-  = { inner :: Maybe (InnerState r)
-    }
+  = Maybe (InnerState r)
 
 type Input r
   = Maybe Socket.RequestId
@@ -77,7 +80,7 @@ type Input r
 data Message r
   = ShowDetails r
 
-component :: ∀ r. DecodeJson r => EncodeJson r => (r -> Int) -> Array String -> (r -> Array (H.ComponentHTML (Action r) () Aff)) -> H.Component HH.HTML Query (Input r) (Message r) Aff
+component :: ∀ r. DecodeJson r => EncodeJson r => (r -> Int) -> Array RowDescription -> (r -> Array (H.ComponentHTML (Action r) () Aff)) -> H.Component HH.HTML Query (Input r) (Message r) Aff
 component identify rows rowRenderer =
   H.mkComponent
     { initialState
@@ -94,23 +97,22 @@ component identify rows rowRenderer =
         , elements: []
         , clicked: Nothing
         , window: stream
-        , loading: true
+        , loading: false
         , page: 0
         }
 
   initialState :: (Input r) -> (State r)
-  initialState input = { inner: initialInnerState input }
+  initialState input = initialInnerState input
 
   mapInner :: ∀ a s. a -> H.HalogenM (InnerState r) (Action r) s (Message r) Aff a -> H.HalogenM (State r) (Action r) s (Message r) Aff a
   mapInner result monad = do
     state <- H.get
-    case state.inner of
+    case state of
       Nothing -> pure result
-      -- TODO: can this be done nicely?
       Just inner ->
-        imapState (\inner -> { inner: Just inner })
-          ( \state -> case state.inner of
-              Nothing -> unsafePerformEffect $ throw "There is literally no way this can ever occur"
+        imapState (\inner -> Just inner)
+          ( \state -> case state of
+              Nothing -> unsafeCrashWith "There is literally no way this can ever occur"
               Just a -> a
           )
           monad
@@ -121,24 +123,31 @@ component identify rows rowRenderer =
   handleAction :: ∀ s. (Action r) -> H.HalogenM (State r) (Action r) s (Message r) Aff Unit
   handleAction = case _ of
     InputChanged input -> do
-      H.modify_ (_ { inner = initialInnerState input })
+      H.put $ initialInnerState input
       mapInner_ initStream
     Init -> do
       mapInner_ initStream
-    WindowResponse update ->
-      mapInner_ do
-        H.modify_
-          ( \state ->
-              state
-                { elements =
-                  take (state.pagesLoaded * pageSize)
-                    $ (\array -> update.windowUpdate.new <> array <> update.windowUpdate.extended)
-                    $ identity -- TODO changed
-                    $ filter (\stream -> all (_ /= identify stream) update.windowUpdate.deleted)
-                    $ state.elements
-                }
-          )
-        when (length update.windowUpdate.extended > 0) $ H.modify_ (_ { loading = false })
+    WindowResponse update -> do
+      nextPage <-
+        mapInner false do
+          H.modify_
+            ( \state ->
+                state
+                  { elements =
+                    take (state.pagesLoaded * pageSize)
+                      $ (\array -> update.windowUpdate.new <> array <> update.windowUpdate.extended)
+                      $ identity -- TODO changed
+                      $ filter (\stream -> all (_ /= identify stream) update.windowUpdate.deleted)
+                      $ state.elements
+                  }
+            )
+          state <- H.get
+          let
+            enoughElements = state.pagesLoaded * pageSize <= length state.elements && state.loading
+          when (enoughElements) do
+            H.modify_ (_ { loading = false })
+          pure enoughElements
+      when nextPage $ handleAction NextPage
     RowClick element _ ->
       mapInner_ do
         H.raise $ ShowDetails element
@@ -150,11 +159,15 @@ component identify rows rowRenderer =
     NextPage ->
       mapInner_ do
         state <- H.get
-        when ((state.page + 2) * pageSize <= length state.elements) do
+        let
+          canAdvance = (state.page + 2) * pageSize <= length state.elements
+        when canAdvance do
           H.modify_ $ \s -> s { page = s.page + 1 }
           when (state.page + 1 == state.pagesLoaded - 1) do
             H.modify_ $ \s -> s { pagesLoaded = s.pagesLoaded + 1 }
             void $ sendWindowUpdate
+        when (not canAdvance) do
+          H.modify_ $ _ { loading = true }
     PreviousPage ->
       mapInner_ do
         state <- H.get
@@ -174,7 +187,7 @@ component identify rows rowRenderer =
   render :: (State r) -> H.ComponentHTML (Action r) () Aff
   render state = sdiv [ S.ui, S.container ] content
     where
-    content = case state.inner of
+    content = case state of
       Nothing -> [ loader true ]
       Just inner ->
         if length inner.elements == 0 then
@@ -182,7 +195,7 @@ component identify rows rowRenderer =
         else
           [ sdiv [ S.ui, S.basic, S.segment ]
               [ HH.table [ classes [ S.ui, S.selectable, S.single, S.line, S.very, S.compact, S.table ] ]
-                  [ HH.thead_ [ HH.tr_ $ map (\r -> HH.th_ [ text r ]) rows ]
+                  [ HH.thead_ [ HH.tr_ $ map (\r -> HH.th [ classes [ S.width r.width, S.wide ] ] [ text r.name ]) rows ]
                   , HK.tbody_
                       $ map
                           ( \r ->
@@ -211,7 +224,7 @@ component identify rows rowRenderer =
                           [ sdiv [ S.ui, S.pagination, S.menu ]
                               [ HH.a [ classes $ [ S.icon, S.item ] <> mwhen (inner.page == 0) [ S.disabled ], onClick $ Just <<< (const PreviousPage) ] [ sicon [ S.angle, S.left ] ]
                               , sdiv [ S.item, S.label ] [ text $ show (inner.page + 1) ]
-                              , HH.a [ classes [ S.icon, S.item ], onClick $ Just <<< (const NextPage) ] [ sicon [ S.angle, S.right ] ]
+                              , HH.a [ classes [ S.icon, S.item ], onClick $ Just <<< (const NextPage) ] [ sicon if inner.loading then [ S.disabled, S.notched, S.circle, S.loading ] else [ S.angle, S.right ] ]
                               ]
                           ]
                       ]
