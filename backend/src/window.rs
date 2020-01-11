@@ -41,7 +41,6 @@ pub(crate) struct Window {
 
 impl Window {
     pub(crate) async fn new(index: &QueryIndex, db: Arc<Database>) -> (Self, Arc<WindowHandle>) {
-        assert!(*index == QueryIndex::All, "TODOtodoTODO");
         let (params_tx, params_rx) = mpsc::channel(1);
         let mut latest_id_chan = db.stream_notification_rx.clone();
         let stream_id_limit = latest_id_chan.recv().await.unwrap();
@@ -115,24 +114,24 @@ impl Window {
     }
 
     pub(crate) async fn set_size(&mut self, size: usize) -> Option<WindowUpdate> {
-        assert!(size >= self.size, "TODO: handle window downsizing");
-        if size > self.size {
-            let old_size = self.size;
-            self.size = size;
-            self.end_idx = self.start_idx.checked_sub(self.size).unwrap_or(0);
-            let mut extended = Vec::new();
+        let old_size = self.size;
+        self.size = size;
+        self.end_idx = self.start_idx.checked_sub(self.size).unwrap_or(0);
+        let mut extended = Vec::new();
+        if size > old_size {
+            let ret_cnt = (size - old_size).min(self.start_idx - self.end_idx);
             match self.index {
                 QueryIndex::All => {
                     let streams = self.db.streams.read().await;
                     let slice = &streams[self.end_idx..self.start_idx];
-                    for elem in &slice[..(size - old_size)] {
+                    for elem in &slice[..ret_cnt] {
                         extended.push(elem.as_lightweight());
                     }
                 }
                 _ => {
                     let streams = self.db.streams.read().await;
                     self.with_streamid_slice(|stream_ids| {
-                        for elem in &stream_ids[..(size - old_size)] {
+                        for elem in &stream_ids[self.end_idx..self.start_idx][..ret_cnt] {
                             extended.push(streams[elem.idx()].as_lightweight());
                         }
                     })
@@ -182,9 +181,9 @@ impl Window {
                 let new_cnt = id.idx() - self.start_idx;
                 self.start_idx = id.idx();
                 self.end_idx = self.end_idx + new_cnt;
-                let cnt = new_cnt.min(self.size);
+                let send_cnt = new_cnt.min(self.size);
                 let streams = self.db.streams.read().await;
-                for elem in &streams[self.start_idx - cnt..][..cnt] {
+                for elem in &streams[self.start_idx - send_cnt..][..send_cnt] {
                     new.push(elem.as_lightweight());
                 }
             }
@@ -196,8 +195,8 @@ impl Window {
                     .with_streamid_slice(|stream_ids| {
                         let start_idx = Self::binsearch(stream_ids, id);
                         let end_idx = self.start_idx.checked_sub(self.size).unwrap_or(0);
-                        let send_cnt = start_idx - prev_idx;
-                        for elem in &stream_ids[end_idx..start_idx][..send_cnt] {
+                        let send_cnt = (start_idx - prev_idx).min(self.size);
+                        for elem in &stream_ids[start_idx - send_cnt..][..send_cnt] {
                             new.push(streams[elem.idx()].as_lightweight());
                         }
                         (start_idx, end_idx)
@@ -251,11 +250,15 @@ impl Window {
             futures::select! {
                 params = self.params_rx.recv().fuse() => {
                     let WindowParameters { size, attached } = params.unwrap();
-                    if let Some(update) = self.set_attached(attached).await {
-                        resp_tx.send(resp_frame(update)).await.unwrap();
+                    if attached != self.attached {
+                        if let Some(update) = self.set_attached(attached).await {
+                            resp_tx.send(resp_frame(update)).await.unwrap();
+                        }
                     }
-                    if let Some(update) = self.set_size(size).await {
-                        resp_tx.send(resp_frame(update)).await.unwrap();
+                    if size != self.size {
+                        if let Some(update) = self.set_size(size).await {
+                            resp_tx.send(resp_frame(update)).await.unwrap();
+                        }
                     }
                 },
                 new_id = self.latest_id_chan.next().fuse() => {
