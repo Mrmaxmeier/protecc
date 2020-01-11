@@ -7,7 +7,6 @@ use tokio::sync::mpsc;
 use pktparse::tcp::TcpHeader;
 use std::cmp::max;
 
-use crate::database;
 use crate::incr_counter;
 
 use crate::database::Database;
@@ -32,12 +31,12 @@ pub(crate) struct Packet {
 }
 
 #[derive(Debug)]
-struct Stream {
+pub(crate) struct Stream {
     unacked: Vec<Packet>,
     highest_ack: Option<u32>,
     is_closed: bool,
     latest_packet: Option<u64>,
-    packets: Vec<Packet>, // TODO(footprint/perf): smallvec this
+    pub(crate) packets: Vec<Packet>, // TODO(footprint/perf): smallvec this
 }
 
 impl Stream {
@@ -77,7 +76,7 @@ impl Stream {
         );
     }
 
-    fn flatten_into(&self, buffer: &mut Vec<u8>) {
+    pub(crate) fn flatten_into(&self, buffer: &mut Vec<u8>) {
         for pkt in &self.packets {
             buffer.extend(&pkt.data);
         }
@@ -86,12 +85,12 @@ impl Stream {
 
 #[derive(Debug)]
 pub(crate) struct StreamReassembly {
-    server: (IpAddr, u16),
-    client: (IpAddr, u16),
-    client_to_server: Stream,
-    server_to_client: Stream,
-    latest_timestamp: u64,
-    reset: bool,
+    pub(crate) server: (IpAddr, u16),
+    pub(crate) client: (IpAddr, u16),
+    pub(crate) client_to_server: Stream,
+    pub(crate) server_to_client: Stream,
+    pub(crate) latest_timestamp: u64,
+    pub(crate) reset: bool,
 }
 impl StreamReassembly {
     fn get_stream(&mut self, p: &Packet) -> &mut Stream {
@@ -121,69 +120,6 @@ impl StreamReassembly {
     }
     fn is_done(&self) -> bool {
         self.reset || (self.client_to_server.is_closed && self.server_to_client.is_closed)
-    }
-
-    pub(crate) async fn finalize(
-        self,
-        db: &Database,
-        _flat_client: &mut Vec<u8>,
-        _flat_server: &mut Vec<u8>,
-        id_tx: &mut tokio::sync::watch::Sender<crate::database::StreamID>,
-    ) {
-        let StreamReassembly {
-            client,
-            server,
-            client_to_server,
-            server_to_client,
-            ..
-        } = self;
-
-        _flat_client.clear();
-        _flat_server.clear();
-        client_to_server.flatten_into(_flat_client);
-        server_to_client.flatten_into(_flat_server);
-
-        let mut packets = client_to_server
-            .packets
-            .iter()
-            .map(|p| (database::Sender::Client, p))
-            .chain(
-                server_to_client
-                    .packets
-                    .iter()
-                    .map(|p| (database::Sender::Server, p)),
-            )
-            .collect::<Vec<_>>();
-
-        // TODO: better sort
-        packets.sort_by(|a, b| a.1.timestamp.cmp(&b.1.timestamp));
-
-        let mut segments = Vec::with_capacity(packets.len());
-        let mut client_pos = 0;
-        let mut server_pos = 0;
-        for (sender, packet) in packets.into_iter() {
-            if packet.data.is_empty() {
-                continue;
-            } // TODO: does this break things? check for PSH?
-            use database::Sender::*;
-            let pos = match sender {
-                Client => client_pos,
-                Server => server_pos,
-            };
-            match sender {
-                Client => client_pos += packet.data.len(),
-                Server => server_pos += packet.data.len(),
-            }
-            segments.push(crate::database::Segment {
-                sender,
-                start: pos,
-                flags: 0,
-                timestamp: 0,
-            });
-        }
-
-        db.push_raw(client, server, segments, _flat_client, _flat_server, id_tx)
-            .await;
     }
 }
 

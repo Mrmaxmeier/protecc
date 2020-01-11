@@ -1,5 +1,6 @@
-use crate::database::{Database, Stream, StreamID};
+use crate::database::{Database, StreamID};
 use crate::query::QueryIndex;
+use crate::stream::LightweightStream;
 use futures::{FutureExt, SinkExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -92,8 +93,8 @@ impl Window {
                         }
                     }
                     let slice = &streams[self.end_id.idx()..self.start_id.idx()];
-                    for elem in &slice[..(size-old_size)] {
-                        extended.push(elem.clone());
+                    for elem in &slice[..(size - old_size)] {
+                        extended.push(elem.as_lightweight());
                     }
                 }
                 _ => todo!(),
@@ -120,7 +121,7 @@ impl Window {
                 let cnt = new_cnt.min(self.size);
                 let streams = self.db.streams.read().await;
                 for elem in &streams[self.start_id.idx() - cnt..][..cnt] {
-                    new.push(elem.clone());
+                    new.push(elem.as_lightweight());
                 }
             }
             _ => todo!(),
@@ -168,8 +169,8 @@ impl Window {
 #[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WindowUpdate {
-    new: Vec<Stream>,
-    extended: Vec<Stream>,
-    changed: Vec<Stream>,
+    new: Vec<LightweightStream>,
+    extended: Vec<LightweightStream>,
+    changed: Vec<LightweightStream>,
     deleted: Vec<StreamID>, // for tags
 }

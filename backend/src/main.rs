@@ -14,6 +14,7 @@ pub(crate) mod pipeline;
 pub(crate) mod query;
 pub(crate) mod reassembly;
 pub(crate) mod serde_aux;
+pub(crate) mod stream;
 pub(crate) mod window;
 pub(crate) mod wsserver;
 

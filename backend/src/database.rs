@@ -1,5 +1,4 @@
-use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::stream::StreamExt;
 use tokio::sync::{mpsc, watch, RwLock};
@@ -8,35 +7,9 @@ use crate::configuration::ConfigurationHandle;
 use crate::incr_counter;
 use crate::pipeline::PipelineManager;
 use crate::reassembly::StreamReassembly;
+pub(crate) use crate::stream::Stream;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-/*
-TODO(perf/footprint):
-- replace Vec with smallvec
-- replace hashset with same-alloc set (tinyset)
-- replace (sender, usize) with u32 & 0x7fffffff
-- replace hashmap with smallvec?
-
-MAYBE(footprint):
-- global cache of ipaddrs
-*/
-
-// Note: Stream should be small and cheap to clone.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Stream {
-    pub(crate) id: StreamID,
-    pub(crate) client: (IpAddr, u16),
-    pub(crate) server: (IpAddr, u16),
-    pub(crate) tags: HashSet<TagID>,
-    pub(crate) features: HashMap<TagID, f64>,
-    pub(crate) segments: Vec<Segment>,
-    pub(crate) client_data_len: u32,
-    pub(crate) client_data_id: StreamPayloadID,
-    pub(crate) server_data_len: u32,
-    pub(crate) server_data_id: StreamPayloadID,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -184,7 +157,7 @@ impl Database {
         db
     }
 
-    fn store_data(&self, data: &[u8]) -> StreamPayloadID {
+    pub(crate) fn store_data(&self, data: &[u8]) -> StreamPayloadID {
         tracyrs::zone!("Database::store_data");
         use std::hash::Hasher;
         let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
@@ -203,34 +176,7 @@ impl Database {
             .expect("failed to read from RocksDB")
     }
 
-    pub(crate) async fn push_raw(
-        &self,
-        client: (IpAddr, u16),
-        server: (IpAddr, u16),
-        segments: Vec<Segment>,
-        client_data: &[u8],
-        server_data: &[u8],
-        streamid_tx: &mut watch::Sender<StreamID>, // TODO refactor
-    ) {
-        tracyrs::zone!("Database::push_raw");
-        let client_data_id = self.store_data(client_data);
-        let server_data_id = self.store_data(server_data);
-        let stream = Stream {
-            id: StreamID(0),
-            client,
-            server,
-            segments,
-            client_data_len: client_data.len() as u32,
-            server_data_len: server_data.len() as u32,
-            client_data_id,
-            server_data_id,
-            tags: HashSet::new(),
-            features: HashMap::new(),
-        };
-        self.push(stream, streamid_tx).await;
-    }
-
-    pub(crate) async fn push(&self, mut stream: Stream, streamid_tx: &mut watch::Sender<StreamID>) {
+    pub(crate) async fn push(&self, mut stream: Stream) -> StreamID {
         // TODO: refactor
         // TODO(perf?): hold writer lock while parsing whole pcap?
         assert!(stream.tags.is_empty());
@@ -242,8 +188,6 @@ impl Database {
             streams.push(stream);
             id
         };
-
-        streamid_tx.broadcast(stream_id).unwrap();
 
         self.services
             .write()
@@ -257,22 +201,21 @@ impl Database {
             .await
             .push(stream_id, &self)
             .await;
+
+        stream_id
     }
 
     pub(crate) async fn ingest_streams_from(
         self: Arc<Self>,
         mut rx: mpsc::Receiver<StreamReassembly>,
-        mut streamid_tx: watch::Sender<StreamID>,
+        streamid_tx: watch::Sender<StreamID>,
     ) {
         tracyrs::zone!("ingest_streams");
-        let mut client_buf = Vec::new();
-        let mut server_buf = Vec::new();
-        loop {
-            let stream = rx.next().await.unwrap();
+        while let Some(stream) = rx.next().await {
             tracyrs::zone!("ingest_streams", "ingesting stream");
-            stream
-                .finalize(&*self, &mut client_buf, &mut server_buf, &mut streamid_tx)
-                .await;
+            let stream = Stream::from(stream, &self).await;
+            let stream_id = self.push(stream).await;
+            streamid_tx.broadcast(stream_id).unwrap();
         }
     }
 }
