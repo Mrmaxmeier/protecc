@@ -76,6 +76,42 @@ impl Window {
         }
     }
 
+    pub(crate) async fn with_streamid_slice<R, F: FnOnce(&[StreamID]) -> R>(&self, f: F) -> R {
+        match self.index {
+            QueryIndex::All => unreachable!(),
+            QueryIndex::Service(port) => {
+                let services = self.db.services.read().await;
+                if let Some(service) = services.get(&port) {
+                    let service = service.read().await;
+                    f(&service.streams)
+                } else {
+                    f(&[])
+                }
+            }
+            QueryIndex::ServiceTagged(port, tag) => {
+                let services = self.db.services.read().await;
+                if let Some(service) = services.get(&port) {
+                    let service = service.read().await;
+                    if let Some(streams) = service.tag_index.tagged.get(&tag) {
+                        f(&streams)
+                    } else {
+                        f(&[])
+                    }
+                } else {
+                    f(&[])
+                }
+            }
+            QueryIndex::Tagged(tag) => {
+                let tag_index = self.db.tag_index.read().await;
+                if let Some(streams) = tag_index.tagged.get(&tag) {
+                    f(&streams)
+                } else {
+                    f(&[])
+                }
+            }
+        }
+    }
+
     pub(crate) async fn set_size(&mut self, size: usize) -> Option<WindowUpdate> {
         assert!(size >= self.size, "TODO: handle window downsizing");
         if size > self.size {

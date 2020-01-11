@@ -112,6 +112,7 @@ impl ConnectionHandler {
         // {"id": 0, "payload": {"watch": "counters"}}
         // {"id": 0, "payload": "cancel"}
         // {"id": 0, "payload": {"watch": {"window": {"kind": "all"}}}}
+        // {"id": 0, "payload": {"watch": "configuration"}}
         match kind {
             ResponseStreamKind::Counters => {
                 let mut out_stream = self.stream_tx.clone();

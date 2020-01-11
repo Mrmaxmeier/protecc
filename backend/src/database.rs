@@ -31,8 +31,6 @@ impl Stream {
     }
 }
 
-const SERVICE_PACKET_THRESHOLD: usize = 0x400;
-
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct StreamID(usize);
 impl StreamID {
@@ -69,19 +67,19 @@ impl<'de> Deserialize<'de> for StreamPayloadID {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub(crate) struct TagID(pub(crate) u64);
+pub(crate) struct TagID(u32);
 impl TagID {
     pub fn from_slug(slug: &[u8]) -> Self {
         use std::hash::Hasher;
         let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
         hasher.write(slug);
-        TagID(hasher.finish())
+        TagID(hasher.finish() as u32)
     }
 }
 
 #[derive(Default)]
 pub(crate) struct TagIndex {
-    pub(crate) tagged: HashMap<TagID, Vec<StreamID>>,
+    pub(crate) tagged: HashMap<TagID, Vec<StreamID>>, // TODO(footprint) smallvec optimization
 }
 
 impl TagIndex {
@@ -99,29 +97,18 @@ impl TagIndex {
 
 pub(crate) struct Service {
     pub(crate) streams: Vec<StreamID>,
-    pub(crate) tag_index: Option<TagIndex>,
+    pub(crate) tag_index: TagIndex,
 }
 
 impl Service {
     fn new() -> Self {
         Service {
             streams: Vec::new(),
-            tag_index: None,
+            tag_index: TagIndex::default(),
         }
     }
-    async fn push(&mut self, stream_id: StreamID, db: &Database) {
+    fn push(&mut self, stream_id: StreamID) {
         self.streams.push(stream_id);
-        if self.streams.len() == SERVICE_PACKET_THRESHOLD {
-            incr_counter!(db_stat_service_promotion);
-            let mut tag_index = TagIndex::default();
-            let streams = db.streams.read().await;
-            for StreamID(idx) in &self.streams {
-                let stream = &streams[*idx];
-                let tags = stream.tags.iter().cloned().collect::<Vec<_>>();
-                tag_index.push(stream.id, &tags);
-            }
-            self.tag_index = Some(tag_index);
-        }
     }
 }
 
@@ -192,13 +179,11 @@ impl Database {
             incr_counter!(db_services);
             Arc::new(RwLock::new(Service::new()))
         });
-        service_index.write().await.push(stream_id, &self).await;
+        service_index.write().await.push(stream_id);
         if !tags.is_empty() {
             let mut ti = self.tag_index.write().await;
             ti.push(stream_id, tags);
-            if let Some(tag_index) = service_index.write().await.tag_index.as_mut() {
-                tag_index.push(stream_id, tags);
-            }
+            service_index.write().await.tag_index.push(stream_id, tags);
         }
     }
 

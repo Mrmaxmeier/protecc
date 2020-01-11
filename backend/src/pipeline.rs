@@ -26,6 +26,19 @@ struct ExecutionPlan {
     reduce_stage: Vec<Arc<PipelineNode>>, // wait for these acks
 }
 
+impl ExecutionPlan {
+    pub(crate) async fn submit(&self, stream: Stream) {
+        unimplemented!();
+        /*
+        for node in &self.map_stage {
+            if node.filter.matches(&stream, db) {
+                node.send(stream).await;
+            }
+        }
+        */
+    }
+}
+
 pub(crate) struct PipelineManager {
     nodes: Vec<Arc<PipelineNode>>,
     execution_plan: ExecutionPlan,
@@ -54,6 +67,7 @@ struct PipelineNode {
     last_acked: u64,
     kind: PipelineKind,
     state: Option<NodeStatus>,
+    filter: crate::query::QueryFilter,
 }
 
 impl PipelineNode {

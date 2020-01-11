@@ -31,7 +31,7 @@ pub(crate) struct QueryFilter {
 }
 
 impl QueryFilter {
-    fn matches(&self, stream: &Stream, db: &Database) -> bool {
+    pub(crate) fn matches(&self, stream: &Stream, db: &Database) -> bool {
         if let Some(service) = self.service {
             if service != stream.service() {
                 return false;
@@ -98,27 +98,10 @@ impl Query {
 
                 if let Some(service) = services.get(&port) {
                     let service = service.read().await;
-                    if let Some(tag_index) = service.tag_index.as_ref() {
-                        if let Some(service) = tag_index.tagged.get(&tag) {
-                            service.len()
-                        } else {
-                            0
-                        }
+                    if let Some(service) = service.tag_index.tagged.get(&tag) {
+                        service.len()
                     } else {
-                        // note: this service doesn't provide an index for tags.
-                        // fall back to linear scan over tagged values
-                        assert!(self.filter.is_none(), "TODO");
-                        return Cursor {
-                            scan_max: service.streams.len(),
-                            scan_offset: 0,
-                            query: Query {
-                                index: QueryIndex::Service(port),
-                                filter: Some(QueryFilter {
-                                    tag: Some(tag),
-                                    ..QueryFilter::default()
-                                }),
-                            },
-                        };
+                        0
                     }
                 } else {
                     0
@@ -182,23 +165,19 @@ impl Cursor {
                 let services = db.services.read().await;
                 if let Some(service) = services.get(&port) {
                     let service = service.read().await;
-                    if let Some(ref tag_index) = service.tag_index {
-                        if let Some(scan_streams) = tag_index.tagged.get(tag_id) {
-                            let all_streams = db.streams.read().await;
-                            self.limit_and_filter(
-                                buffer,
-                                scan_streams
-                                    .iter()
-                                    .rev()
-                                    .skip(self.scan_offset)
-                                    .map(|stream_id| &all_streams[stream_id.idx()]),
-                                db,
-                            )
-                        } else {
-                            self.clone()
-                        }
+                    if let Some(scan_streams) = service.tag_index.tagged.get(tag_id) {
+                        let all_streams = db.streams.read().await;
+                        self.limit_and_filter(
+                            buffer,
+                            scan_streams
+                                .iter()
+                                .rev()
+                                .skip(self.scan_offset)
+                                .map(|stream_id| &all_streams[stream_id.idx()]),
+                            db,
+                        )
                     } else {
-                        todo!()
+                        self.clone()
                     }
                 } else {
                     self.clone()
