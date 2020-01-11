@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use futures::channel::mpsc;
@@ -11,24 +12,24 @@ use tokio::net::TcpStream;
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::database::{Database, StreamID};
+use crate::database::{Database, StreamID, TagID};
 use crate::incr_counter;
 use crate::query;
 use crate::window::WindowHandle;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 pub(crate) struct RespFrame {
     pub(crate) id: u64,
     pub(crate) payload: ResponsePayload,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct ReqFrame {
     id: u64,
     payload: RequestPayload,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 enum RequestPayload {
     Watch(ResponseStreamKind),
@@ -40,11 +41,11 @@ enum RequestPayload {
         id: u64,
         params: crate::window::WindowParameters,
     },
-    FetchStreamPayload(StreamID),
     RegisterActor(crate::pipeline::PipelineRegistration),
+    UpdateConfiguration(crate::configuration::ConfigurationUpdate),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ResponsePayload {
     Counters(HashMap<String, u64>),
@@ -56,7 +57,7 @@ pub(crate) enum ResponsePayload {
     StreamDetails(StreamDetails),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 enum ResponseStreamKind {
     Counters,
@@ -77,12 +78,26 @@ enum DebugDenialOfService {
     HoldAndPanic,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StreamDetails {
-    stream: crate::database::Stream,
-    client_payload: Vec<u8>,
-    server_payload: Vec<u8>,
+    pub(crate) id: StreamID,
+    pub(crate) client: (IpAddr, u16),
+    pub(crate) server: (IpAddr, u16),
+    pub(crate) tags: HashSet<TagID>,
+    pub(crate) features: HashMap<TagID, f64>,
+    pub(crate) segments: Vec<SegmentWithData>,
+    pub(crate) client_data_len: u32,
+    pub(crate) server_data_len: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SegmentWithData {
+    pub(crate) sender: crate::database::Sender,
+    #[serde(serialize_with = "crate::serde_aux::buffer_b64")]
+    pub(crate) data: Vec<u8>,
+    pub(crate) timestamp: u64,
+    pub(crate) flags: u8,
 }
 
 struct ConnectionHandler {
@@ -149,18 +164,38 @@ impl ConnectionHandler {
                     let streams = db.streams.read().await;
                     streams[stream_id.idx()].clone() // might panic, but that's ok
                 };
-                let client_payload = db
+                let mut client_payload = db
                     .datablob(stream.client_data_id)
                     .expect("couldn't find client payload");
-                let server_payload = db
+                let mut server_payload = db
                     .datablob(stream.server_data_id)
                     .expect("couldn't find server payload");
+                let mut segments = Vec::new();
+                for segment in stream.segments.iter().rev() {
+                    use crate::database::Sender;
+                    let data = match segment.sender {
+                        Sender::Client => client_payload.split_off(segment.start),
+                        Sender::Server => server_payload.split_off(segment.start),
+                    };
+                    segments.push(SegmentWithData {
+                        data,
+                        flags: segment.flags,
+                        timestamp: segment.timestamp,
+                        sender: segment.sender.clone(),
+                    })
+                }
+                segments.reverse();
                 tx.send(RespFrame {
                     id: req_id,
                     payload: ResponsePayload::StreamDetails(StreamDetails {
-                        stream,
-                        client_payload,
-                        server_payload,
+                        id: stream.id,
+                        client: stream.client,
+                        server: stream.server,
+                        features: stream.features,
+                        tags: stream.tags,
+                        client_data_len: stream.client_data_len,
+                        server_data_len: stream.server_data_len,
+                        segments,
                     }),
                 })
                 .await
@@ -268,7 +303,12 @@ impl ConnectionHandler {
                 RequestPayload::StepCursor(cursor) => {
                     self_.send_out(&req, self_.step_cursor(cursor)).await
                 }
-                _ => todo!(),
+                RequestPayload::UpdateConfiguration(conf_update) => {
+                    let mut handle = self_.db.configuration_handle.clone();
+                    handle.tx.send(conf_update.clone()).await.unwrap();
+                }
+                RequestPayload::RegisterActor(..) => todo!(),
+                RequestPayload::Cancel => unreachable!(),
             };
         })
         .await;

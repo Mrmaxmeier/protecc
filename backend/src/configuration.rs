@@ -5,7 +5,7 @@ use tokio::sync::{mpsc, watch};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-struct Tag {
+pub(crate) struct Tag {
     slug: String,
     name: String,
     color: String,
@@ -19,17 +19,17 @@ impl Tag {
         TagID(hasher.finish())
     }
 }
-#[derive(Clone, Debug)]
-pub(crate) enum ConfigurationUpdate {}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ConfigurationUpdate {
+    SetService(u16, String),
+    SetTag(Tag),
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct ConfigurationHandle {
     pub(crate) rx: watch::Receiver<Configuration>,
     pub(crate) tx: mpsc::Sender<ConfigurationUpdate>,
-}
-
-impl ConfigurationHandle {
-    pub fn register_tag(&mut self, slug: String) {}
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -59,6 +59,13 @@ impl Configuration {
     }
 
     fn update(&mut self, update: ConfigurationUpdate) {
-        match update {}
+        match update {
+            ConfigurationUpdate::SetService(k, v) => {
+                self.services.insert(k, v);
+            }
+            ConfigurationUpdate::SetTag(tag) => {
+                self.tags.insert(tag.as_id(), tag);
+            }
+        }
     }
 }
