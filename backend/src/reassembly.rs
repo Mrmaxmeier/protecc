@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -76,10 +76,21 @@ impl Stream {
         );
     }
 
-    pub(crate) fn flatten_into(&self, buffer: &mut Vec<u8>) {
-        for pkt in &self.packets {
-            buffer.extend(&pkt.data);
-        }
+    pub(crate) fn remove_retransmissions(&mut self) {
+        let mut seen = HashSet::new();
+        self.packets.retain(|p| {
+            let th = &p.tcp_header;
+            seen.insert((
+                th.sequence_no,
+                th.ack_no,
+                th.flag_syn,
+                th.flag_psh,
+                th.flag_ack,
+                th.flag_rst,
+                th.flag_fin,
+            ))
+        });
+        // TODO: is this correct?
     }
 }
 
