@@ -58,26 +58,57 @@ impl Stream {
         // TODO: better sort
         packets.sort_by(|a, b| a.1.timestamp.cmp(&b.1.timestamp));
 
+        let mut client_seq = 0xffffffffu32;
+        let mut server_seq = 0xffffffffu32;
+        for (sender, packet) in packets.iter() {
+            match sender {
+                Sender::Client => client_seq = client_seq.min(packet.tcp_header.sequence_no),
+                Sender::Server => server_seq = server_seq.min(packet.tcp_header.sequence_no),
+            }
+        }
+
         let mut segments = Vec::with_capacity(packets.len());
         let mut client_pos = 0;
         let mut server_pos = 0;
         for (sender, packet) in packets.into_iter() {
-            if packet.data.is_empty() {
-                continue;
-            } // TODO: does this break things? check for PSH?
+            // TODO: is is worth to keep the empty packets here?
+            // if packet.data.is_empty() {
+            //     continue;
+            // } // TODO: does this break things? check for PSH?
             let pos = match sender {
                 Sender::Client => client_pos,
                 Sender::Server => server_pos,
+            };
+            let (seq_start, ack_start) = match sender {
+                Sender::Client => (client_seq, server_seq),
+                Sender::Server => (server_seq, client_seq),
             };
             match sender {
                 Sender::Client => client_pos += packet.data.len(),
                 Sender::Server => server_pos += packet.data.len(),
             }
+            let th = &packet.tcp_header;
+            let mut flags = 0;
+            flags |= (th.flag_urg as u8) << 5;
+            flags |= (th.flag_ack as u8) << 4;
+            flags |= (th.flag_psh as u8) << 3;
+            flags |= (th.flag_rst as u8) << 2;
+            flags |= (th.flag_syn as u8) << 1;
+            flags |= (th.flag_fin as u8) << 0;
             segments.push(crate::database::Segment {
                 sender,
                 start: pos,
-                flags: 0,
-                timestamp: 0,
+                flags,
+                seq: th.sequence_no.wrapping_sub(seq_start),
+                ack: th.ack_no.wrapping_sub(ack_start),
+                timestamp: packet
+                    .timestamp
+                    .map(|ts| {
+                        ts.duration_since(std::time::SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64
+                    })
+                    .unwrap_or(0),
             });
         }
 
@@ -119,4 +150,28 @@ pub(crate) struct LightweightStream {
     pub(crate) tags: HashSet<TagID>,
     pub(crate) client_data_len: u32,
     pub(crate) server_data_len: u32,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StreamDetails {
+    pub(crate) id: StreamID,
+    pub(crate) client: (IpAddr, u16),
+    pub(crate) server: (IpAddr, u16),
+    pub(crate) tags: HashSet<TagID>,
+    pub(crate) features: HashMap<TagID, f64>,
+    pub(crate) segments: Vec<SegmentWithData>,
+    pub(crate) client_data_len: u32,
+    pub(crate) server_data_len: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SegmentWithData {
+    pub(crate) sender: crate::database::Sender,
+    #[serde(serialize_with = "crate::serde_aux::buffer_b64")]
+    pub(crate) data: Vec<u8>,
+    pub(crate) timestamp: u64,
+    pub(crate) flags: u8,
+    pub(crate) seq: u32,
+    pub(crate) ack: u32,
 }

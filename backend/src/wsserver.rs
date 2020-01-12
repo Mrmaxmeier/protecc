@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures::channel::mpsc;
@@ -12,9 +11,10 @@ use tokio::net::TcpStream;
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::database::{Database, StreamID, TagID};
+use crate::database::{Database, StreamID};
 use crate::incr_counter;
 use crate::query;
+use crate::stream::{SegmentWithData, Stream, StreamDetails};
 use crate::window::WindowHandle;
 
 #[derive(Serialize, Debug)]
@@ -51,7 +51,7 @@ pub(crate) enum ResponsePayload {
     Counters(HashMap<String, u64>),
     Configuration(crate::configuration::Configuration),
     Cursor(query::Cursor),
-    CursorResult(query::Cursor, Vec<crate::stream::Stream>, bool),
+    CursorResult(query::Cursor, Vec<Stream>, bool),
     Error(String),
     WindowUpdate(crate::window::WindowUpdate),
     StreamDetails(StreamDetails),
@@ -76,28 +76,6 @@ enum DebugDenialOfService {
     HoldWriteLock,
     Panic,
     HoldAndPanic,
-}
-
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct StreamDetails {
-    pub(crate) id: StreamID,
-    pub(crate) client: (IpAddr, u16),
-    pub(crate) server: (IpAddr, u16),
-    pub(crate) tags: HashSet<TagID>,
-    pub(crate) features: HashMap<TagID, f64>,
-    pub(crate) segments: Vec<SegmentWithData>,
-    pub(crate) client_data_len: u32,
-    pub(crate) server_data_len: u32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct SegmentWithData {
-    pub(crate) sender: crate::database::Sender,
-    #[serde(serialize_with = "crate::serde_aux::buffer_b64")]
-    pub(crate) data: Vec<u8>,
-    pub(crate) timestamp: u64,
-    pub(crate) flags: u8,
 }
 
 struct ConnectionHandler {
@@ -180,6 +158,8 @@ impl ConnectionHandler {
                     };
                     segments.push(SegmentWithData {
                         data,
+                        seq: segment.seq,
+                        ack: segment.ack,
                         flags: segment.flags,
                         timestamp: segment.timestamp,
                         sender: segment.sender.clone(),

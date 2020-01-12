@@ -22,10 +22,31 @@ enum IntExpr<T> {
     Ge(T),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum TrueFalse<T> {
+    True(T),
+    False(T),
+}
+// Expression in CNF
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BoolExpr<T>(Vec<Vec<TrueFalse<T>>>);
+
+impl<T: PartialEq + Eq> BoolExpr<T> {
+    fn matches(&self, vars: &[T]) -> bool {
+        self.0.iter().all(|clauses| {
+            clauses.iter().any(|elem| match elem {
+                TrueFalse::True(e) => vars.contains(e),
+                TrueFalse::False(e) => !vars.contains(e),
+            })
+        })
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct QueryFilter {
     service: Option<u16>,
-    tag: Option<TagID>, // TODO: tag expression
+    tag: Option<TagID>,
+    tags_cnf: Option<BoolExpr<TagID>>,
     regex: Option<String>,
     length: Option<IntExpr<usize>>,
 }
@@ -52,6 +73,15 @@ impl QueryFilter {
             {
                 return false;
             }
+        }
+        if let Some(tags_cnf) = self.tags_cnf.as_ref() {
+            let tags = stream.tags.iter().cloned().collect::<Vec<_>>();
+            if !tags_cnf.matches(&tags) {
+                return false;
+            }
+        }
+        if let Some(_) = self.length {
+            unimplemented!();
         }
         true
     }

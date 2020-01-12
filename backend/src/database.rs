@@ -23,6 +23,8 @@ pub(crate) struct Segment {
     pub(crate) start: usize,
     pub(crate) timestamp: u64,
     pub(crate) flags: u8,
+    pub(crate) seq: u32,
+    pub(crate) ack: u32,
 }
 
 impl Stream {
