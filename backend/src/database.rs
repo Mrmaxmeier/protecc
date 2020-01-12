@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, watch, RwLock};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Sender {
     Client,
@@ -218,7 +218,7 @@ impl Database {
         let malformed_stream_tag_id = self
             .configuration_handle
             .clone()
-            .register_tag("malformed-stream".into())
+            .register_tag("malformed-stream".into(), "reassembly".into())
             .await;
         while let Some(stream) = rx.next().await {
             tracyrs::zone!("ingest_streams", "ingesting stream");
