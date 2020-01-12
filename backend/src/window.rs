@@ -116,14 +116,14 @@ impl Window {
     pub(crate) async fn set_size(&mut self, size: usize) -> Option<WindowUpdate> {
         let old_size = self.size;
         self.size = size;
-        self.end_idx = self.start_idx.checked_sub(self.size).unwrap_or(0);
+        self.end_idx = (self.start_idx + 1).checked_sub(self.size).unwrap_or(0);
         let mut extended = Vec::new();
         if size > old_size {
-            let ret_cnt = (size - old_size).min(self.start_idx - self.end_idx);
+            let ret_cnt = (size - old_size).min((self.start_idx + 1) - self.end_idx);
             match self.index {
                 QueryIndex::All => {
                     let streams = self.db.streams.read().await;
-                    let slice = &streams[self.end_idx..self.start_idx];
+                    let slice = &streams[self.end_idx..self.start_idx + 1];
                     for elem in &slice[..ret_cnt] {
                         extended.push(elem.as_lightweight());
                     }
@@ -131,7 +131,7 @@ impl Window {
                 _ => {
                     let streams = self.db.streams.read().await;
                     self.with_streamid_slice(|stream_ids| {
-                        for elem in &stream_ids[self.end_idx..self.start_idx][..ret_cnt] {
+                        for elem in &stream_ids[self.end_idx..self.start_idx + 1][..ret_cnt] {
                             extended.push(streams[elem.idx()].as_lightweight());
                         }
                     })
@@ -194,7 +194,7 @@ impl Window {
                 let (start_idx, end_idx) = self
                     .with_streamid_slice(|stream_ids| {
                         let start_idx = Self::binsearch(stream_ids, id);
-                        let end_idx = self.start_idx.checked_sub(self.size).unwrap_or(0);
+                        let end_idx = (self.start_idx + 1).checked_sub(self.size).unwrap_or(0);
                         let send_cnt = (start_idx - prev_idx).min(self.size);
                         for elem in &stream_ids[start_idx - send_cnt..][..send_cnt] {
                             new.push(streams[elem.idx()].as_lightweight());
