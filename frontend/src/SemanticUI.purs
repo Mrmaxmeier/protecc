@@ -6,7 +6,7 @@ import Halogen.HTML (HTML)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties (classes)
 import Partial.Unsafe (unsafeCrashWith)
-import Web.HTML.HTMLInputElement (indeterminate)
+import Util (mwhen)
 
 sdiv :: ∀ w i. Array ClassName -> Array (HTML w i) -> HTML w i
 sdiv cl = HH.div [ classes cl ]
@@ -39,6 +39,14 @@ width = case _ of
   15 -> fifteen
   16 -> sixteen
   i -> unsafeCrashWith $ "No width class exists for " <> show i
+
+loaderDiv :: ∀ b w i. HeytingAlgebra b => Eq b => b -> HTML w i
+loaderDiv indet =
+  sdiv [ ui, placeholder, segment ]
+    [ sdiv [ ui, active, dimmer ]
+        [ sdiv ([ ui, loader ] <> mwhen indet [ indeterminate ]) []
+        ]
+    ]
 
 ui :: ClassName
 ui = ClassName "ui"
@@ -81,12 +89,6 @@ header = ClassName "header"
 
 blind :: ClassName
 blind = ClassName "blind"
-
-yellow :: ClassName
-yellow = ClassName "yellow"
-
-red :: ClassName
-red = ClassName "red"
 
 green :: ClassName
 green = ClassName "green"
@@ -255,3 +257,66 @@ circle = ClassName "circle"
 
 loading :: ClassName
 loading = ClassName "loading"
+
+modal :: ClassName
+modal = ClassName "modal"
+
+fullscreen :: ClassName
+fullscreen = ClassName "fullscreen"
+
+visible :: ClassName
+visible = ClassName "visible"
+
+modals :: ClassName
+modals = ClassName "modals"
+
+page :: ClassName
+page = ClassName "page"
+
+transition :: ClassName
+transition = ClassName "transition"
+
+content :: ClassName
+content = ClassName "content"
+
+celled :: ClassName
+celled = ClassName "celled"
+
+divider :: ClassName
+divider = ClassName "divider"
+
+message :: ClassName
+message = ClassName "message"
+
+grey :: ClassName
+grey = ClassName "grey"
+
+blue :: ClassName
+blue = ClassName "blue"
+
+purple :: ClassName
+purple = ClassName "purple"
+
+yellow :: ClassName
+yellow = ClassName "yellow"
+
+red :: ClassName
+red = ClassName "red"
+
+detail :: ClassName
+detail = ClassName "detail"
+
+scrolling :: ClassName
+scrolling = ClassName "scrolling"
+
+wrap :: ClassName
+wrap = ClassName "wrap"
+
+scroll :: ClassName
+scroll = ClassName "scroll"
+
+selection :: ClassName
+selection = ClassName "selection"
+
+dropdown :: ClassName
+dropdown = ClassName "dropdown"

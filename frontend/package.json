@@ -17,6 +17,7 @@
     "spago": "^0.13.0"
   },
   "dependencies": {
+    "big-integer": "^1.6.48",
     "numeral": "^2.0.6",
     "socket.io-client": "^2.3.0"
   }

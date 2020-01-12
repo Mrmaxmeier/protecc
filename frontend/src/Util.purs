@@ -17,6 +17,9 @@ module Util
   , errorj
   , mwhen
   , logo
+  , css
+  , Id
+  , prettyShow
   ) where
 
 import Prelude
@@ -25,6 +28,7 @@ import Control.Plus (class Alt, class Plus, alt, empty)
 import Data.Argonaut.Core (Json, stringify, toObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
+import Data.BigInt (BigInt, fromNumber, toNumber, toString)
 import Data.Either (Either(..))
 import Data.HeytingAlgebra (tt)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
@@ -35,6 +39,8 @@ import Effect.Aff (Aff)
 import Effect.Console (error, log)
 import Foreign.Object as FO
 import Halogen as H
+import Halogen.HTML.Core as HC
+import Halogen.HTML.Properties as HP
 import Prim.Row as Row
 import Prim.RowList as RL
 import Record as Record
@@ -164,3 +170,26 @@ errorj = H.liftEffect <<< error <<< prettifyJson <<< stringify <<< encodeJson
 
 mwhen :: ∀ m h. Monoid m => HeytingAlgebra h => Eq h => h -> m -> m
 mwhen cond elems = if cond == tt then elems else mempty
+
+css = HP.attr (HC.AttrName "style")
+
+newtype Id
+  = Id BigInt
+
+instance idDecodeJson :: DecodeJson Id where
+  decodeJson json = do
+    n <- decodeJson json
+    maybe (Left $ "Can't convert " <> show n <> " to bigint") (Right <<< Id) $ fromNumber n
+
+instance idEncodeJson :: EncodeJson Id where
+  encodeJson (Id bigint) = encodeJson $ toNumber bigint
+
+instance idShow :: Show Id where
+  show (Id bigint) = toString bigint
+
+derive instance idEq :: Eq Id
+
+derive instance ordEq :: Ord Id
+
+prettyShow :: Number -> String
+prettyShow n = maybe (show n) toString $ fromNumber n

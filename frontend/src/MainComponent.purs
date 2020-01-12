@@ -2,6 +2,8 @@ module MainComponent where
 
 import Prelude
 import CSS as CSS
+import Configuration (Configuration)
+import Configuration as Config
 import Dashboard as Dashboard
 import Data.Either (Either(..))
 import Data.Foldable (oneOf)
@@ -23,6 +25,7 @@ import SemanticUI as S
 import Socket as Socket
 import SocketIO as SocketIO
 import Streams as Streams
+import Util (logo)
 
 type Slot
   = ( dashboard :: H.Slot Dashboard.Query Void Unit
@@ -41,6 +44,7 @@ data Action
   | SocketDisconnect String
   | SocketReconnecting Int
   | SocketMessage String
+  | ConfigMessage { configuration :: Configuration }
   | Init
 
 data SocketState
@@ -86,9 +90,15 @@ handleQuery = case _ of
 handleAction :: Action -> H.HalogenM State Action Slot Message Aff Unit
 handleAction = case _ of
   Init -> init
-  SocketConnect -> H.modify_ $ _ { socketState = Connected }
+  SocketConnect -> do
+    H.modify_ $ _ { socketState = Connected }
+    id <- Config.init
+    void $ Socket.subscribeResponses ConfigMessage id
   SocketDisconnect _ -> H.modify_ $ _ { socketState = Disconnected }
   SocketReconnecting _ -> H.modify_ $ _ { socketState = Connecting }
+  ConfigMessage config -> do
+    logo config
+    Config.set config.configuration
   _ -> pure unit
 
 init :: H.HalogenM State Action Slot Message Aff Unit

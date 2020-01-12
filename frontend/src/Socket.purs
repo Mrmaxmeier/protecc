@@ -23,6 +23,7 @@ import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Console (error)
 import Effect.Random (randomInt)
+import Halogen.HTML.CSS
 import Foreign.Object (Object)
 import Halogen as H
 import Halogen.Query.EventSource (EventSource, Finalizer(..), effectEventSource, emit)

@@ -21,18 +21,18 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties (InputType(..), checked, classes, disabled, type_)
 import Halogen.Query.HalogenM (imapState)
 import Partial.Unsafe (unsafeCrashWith)
-import SemanticUI (sa, sbutton, sdiv, sicon)
+import SemanticUI (loaderDiv, sa, sbutton, sdiv, sicon)
 import SemanticUI as S
 import Socket (RequestId)
 import Socket as Socket
-import Util (logj, logo, logs, mwhen, prettifyJson)
+import Util (Id, logj, logo, logs, mwhen, prettifyJson)
 import Web.Event.Event (preventDefault)
 import Web.Event.Internal.Types (Event)
 import Web.HTML.HTMLInputElement (indeterminate)
 import Web.UIEvent.MouseEvent (MouseEvent)
 
 pageSize :: Int
-pageSize = 50
+pageSize = 25
 
 initialWindowParams :: { size :: Int, attached :: Boolean }
 initialWindowParams = { size: pageSize * 2, attached: true }
@@ -45,7 +45,7 @@ type WindowUpdate r
       { new :: Array r
       , extended :: Array r
       , changed :: Array r
-      , deleted :: Array Int
+      , deleted :: Array Id
       }
     }
 
@@ -62,7 +62,7 @@ type InnerState r
   = { pagesLoaded :: Int
     , attached :: Boolean
     , elements :: Array r
-    , clicked :: Maybe Int
+    , clicked :: Maybe Id
     , window :: Socket.RequestId
     , loading :: Boolean
     , page :: Int
@@ -79,8 +79,9 @@ type Input r
 
 data Message r
   = ShowDetails r
+  | CloseDetails
 
-component :: ∀ r. DecodeJson r => EncodeJson r => (r -> Int) -> Array RowDescription -> (r -> Array (H.ComponentHTML (Action r) () Aff)) -> H.Component HH.HTML Query (Input r) (Message r) Aff
+component :: ∀ r s. DecodeJson r => EncodeJson r => (r -> Id) -> Array RowDescription -> (r -> Array (H.ComponentHTML (Action r) s Aff)) -> H.Component HH.HTML Query (Input r) (Message r) Aff
 component identify rows rowRenderer =
   H.mkComponent
     { initialState
@@ -123,38 +124,48 @@ component identify rows rowRenderer =
   handleAction :: ∀ s. (Action r) -> H.HalogenM (State r) (Action r) s (Message r) Aff Unit
   handleAction = case _ of
     InputChanged input -> do
-      H.put $ initialInnerState input
-      mapInner_ initStream
+      state <- H.get
+      when (maybe true (\new -> maybe true (\inner -> new /= inner.window) state) input) do
+        H.put $ initialInnerState input
+        mapInner_ initStream
     Init -> do
       mapInner_ initStream
     WindowResponse update -> do
       nextPage <-
         mapInner false do
-          H.modify_
-            ( \state ->
-                state
-                  { elements =
-                    take (state.pagesLoaded * pageSize)
-                      $ (\array -> update.windowUpdate.new <> array <> update.windowUpdate.extended)
-                      $ identity -- TODO changed
-                      $ filter (\stream -> all (_ /= identify stream) update.windowUpdate.deleted)
-                      $ state.elements
-                  }
-            )
-          state <- H.get
+          state <-
+            H.modify
+              ( \state ->
+                  state
+                    { elements =
+                      take (state.pagesLoaded * pageSize)
+                        $ (\array -> update.windowUpdate.new <> array <> update.windowUpdate.extended)
+                        $ identity -- TODO changed
+                        $ filter (\stream -> all (_ /= identify stream) update.windowUpdate.deleted)
+                        $ state.elements
+                    }
+              )
           let
             enoughElements = state.pagesLoaded * pageSize <= length state.elements && state.loading
           when (enoughElements) do
             H.modify_ (_ { loading = false })
+          when (maybe false (\e1 -> all (\e2 -> e1 /= identify e2) state.elements) state.clicked) do
+            H.modify_ $ _ { clicked = Nothing }
+            H.raise $ CloseDetails
           pure enoughElements
       when nextPage $ handleAction NextPage
-    RowClick element _ ->
+    RowClick element _ -> do
       mapInner_ do
         H.raise $ ShowDetails element
+        state <- H.get
+        when (state.attached) do
+          H.modify_ $ _ { attached = false }
+          sendWindowUpdate
         H.modify_ (_ { clicked = Just $ identify element })
     ToggleAttached ->
       mapInner_ do
         state <- H.modify (\state -> state { attached = not state.attached })
+        when (state.attached) $ H.modify_ $ _ { page = 0, pagesLoaded = 2, elements = take (2 * pageSize) state.elements }
         sendWindowUpdate
     NextPage ->
       mapInner_ do
@@ -163,9 +174,14 @@ component identify rows rowRenderer =
           canAdvance = (state.page + 2) * pageSize <= length state.elements
         when canAdvance do
           H.modify_ $ \s -> s { page = s.page + 1 }
-          when (state.page + 1 == state.pagesLoaded - 1) do
+          let
+            loadMore = state.page + 1 == state.pagesLoaded - 1
+          when (state.attached) do
+            H.modify_ $ _ { attached = false }
+            when (not loadMore) $ sendWindowUpdate
+          when loadMore do
             H.modify_ $ \s -> s { pagesLoaded = s.pagesLoaded + 1 }
-            void $ sendWindowUpdate
+            sendWindowUpdate
         when (not canAdvance) do
           H.modify_ $ _ { loading = true }
     PreviousPage ->
@@ -173,10 +189,10 @@ component identify rows rowRenderer =
         state <- H.get
         when (state.page > 0) (H.put $ state { page = state.page - 1 })
 
-  sendWindowUpdate :: ∀ s. H.HalogenM (InnerState r) (Action r) s (Message r) Aff RequestId
+  sendWindowUpdate :: ∀ s. H.HalogenM (InnerState r) (Action r) s (Message r) Aff Unit
   sendWindowUpdate = do
     state <- H.get
-    Socket.request { windowUpdate: { id: state.window, params: { size: state.pagesLoaded * pageSize, attached: state.attached } } }
+    void $ Socket.request { windowUpdate: { id: state.window, params: { size: state.pagesLoaded * pageSize, attached: state.attached } } }
 
   initStream :: ∀ s. H.HalogenM (InnerState r) (Action r) s (Message r) Aff Unit
   initStream = do
@@ -184,14 +200,14 @@ component identify rows rowRenderer =
     _ <- Socket.subscribeResponses WindowResponse state.window
     pure unit
 
-  render :: (State r) -> H.ComponentHTML (Action r) () Aff
+  render :: (State r) -> H.ComponentHTML (Action r) s Aff
   render state = sdiv [ S.ui, S.container ] content
     where
     content = case state of
-      Nothing -> [ loader true ]
+      Nothing -> [ loaderDiv true ]
       Just inner ->
         if length inner.elements == 0 then
-          [ loader false ]
+          [ loaderDiv false ]
         else
           [ sdiv [ S.ui, S.basic, S.segment ]
               [ HH.table [ classes [ S.ui, S.selectable, S.single, S.line, S.very, S.compact, S.table ] ]
@@ -231,10 +247,3 @@ component identify rows rowRenderer =
                   ]
               ]
           ]
-
-    loader indeterminate =
-      sdiv [ S.ui, S.placeholder, S.segment ]
-        [ sdiv [ S.ui, S.active, S.dimmer ]
-            [ sdiv ([ S.ui, S.loader ] <> mwhen indeterminate [ S.indeterminate ]) []
-            ]
-        ]

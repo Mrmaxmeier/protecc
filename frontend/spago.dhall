@@ -6,14 +6,16 @@ You can edit this file as you like.
 , dependencies =
     [ "aff-coroutines"
     , "argonaut-codecs"
+    , "bigints"
     , "console"
     , "effect"
     , "halogen"
     , "halogen-css"
     , "psci-support"
+    , "random"
     , "routing"
     , "web-socket"
-    , "random"
+    , "b64"
     ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
