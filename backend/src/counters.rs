@@ -38,6 +38,8 @@ pub(crate) struct Counters {
     pub(crate) db_streams_rss: u64,
     pub(crate) query_rows_scanned: u64,
     pub(crate) query_rows_returned: u64,
+    pub(crate) window_new: u64,
+    pub(crate) window_extended: u64,
     pub(crate) ws_connections: u64,
     pub(crate) ws_rx: u64,
     pub(crate) ws_tx: u64,

@@ -218,14 +218,21 @@ impl Database {
         let malformed_stream_tag_id = self
             .configuration_handle
             .clone()
-            .register_tag("malformed-stream".into(), "reassembly".into())
+            .register_tag("malformed_stream".into(), "reassembly".into())
+            .await;
+        let cyclic_ack_id = self
+            .configuration_handle
+            .clone()
+            .register_tag("cyclic_ack".into(), "reassembly".into())
             .await;
         while let Some(stream) = rx.next().await {
             tracyrs::zone!("ingest_streams", "ingesting stream");
-            let is_malformed = stream.malformed;
-            let mut stream = Stream::from(stream, &self).await;
+            let (mut stream, is_malformed, is_cyclic) = Stream::from(stream, &self).await;
             if is_malformed {
                 stream.tags.insert(malformed_stream_tag_id);
+            }
+            if is_cyclic {
+                stream.tags.insert(cyclic_ack_id);
             }
             // TODO: pipeline
             let stream_id = self.push(stream).await;

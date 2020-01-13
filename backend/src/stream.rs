@@ -37,13 +37,14 @@ pub(crate) struct Stream {
 }
 
 impl Stream {
-    pub(crate) async fn from(stream: StreamReassembly, db: &Database) -> Self {
+    pub(crate) async fn from(stream: StreamReassembly, db: &Database) -> (Self, bool, bool) {
         tracyrs::zone!("Stream::from");
         let StreamReassembly {
             client,
             server,
             mut client_to_server,
             mut server_to_client,
+            malformed,
             ..
         } = stream;
 
@@ -147,12 +148,15 @@ impl Stream {
         topo_edges.sort();
         topo_edges.dedup();
 
+        let cyclic;
         if let Some(res) = topo_sort(&topo_edges, &packets) {
             packets = res;
+            cyclic = false;
         } else {
-            panic!("cyclic ack");
-            // TODO: tag cyclic ack
+            cyclic = true;
         }
+
+        // TODO: dedup acks that are directly followed by another PSH ack
 
         let mut segments = Vec::with_capacity(packets.len());
         let mut client_pos = 0;
@@ -199,7 +203,7 @@ impl Stream {
 
         let client_data_id = db.store_data(&client_data);
         let server_data_id = db.store_data(&server_data);
-        Stream {
+        let stream = Stream {
             id: StreamID::new(0),
             client,
             server,
@@ -210,7 +214,9 @@ impl Stream {
             server_data_id,
             tags: HashSet::new(),
             features: HashMap::new(),
-        }
+        };
+
+        (stream, malformed, cyclic)
     }
 
     pub(crate) fn as_lightweight(&self) -> LightweightStream {
@@ -234,6 +240,48 @@ pub(crate) struct LightweightStream {
     pub(crate) tags: HashSet<TagID>,
     pub(crate) client_data_len: u32,
     pub(crate) server_data_len: u32,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct StreamWithData<'a> {
+    pub(crate) stream: &'a Stream,
+    pub(crate) client_payload: &'a [u8],
+    pub(crate) server_payload: &'a [u8],
+}
+
+pub(crate) enum StreamDataWrapper<'a> {
+    Stream(&'a Stream),
+    StreamWithDataRef(&'a Stream, Vec<u8>, Vec<u8>),
+    StreamWithData(StreamWithData<'a>),
+}
+
+impl<'a> StreamDataWrapper<'a> {
+    pub(crate) fn as_stream(&self) -> &Stream {
+        match self {
+            StreamDataWrapper::StreamWithData(swd) => &swd.stream,
+            StreamDataWrapper::StreamWithDataRef(stream, _, _) => stream,
+            StreamDataWrapper::Stream(stream) => stream,
+        }
+    }
+
+    pub(crate) fn as_stream_with_data(&mut self, db: &Database) -> StreamWithData {
+        match self {
+            StreamDataWrapper::StreamWithData(swd) => *swd,
+            StreamDataWrapper::StreamWithDataRef(stream, client_payload, server_payload) => {
+                StreamWithData {
+                    stream,
+                    client_payload,
+                    server_payload,
+                }
+            }
+            StreamDataWrapper::Stream(stream) => {
+                let client_data = db.datablob(stream.client_data_id).unwrap();
+                let server_data = db.datablob(stream.client_data_id).unwrap();
+                *self = StreamDataWrapper::StreamWithDataRef(stream, client_data, server_data);
+                self.as_stream_with_data(db)
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -403,7 +451,6 @@ fn topo_sort<'a>(
     }
 
     for (_, v) in indeg.iter() {
-        debug_assert_eq!(*v, 0); // TODO: tag cyclic ack
         if *v != 0 {
             return None;
         }

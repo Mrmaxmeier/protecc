@@ -90,7 +90,6 @@ impl Stream {
                 th.flag_fin,
             ))
         });
-        // TODO: is this correct?
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::database::{Database, TagID};
-use crate::stream::Stream;
+use crate::stream::{Stream, StreamDataWrapper};
 use serde::{Deserialize, Serialize};
 
 use crate::incr_counter;
@@ -52,30 +52,29 @@ pub(crate) struct QueryFilter {
 }
 
 impl QueryFilter {
-    pub(crate) fn matches(&self, stream: &Stream, db: &Database) -> bool {
+    pub(crate) fn matches(&self, swd: &mut StreamDataWrapper, db: &Database) -> bool {
         if let Some(service) = self.service {
-            if service != stream.service() {
+            if service != swd.as_stream().service() {
                 return false;
             }
         }
         if let Some(tag) = self.tag {
-            if !stream.tags.contains(&tag) {
+            if !swd.as_stream().tags.contains(&tag) {
                 return false;
             }
         }
         if let Some(regex) = self.regex.as_ref() {
+            let swd = swd.as_stream_with_data(db);
             let re = regex::bytes::Regex::new(&regex).unwrap(); // TODO: caching, error handling?
-            let client_payload = db.datablob(stream.client_data_id);
-            let server_payload = db.datablob(stream.server_data_id);
 
-            if !(client_payload.map(|p| re.is_match(&p)).unwrap_or(false)
-                || server_payload.map(|p| re.is_match(&p)).unwrap_or(false))
+            if !(re.is_match(swd.client_payload)
+                || re.is_match(swd.server_payload))
             {
                 return false;
             }
         }
         if let Some(tags_cnf) = self.tags_cnf.as_ref() {
-            let tags = stream.tags.iter().cloned().collect::<Vec<_>>();
+            let tags = swd.as_stream().tags.iter().cloned().collect::<Vec<_>>();
             if !tags_cnf.matches(&tags) {
                 return false;
             }
@@ -229,7 +228,7 @@ impl Cursor {
         let mut processed_cnt = 0;
         for stream in streams {
             incr_counter!(query_rows_scanned);
-            if self.query.filter.as_ref().map(|f| f.matches(stream, db)) != Some(false) {
+            if self.query.filter.as_ref().map(|f| f.matches(&mut StreamDataWrapper::Stream(stream), db)) != Some(false) {
                 incr_counter!(query_rows_returned);
                 buffer.push(stream.clone());
                 returned_cnt += 1;

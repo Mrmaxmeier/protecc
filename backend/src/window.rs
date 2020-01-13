@@ -138,6 +138,7 @@ impl Window {
                     .await;
                 }
             }
+            crate::counters::update_counters(|c| c.window_extended += extended.len() as u64);
             return Some(WindowUpdate {
                 extended,
                 ..WindowUpdate::default()
@@ -206,6 +207,7 @@ impl Window {
                 self.end_idx = end_idx;
             }
         }
+        crate::counters::update_counters(|c| c.window_new += new.len() as u64);
         Some(WindowUpdate {
             new,
             ..WindowUpdate::default()

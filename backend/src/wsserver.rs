@@ -99,6 +99,9 @@ impl ConnectionHandler {
                 while let Some(counters) = watcher.recv().await {
                     let mut next = counters.as_hashmap();
                     next.retain(|k, v| v != prev.get(k).unwrap_or(&0));
+                    if next.len() == 1 && next.get("ws_tx").is_some() {
+                        continue;
+                    }
                     out_stream
                         .send(RespFrame {
                             id: req_id,

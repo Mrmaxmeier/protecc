@@ -1,6 +1,6 @@
 #![allow(unused, dead_code, unused_variables)] // TODO
-use crate::database::{StreamID, TagID};
-use crate::stream::{Stream, StreamDetails};
+use crate::database::{Database, StreamID, TagID};
+use crate::stream::{Stream, StreamDataWrapper, StreamWithData};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -27,13 +27,16 @@ struct ExecutionPlan {
 }
 
 impl ExecutionPlan {
-    pub(crate) async fn submit(&self, stream: StreamDetails) {
-        todo!()
+    pub(crate) async fn submit<'a>(&self, stream: StreamWithData<'a>, db: &'a Database) {
         /*
+        // db is unused actually
         if !self.map_stage.is_empty() {
             let map_results = Vec::new();
             for node in &self.map_stage {
-                if node.filter.matches(&stream, db) {
+                if node
+                    .filter
+                    .matches(&mut StreamDataWrapper::StreamWithData(stream), db)
+                {
                     node.submit(stream).await;
                     map_results.push(node.await_resp(stream));
                 }
@@ -77,7 +80,7 @@ struct PipelineNode {
 }
 
 impl PipelineNode {
-    pub(crate) async fn submit(self: Arc<Self>, stream: &StreamDetails) {}
+    pub(crate) async fn submit<'a>(self: Arc<Self>, stream: StreamWithData<'a>) {}
 }
 
 #[derive(Serialize, Deserialize, Debug)]
