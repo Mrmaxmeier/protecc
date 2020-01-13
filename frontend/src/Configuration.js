@@ -3,8 +3,15 @@
 let config = undefined;
 let listeners = [];
 
-exports.getImpl = function () {
-    return config;
+exports.getImpl = function (just) {
+    return function (nothing) {
+        return function () {
+            if (config === undefined)
+                return nothing;
+            else
+                return just(config);
+        }
+    }
 }
 
 exports.setImpl = function (c) {

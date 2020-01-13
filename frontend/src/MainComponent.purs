@@ -26,15 +26,22 @@ import Socket as Socket
 import SocketIO as SocketIO
 import Streams as Streams
 import Util (logo)
+import SkarlarkEditor as Editor
 
 type Slot
   = ( dashboard :: H.Slot Dashboard.Query Void Unit
     , streams :: H.Slot Streams.Query Void Unit
+    , config :: H.Slot Streams.Query Void Unit
+    , editor :: H.Slot Editor.Query Void Unit
     )
 
 _dashboard = SProxy :: SProxy "dashboard"
 
 _streams = SProxy :: SProxy "streams"
+
+_config = SProxy :: SProxy "config"
+
+_editor = SProxy :: SProxy "editor"
 
 data Query a
   = ChangeRoute String a
@@ -112,6 +119,8 @@ init = do
 data Route
   = Index
   | Streams
+  | Configuration
+  | Test
   | NotFound String
 
 pathToRoute :: String -> Route
@@ -124,6 +133,8 @@ routeMatch =
   oneOf
     [ Index <$ end
     , Streams <$ lit "streams" <* end
+    , Configuration <$ lit "config" <* end
+    , Test <$ lit "test" <* end
     ]
 
 type MenuEntry
@@ -137,13 +148,21 @@ dashboardEntry = { name: "Dashboard", link: "#" }
 streamsEntry :: MenuEntry
 streamsEntry = { name: "Streams", link: "#streams" }
 
+configEntry :: MenuEntry
+configEntry = { name: "Config", link: "#config" }
+
+testEntry :: MenuEntry
+testEntry = { name: "Test", link: "#test" }
+
 menuEntries :: Array MenuEntry
-menuEntries = [ dashboardEntry, streamsEntry ]
+menuEntries = [ dashboardEntry, streamsEntry, configEntry, testEntry ]
 
 routeToEntry :: Route -> Maybe MenuEntry
 routeToEntry = case _ of
   Index -> Just dashboardEntry
   Streams -> Just streamsEntry
+  Configuration -> Just configEntry
+  Test -> Just testEntry
   _ -> Nothing
 
 -- rendering
@@ -151,6 +170,10 @@ renderRoute :: Route -> State -> H.ComponentHTML Action Slot Aff
 renderRoute Index state = HH.slot _dashboard unit Dashboard.component unit absurd
 
 renderRoute Streams state = HH.slot _streams unit Streams.component unit absurd
+
+renderRoute Configuration state = HH.slot _config unit Config.component unit absurd
+
+renderRoute Test state = HH.slot _editor unit Editor.component unit absurd
 
 renderRoute (NotFound s) state =
   div [ classes [ S.ui, S.container ] ]

@@ -31,8 +31,8 @@ data Action
   | ConfigUpdate Configuration
   | Init
 
-component :: ∀ q o. H.Component HH.HTML q Input o Aff
-component =
+component :: ∀ q o. Boolean -> H.Component HH.HTML q Input o Aff
+component editable =
   H.mkComponent
     { initialState
     , render
@@ -44,15 +44,18 @@ component =
 
   render :: ∀ s. State -> H.ComponentHTML Action s Aff
   render state =
-    HK.div_
-      $ map
-          ( \id ->
-              let
-                tag = fromMaybe { name: "Tag not Found!", color: "red", slug: "meh" } $ (\c -> lookup (show id) c.tags) =<< state.config
-              in
-                Tuple tag.slug $ sdiv ([ S.ui, S.label ] <> [ ClassName tag.color ]) [ text tag.name ]
-          )
-          state.input
+    if editable then
+      div_ []
+    else
+      HK.div_
+        $ map
+            ( \id ->
+                let
+                  tag = fromMaybe { name: "Tag not Found!", color: "red", slug: show $ id, owner: "nobody" } $ (\c -> lookup (show id) c.tags) =<< state.config
+                in
+                  Tuple tag.slug $ sdiv ([ S.ui, S.label ] <> [ ClassName tag.color ]) [ text tag.name ]
+            )
+            state.input
 
   handleAction :: ∀ s. Action -> H.HalogenM State Action s o Aff Unit
   handleAction = case _ of

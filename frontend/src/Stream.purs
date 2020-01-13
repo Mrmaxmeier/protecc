@@ -169,7 +169,7 @@ component =
                     , HH.td_ [ text $ show $ stream.server ]
                     , HH.td_ [ text $ formatBytes $ stream.clientDataLen ]
                     , HH.td_ [ text $ formatBytes $ stream.serverDataLen ]
-                    , HH.td_ [ HH.td_ [ HH.slot _tags unit Tags.component stream.tags absurd ] ]
+                    , HH.td_ [ HH.td_ [ HH.slot _tags unit (Tags.component true) stream.tags absurd ] ]
                     ]
                 ]
             ]

@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "big-integer": "^1.6.48",
+    "monaco-editor": "^0.19.2",
     "numeral": "^2.0.6",
     "socket.io-client": "^2.3.0"
   }

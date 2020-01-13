@@ -20,6 +20,9 @@ module Util
   , css
   , Id
   , prettyShow
+  , onEnter
+  , setLocalStorage
+  , getLocalStorage
   ) where
 
 import Prelude
@@ -40,11 +43,14 @@ import Effect.Console (error, log)
 import Foreign.Object as FO
 import Halogen as H
 import Halogen.HTML.Core as HC
+import Halogen.HTML.Events (onKeyDown)
+import Halogen.HTML.Properties (IProp(..))
 import Halogen.HTML.Properties as HP
 import Prim.Row as Row
 import Prim.RowList as RL
 import Record as Record
 import Type.Data.RowList (RLProxy(..))
+import Web.UIEvent.KeyboardEvent (KeyboardEvent, code)
 
 newtype Wrapper a b
   = Wrapper (a b)
@@ -193,3 +199,13 @@ derive instance ordEq :: Ord Id
 
 prettyShow :: Number -> String
 prettyShow n = maybe (show n) toString $ fromNumber n
+
+onEnter :: ∀ r i. i -> (KeyboardEvent -> i) -> IProp ( onKeyDown :: KeyboardEvent | r ) i
+onEnter v v2 = onKeyDown $ \event -> if code event == "Enter" then Just v else Just $ v2 event
+
+foreign import setLocalStorage :: String -> String -> Effect Unit
+
+foreign import getLocalStorageImpl :: String -> (String -> Maybe String) -> Maybe String -> Effect (Maybe String)
+
+getLocalStorage :: String -> Effect (Maybe String)
+getLocalStorage s = getLocalStorageImpl s Just Nothing

@@ -109,7 +109,7 @@ component =
     , showCell stream.server
     , stringCell $ formatBytes stream.clientDataLen
     , stringCell $ formatBytes stream.serverDataLen
-    , HH.td_ [ HH.slot _tags stream.id Tags.component stream.tags absurd ]
+    , HH.td_ [ HH.slot _tags stream.id (Tags.component false) stream.tags absurd ]
     ]
 
   rows :: Array RowDescription

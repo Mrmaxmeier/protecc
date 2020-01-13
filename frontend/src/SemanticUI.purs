@@ -320,3 +320,18 @@ selection = ClassName "selection"
 
 dropdown :: ClassName
 dropdown = ClassName "dropdown"
+
+collapsing :: ClassName
+collapsing = ClassName "collapsing"
+
+mini :: ClassName
+mini = ClassName "mini"
+
+field :: ClassName
+field = ClassName "field"
+
+form :: ClassName
+form = ClassName "form"
+
+simple :: ClassName
+simple = ClassName "simple"

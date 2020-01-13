@@ -4,7 +4,7 @@ import Prelude
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Decode (class DecodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
-import Data.Array (all, any, drop, filter, length, take)
+import Data.Array (all, any, drop, filter, length, reverse, take)
 import Data.Maybe (Maybe(..), isNothing, maybe)
 import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff)
@@ -65,6 +65,7 @@ type InnerState r
     , clicked :: Maybe Id
     , window :: Socket.RequestId
     , loading :: Boolean
+    , recvdEmpty :: Boolean
     , page :: Int
     }
 
@@ -99,6 +100,7 @@ component identify rows rowRenderer =
         , clicked: Nothing
         , window: stream
         , loading: false
+        , recvdEmpty: false
         , page: 0
         }
 
@@ -130,7 +132,7 @@ component identify rows rowRenderer =
         mapInner_ initStream
     Init -> do
       mapInner_ initStream
-    WindowResponse update -> do
+    WindowResponse { windowUpdate: update } -> do
       nextPage <-
         mapInner false do
           state <-
@@ -139,9 +141,9 @@ component identify rows rowRenderer =
                   state
                     { elements =
                       take (state.pagesLoaded * pageSize)
-                        $ (\array -> update.windowUpdate.new <> array <> update.windowUpdate.extended)
+                        $ (\array -> (reverse update.new) <> array <> update.extended)
                         $ identity -- TODO changed
-                        $ filter (\stream -> all (_ /= identify stream) update.windowUpdate.deleted)
+                        $ filter (\stream -> all (_ /= identify stream) update.deleted)
                         $ state.elements
                     }
               )
@@ -152,6 +154,8 @@ component identify rows rowRenderer =
           when (maybe false (\e1 -> all (\e2 -> e1 /= identify e2) state.elements) state.clicked) do
             H.modify_ $ _ { clicked = Nothing }
             H.raise $ CloseDetails
+          when (length update.new == 0 && length update.changed == 0 && length update.deleted == 0 && length update.extended == 0) do
+            H.modify_ $ _ { recvdEmpty = true }
           pure enoughElements
       when nextPage $ handleAction NextPage
     RowClick element _ -> do
@@ -206,7 +210,7 @@ component identify rows rowRenderer =
     content = case state of
       Nothing -> [ loaderDiv true ]
       Just inner ->
-        if length inner.elements == 0 then
+        if length inner.elements == 0 && not inner.recvdEmpty then
           [ loaderDiv false ]
         else
           [ sdiv [ S.ui, S.basic, S.segment ]

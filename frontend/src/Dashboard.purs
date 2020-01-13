@@ -43,10 +43,11 @@ type Counters
       , pcap_processing_milliseconds :: WMaybe Number
       , streams_completed :: WMaybe Number
       , streams_timeout_expired :: WMaybe Number
+      , streams_without_syn :: WMaybe Number
       , pcap_blocks :: WMaybe Number
       , pcaps_imported :: WMaybe Number
       , db_services :: WMaybe Number
-      , db_stat_service_promotion :: WMaybe Number
+      , db_streams_rss :: WMaybe Number
       , query_rows_scanned :: WMaybe Number
       , query_rows_returned :: WMaybe Number
       , ws_connections :: WMaybe Number
@@ -97,6 +98,6 @@ component =
 
   renderStatistic label value show =
     sdiv [ S.statistic ]
-      [ HK.div [ classes [ S.value ] ] [ Tuple "val" (HH.text $ wmaybe "?" show value) ]
+      [ HK.div [ classes [ S.value ] ] [ Tuple "val" (HH.text $ wmaybe "0" show value) ]
       , sdiv [ S.label ] [ HH.text label ]
       ]
