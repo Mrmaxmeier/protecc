@@ -2,9 +2,11 @@ use crate::configuration::ConfigurationHandle;
 use crate::incr_counter;
 use crate::pipeline::PipelineManager;
 use crate::reassembly::StreamReassembly;
+use crate::query::QueryIndex;
 use crate::stream::Stream;
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeSet};
 use std::sync::Arc;
+use std::ops::RangeBounds;
 use tokio::stream::StreamExt;
 use tokio::sync::{mpsc, watch, RwLock};
 
@@ -33,7 +35,7 @@ impl Stream {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct StreamID(usize);
 impl StreamID {
     pub(crate) fn new(idx: usize) -> Self {
@@ -41,6 +43,9 @@ impl StreamID {
     }
     pub(crate) fn idx(&self) -> usize {
         self.0
+    }
+    pub(crate) fn next(&self) -> StreamID {
+        StreamID(self.0+1)
     }
 }
 
@@ -71,6 +76,7 @@ impl<'de> Deserialize<'de> for StreamPayloadID {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct TagID(u32);
 impl TagID {
+    pub fn as_u32(&self) -> u32 { self.0 }
     pub fn from_slug(slug: &[u8]) -> Self {
         use std::hash::Hasher;
         let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
@@ -81,7 +87,7 @@ impl TagID {
 
 #[derive(Default)]
 pub(crate) struct TagIndex {
-    pub(crate) tagged: HashMap<TagID, Vec<StreamID>>, // TODO(footprint) smallvec optimization
+    pub(crate) tagged: HashMap<TagID, BTreeSet<StreamID>>,
 }
 
 impl TagIndex {
@@ -92,25 +98,25 @@ impl TagIndex {
     }
     fn push(&mut self, stream_id: StreamID, tags: &[TagID]) {
         for tag in tags {
-            self.tagged.entry(*tag).or_default().push(stream_id);
+            self.tagged.entry(*tag).or_default().insert(stream_id);
         }
     }
 }
 
 pub(crate) struct Service {
-    pub(crate) streams: Vec<StreamID>,
+    pub(crate) streams: BTreeSet<StreamID>,
     pub(crate) tag_index: TagIndex,
 }
 
 impl Service {
     fn new() -> Self {
         Service {
-            streams: Vec::new(),
+            streams: BTreeSet::new(),
             tag_index: TagIndex::default(),
         }
     }
     fn push(&mut self, stream_id: StreamID) {
-        self.streams.push(stream_id);
+        self.streams.insert(stream_id);
     }
 }
 
@@ -218,12 +224,17 @@ impl Database {
         let malformed_stream_tag_id = self
             .configuration_handle
             .clone()
-            .register_tag("malformed_stream".into(), "reassembly".into())
+            .register_tag("malformed_stream", "reassembly", "Malformed Stream", "yellow")
             .await;
         let cyclic_ack_id = self
             .configuration_handle
             .clone()
-            .register_tag("cyclic_ack".into(), "reassembly".into())
+            .register_tag("cyclic_ack", "reassembly", "Cyclic Ack", "red")
+            .await;
+        let missing_data_id = self
+            .configuration_handle
+            .clone()
+            .register_tag("missing_data", "reassembly", "Missing Data", "red")
             .await;
         while let Some(stream) = rx.next().await {
             tracyrs::zone!("ingest_streams", "ingesting stream");
@@ -238,5 +249,51 @@ impl Database {
             let stream_id = self.push(stream).await;
             streamid_tx.broadcast(stream_id).unwrap();
         }
+    }
+
+
+
+    pub(crate) async fn with_index_iter<R, F, O>(&self, index: QueryIndex, r: R, f: F) -> O
+        where F: FnOnce(&mut dyn DoubleEndedIterator<Item=StreamID>) -> O,
+            R: RangeBounds<StreamID>,
+    {
+        /* an API like this would be pretty nice :/
+        /// Note: The relevant index is locked for the lifetime of the returned value
+        pub(crate) async fn index_iter_range<'a, R: RangeBounds<StreamID>, F, O>(&'a self, index: QueryIndex, r: R) -> TagIndexIterator<'a>
+        */
+        match index {
+            QueryIndex::All => {
+                return match r.end_bound() {
+                    std::ops::Bound::Included(end) =>
+                        f(&mut (0..=end.idx()).map(StreamID)),
+                    std::ops::Bound::Excluded(end) =>
+                        f(&mut (0..end.idx()).map(StreamID)),
+                    std::ops::Bound::Unbounded => unreachable!(),
+                }
+            },
+            QueryIndex::Service(port) => {
+                let services = self.services.read().await;
+                if let Some(service) = services.get(&port) {
+                    let service = service.read().await;
+                    return f(&mut service.streams.range(r).copied());
+                } 
+            }
+            QueryIndex::ServiceTagged(port, tag) => {
+                let services = self.services.read().await;
+                if let Some(service) = services.get(&port) {
+                    let service = service.read().await;
+                    if let Some(streams) = service.tag_index.tagged.get(&tag) {
+                        return f(&mut streams.range(r).copied());
+                    }
+                }
+            }
+            QueryIndex::Tagged(tag) => {
+                let tag_index = self.tag_index.read().await;
+                if let Some(streams) = tag_index.tagged.get(&tag) {
+                    return f(&mut streams.range(r).copied());
+                }
+            }
+        }
+        f(&mut std::iter::empty())
     }
 }

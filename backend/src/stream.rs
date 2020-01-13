@@ -51,52 +51,7 @@ impl Stream {
         client_to_server.remove_retransmissions();
         server_to_client.remove_retransmissions();
 
-        // relative seq no
-        // Note: this doesn't handle wrapping sequence numbers
-        let client_min_seq = client_to_server
-            .packets
-            .iter()
-            .map(|p| p.tcp_header.sequence_no)
-            .min();
-        let client_min_ack = client_to_server
-            .packets
-            .iter()
-            .filter(|p| p.tcp_header.flag_ack)
-            .map(|p| p.tcp_header.ack_no)
-            .min();
-        let server_min_seq = server_to_client
-            .packets
-            .iter()
-            .map(|p| p.tcp_header.sequence_no)
-            .min();
-        let server_min_ack = server_to_client
-            .packets
-            .iter()
-            .filter(|p| p.tcp_header.flag_ack)
-            .map(|p| p.tcp_header.ack_no)
-            .min();
-        fn min2(a: Option<u32>, b: Option<u32>) -> u32 {
-            match (a, b) {
-                (Some(a), Some(b)) => a.min(b),
-                (Some(v), None) => v,
-                (None, Some(v)) => v,
-                (None, None) => 0,
-            }
-        }
-        let client_start_seq = min2(client_min_seq, server_min_ack);
-        let server_start_seq = min2(server_min_seq, client_min_ack);
-        for p in &mut client_to_server.packets {
-            p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(client_start_seq);
-            if p.tcp_header.flag_ack {
-                p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(server_start_seq);
-            }
-        }
-        for p in &mut server_to_client.packets {
-            p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(server_start_seq);
-            if p.tcp_header.flag_ack {
-                p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(client_start_seq);
-            }
-        }
+        make_sequence_numbers_relative(&mut client_to_server, &mut server_to_client);
 
         let mut client_data = Vec::new();
         let mut server_data = Vec::new();
@@ -426,10 +381,12 @@ fn topo_sort<'a>(
 ) -> Option<Vec<(Sender, &'a Packet)>> {
     let mut indeg: HashMap<u32, u32> = HashMap::new();
     let mut adj: HashMap<u32, Vec<u32>> = HashMap::new();
+    for (i, _) in packets.iter().enumerate() {
+        indeg.insert(i as u32, 0);
+    }
+
     for (i, j) in edges.iter() {
-        let _ = adj.entry(*j).or_default();
         adj.entry(*i).or_default().push(*j);
-        let _ = *indeg.entry(*i).or_default();
         *indeg.entry(*j).or_default() += 1;
     }
     let mut pq = BinaryHeap::new();
@@ -442,10 +399,12 @@ fn topo_sort<'a>(
     let mut res = Vec::new();
     while let Some(TopoCmpHelper(current, payload)) = pq.pop() {
         res.push(payload);
-        for next in &adj[&current] {
-            *indeg.get_mut(next).unwrap() -= 1;
-            if indeg[next] == 0 {
-                pq.push(TopoCmpHelper(*next, packets[*next as usize]));
+        if let Some(adj_) = adj.get(&current) {
+            for next in adj_ {
+                *indeg.get_mut(next).unwrap() -= 1;
+                if indeg[next] == 0 {
+                    pq.push(TopoCmpHelper(*next, packets[*next as usize]));
+                }
             }
         }
     }
@@ -457,4 +416,42 @@ fn topo_sort<'a>(
     }
 
     Some(res)
+}
+
+
+fn make_sequence_numbers_relative(streamA: &mut crate::reassembly::Stream, streamB: &mut crate::reassembly::Stream) {
+        fn seq_start(seqs: &[Packet], acks: &[Packet]) -> u32 {
+            let mut buckets = [None, None, None];
+            for seqno in seqs.iter().map(|p|p.tcp_header.sequence_no).chain(acks.iter().map(|p|p.tcp_header.ack_no)) {
+                let bucket_idx = (seqno >= 0x55555555) as usize + (seqno >= 0xaaaaaaaa) as usize;
+                buckets[bucket_idx] = buckets[bucket_idx].map(|seqno_: u32| seqno_.min(seqno)).or(Some(seqno));
+            }
+            match buckets {
+                [None, None, None] => 0,
+                [Some(x), None, None] => x,
+                [None, Some(x), None] => x,
+                [None, None, Some(x)] => x,
+                [Some(x), Some(_), None] => x,
+                [None, Some(x), Some(_)] => x,
+                [Some(_), None, Some(x)] => x,
+                _ => {
+                    debug_assert!(false, "sequence ids cross both boundaries");
+                    0
+                }
+            }
+        }
+        let start_seq_a = seq_start(&streamA.packets, &streamB.packets);
+        let start_seq_b = seq_start(&streamB.packets, &streamA.packets);
+        for p in &mut streamA.packets {
+            p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(start_seq_a);
+            if p.tcp_header.flag_ack {
+                p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(start_seq_b);
+            }
+        }
+        for p in &mut streamB.packets {
+            p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(start_seq_b);
+            if p.tcp_header.flag_ack {
+                p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(start_seq_a);
+            }
+        }
 }

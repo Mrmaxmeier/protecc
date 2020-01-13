@@ -54,7 +54,7 @@ impl Tag {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ConfigurationUpdate {
     SetService(Service),
-    RegisterTag { slug: String, owner: String },
+    RegisterTag(Tag),
     SetTag(Tag),
 }
 
@@ -65,10 +65,16 @@ pub(crate) struct ConfigurationHandle {
 }
 
 impl ConfigurationHandle {
-    pub(crate) async fn register_tag(&mut self, slug: String, owner: String) -> TagID {
-        let tag_id = TagID::from_slug(slug.as_bytes());
+    pub(crate) async fn register_tag(&mut self, slug: &str, owner: &str, name: &str, color: &str) -> TagID {
+        let tag = Tag {
+            slug: slug.into(),
+            owner: owner.into(),
+            name: name.into(),
+            color: color.into(),
+        };
+        let tag_id = tag.as_id();
         self.tx
-            .send(ConfigurationUpdate::RegisterTag { slug, owner })
+            .send(ConfigurationUpdate::RegisterTag(tag))
             .await
             .unwrap();
 
@@ -116,10 +122,10 @@ impl Configuration {
             ConfigurationUpdate::SetTag(tag) => {
                 self.tags.insert(tag.as_id(), tag);
             }
-            ConfigurationUpdate::RegisterTag { slug, owner } => {
+            ConfigurationUpdate::RegisterTag(tag) => {
                 self.tags
-                    .entry(TagID::from_slug(slug.as_bytes()))
-                    .or_insert_with(|| Tag::from_slug_and_owner(slug, owner));
+                    .entry(tag.as_id())
+                    .or_insert_with(|| tag);
             }
         }
     }
