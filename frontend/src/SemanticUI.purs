@@ -335,3 +335,6 @@ form = ClassName "form"
 
 simple :: ClassName
 simple = ClassName "simple"
+
+empty :: ClassName
+empty = ClassName "empty"

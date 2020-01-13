@@ -12,6 +12,31 @@ pub(crate) struct Tag {
     owner: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Service {
+    slug: String,
+    name: String,
+    port: u16,
+}
+
+impl Service {
+    pub fn as_id(&self) -> ServiceID {
+        ServiceID::from_slug(self.slug.as_bytes())
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub(crate) struct ServiceID(u32);
+impl ServiceID {
+    pub fn from_slug(slug: &[u8]) -> Self {
+        use std::hash::Hasher;
+        let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
+        hasher.write(slug);
+        ServiceID(hasher.finish() as u32)
+    }
+}
+
 impl Tag {
     pub fn as_id(&self) -> TagID {
         TagID::from_slug(self.slug.as_bytes())
@@ -28,7 +53,7 @@ impl Tag {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ConfigurationUpdate {
-    SetService(u16, String),
+    SetService(Service),
     RegisterTag { slug: String, owner: String },
     SetTag(Tag),
 }
@@ -61,7 +86,7 @@ impl ConfigurationHandle {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Configuration {
     tags: HashMap<TagID, Tag>,
-    services: HashMap<u16, String>,
+    services: HashMap<ServiceID, Service>,
 }
 
 impl Configuration {
@@ -85,8 +110,8 @@ impl Configuration {
 
     fn update(&mut self, update: ConfigurationUpdate) {
         match update {
-            ConfigurationUpdate::SetService(k, v) => {
-                self.services.insert(k, v);
+            ConfigurationUpdate::SetService(service) => {
+                self.services.insert(service.as_id(), service);
             }
             ConfigurationUpdate::SetTag(tag) => {
                 self.tags.insert(tag.as_id(), tag);

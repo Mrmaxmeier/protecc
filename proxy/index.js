@@ -17,8 +17,9 @@ function sleep(ms) {
 
 io.on('connection', function (socket) {
     console.log('client connected');
-    const ws = new WebSocket('ws://192.168.1.194:10000/');
+    //const ws = new WebSocket('ws://192.168.1.194:10000/');
     //const ws = new WebSocket('ws://localhost:10000/');
+    const ws = new WebSocket('ws://172.26.187.180:10000/');
 
     ws.on("message", async function (s) {
         //console.log('server -> client: ' + s);

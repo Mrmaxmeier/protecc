@@ -3,7 +3,10 @@ module Configuration (init, set, subscribe, component, Configuration, Tag, Servi
 import Prelude
 import Data.Array.NonEmpty (NonEmptyArray, cons', head, singleton, toArray)
 import Data.Identity (Identity(..))
-import Data.Maybe (Maybe(..), maybe)
+import Data.Int (fromString)
+import Data.Map (Map)
+import Data.Map as Map
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Symbol (SProxy(..))
 import Data.Tuple (Tuple(..))
 import Dropdown as Dropdown
@@ -32,7 +35,7 @@ type Tag
   = { slug :: String, name :: String, color :: String, owner :: String }
 
 type Service
-  = {}
+  = { slug :: String, port :: Int, name :: String }
 
 type Configuration
   = { tags :: Object Tag, services :: Object Service }
@@ -65,7 +68,7 @@ subscribe :: ∀ state a slot m. (Configuration -> a) -> HalogenM state a slot m
 subscribe f = mapAction f $ H.subscribe source
 
 type State
-  = { config :: Maybe Configuration, addTag :: EditTag, editTag :: Maybe EditTag }
+  = { config :: Maybe Configuration, addTag :: EditTag, editTag :: Maybe EditTag, addService :: EditService, editService :: Maybe EditService }
 
 data Action
   = Init
@@ -76,7 +79,10 @@ data Action
   | SubmitEditTag
   | EditTagColorChange Dropdown.ColorMessage
   | AddTagColorChange Dropdown.ColorMessage
-  | Test KeyboardEvent
+  | AddServiceUpdate EditService
+  | SubmitAddService
+  | EditServiceUpdate EditService
+  | SubmitEditService
 
 type Slot
   = ( addColor :: H.Slot Identity Dropdown.ColorMessage Unit
@@ -94,6 +100,9 @@ type EditTag
     , owner :: String
     }
 
+type EditService
+  = Service
+
 editTagToTag :: EditTag -> Tag
 editTagToTag et = { name: et.name, slug: et.slug, color: et.color.value, owner: et.owner }
 
@@ -106,7 +115,7 @@ component =
     }
   where
   initialState :: i -> State
-  initialState input = { config: Nothing, addTag: { slug: "", name: "", color: head Dropdown.colors, owner: "webui" }, editTag: Nothing }
+  initialState input = { config: Nothing, addTag: { slug: "", name: "", color: head Dropdown.colors, owner: "webui" }, editTag: Nothing, addService: { port: 0, slug: "", name: "" }, editService: Nothing }
 
   render :: State -> H.ComponentHTML Action Slot Aff
   render state = sdiv [ S.ui, S.container ] content
@@ -125,11 +134,41 @@ component =
                                 Just editTag
                                   | editTag.slug == tag.slug ->
                                     HH.tr_
-                                      [ HH.td_ [ HH.form [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitEditTag) ] [ sdiv [ S.disabled, S.field ] [ HH.input [ type_ InputText, disabled true, value editTag.slug ] ] ] ]
-                                      , HH.td_ [ HH.form [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitEditTag) ] [ sdiv [ S.field ] [ HH.input [ type_ InputText, onValueChange $ Just <<< EditTagUpdate <<< (editTag { name = _ }), value editTag.name ] ] ] ]
-                                      , HH.td_ [ HH.form [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitEditTag) ] [ sdiv [ S.disabled, S.field ] [ HH.input [ type_ InputText, disabled true, value editTag.owner ] ] ] ]
+                                      [ HH.td_
+                                          [ HH.form
+                                              [ classes [ S.ui, S.form ]
+                                              , onSubmit $ Just <<< (const SubmitEditTag)
+                                              ]
+                                              [ sdiv [ S.disabled, S.field ]
+                                                  [ HH.input [ type_ InputText, disabled true, value editTag.slug ] ]
+                                              ]
+                                          ]
+                                      , HH.td_
+                                          [ HH.form
+                                              [ classes [ S.ui, S.form ]
+                                              , onSubmit $ Just <<< (const SubmitEditTag)
+                                              ]
+                                              [ sdiv [ S.field ]
+                                                  [ HH.input [ type_ InputText, onValueChange $ Just <<< EditTagUpdate <<< (editTag { name = _ }), value editTag.name ] ]
+                                              ]
+                                          ]
+                                      , HH.td_
+                                          [ HH.form
+                                              [ classes [ S.ui, S.form ]
+                                              , onSubmit $ Just <<< (const SubmitEditTag)
+                                              ]
+                                              [ sdiv [ S.disabled, S.field ]
+                                                  [ HH.input [ type_ InputText, disabled true, value editTag.owner ] ]
+                                              ]
+                                          ]
                                       , HH.slot _editColor editTag.slug Dropdown.colorDropdown { selection: editTag.color, rows: toArray Dropdown.colors } $ Just <<< EditTagColorChange
-                                      , HH.td_ [ HH.form [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitEditTag) ] [ HH.button [ classes [ S.ui, S.mini, S.button, S.green ], onClick $ Just <<< (const SubmitEditTag) ] [ text $ "Submit" ] ] ]
+                                      , HH.td_
+                                          [ HH.form
+                                              [ classes [ S.ui, S.form ]
+                                              , onSubmit $ Just <<< (const SubmitEditTag)
+                                              ]
+                                              [ HH.button [ classes [ S.ui, S.mini, S.button, S.green ], onClick $ Just <<< (const SubmitEditTag) ] [ text $ "Submit" ] ]
+                                          ]
                                       ]
                                 _ ->
                                   HH.tr_
@@ -144,11 +183,133 @@ component =
                   )
                 <> [ Tuple "add"
                       $ HH.tr_
-                          [ HH.td_ [ HH.form [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitAddTag) ] [ sdiv [ S.field ] [ HH.input [ type_ InputText, onValueChange $ Just <<< AddTagUpdate <<< (state.addTag { slug = _ }), value state.addTag.slug ] ] ] ]
-                          , HH.td_ [ HH.form [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitAddTag) ] [ sdiv [ S.field ] [ HH.input [ type_ InputText, onValueChange $ Just <<< AddTagUpdate <<< (state.addTag { name = _ }), value state.addTag.name ] ] ] ]
-                          , HH.td_ [ HH.form [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitAddTag) ] [ sdiv [ S.disabled, S.field ] [ HH.input [ type_ InputText, disabled true, value state.addTag.owner ] ] ] ]
+                          [ HH.td_
+                              [ HH.form
+                                  [ classes [ S.ui, S.form ]
+                                  , onSubmit $ Just <<< (const SubmitAddTag)
+                                  ]
+                                  [ sdiv [ S.field ]
+                                      [ HH.input [ type_ InputText, onValueChange $ Just <<< AddTagUpdate <<< (state.addTag { slug = _ }), value state.addTag.slug ] ]
+                                  ]
+                              ]
+                          , HH.td_
+                              [ HH.form
+                                  [ classes [ S.ui, S.form ]
+                                  , onSubmit $ Just <<< (const SubmitAddTag)
+                                  ]
+                                  [ sdiv [ S.field ]
+                                      [ HH.input [ type_ InputText, onValueChange $ Just <<< AddTagUpdate <<< (state.addTag { name = _ }), value state.addTag.name ] ]
+                                  ]
+                              ]
+                          , HH.td_
+                              [ HH.form
+                                  [ classes [ S.ui, S.form ]
+                                  , onSubmit $ Just <<< (const SubmitAddTag)
+                                  ]
+                                  [ sdiv [ S.disabled, S.field ]
+                                      [ HH.input [ type_ InputText, disabled true, value state.addTag.owner ] ]
+                                  ]
+                              ]
                           , HH.slot _addColor unit Dropdown.colorDropdown { selection: state.addTag.color, rows: toArray Dropdown.colors } $ Just <<< AddTagColorChange
-                          , HH.td_ [ HH.form [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitAddTag) ] [ HH.button [ classes [ S.ui, S.mini, S.button, S.green ], onClick $ Just <<< (const SubmitAddTag) ] [ text $ "Add" ] ] ]
+                          , HH.td_
+                              [ HH.form
+                                  [ classes [ S.ui, S.form ]
+                                  , onSubmit $ Just <<< (const SubmitAddTag)
+                                  ]
+                                  [ HH.button [ classes [ S.ui, S.mini, S.button, S.green ], onClick $ Just <<< (const SubmitAddTag) ] [ text $ "Add" ] ]
+                              ]
+                          ]
+                  ]
+            ]
+        , HH.h1_ [ text "Services" ]
+        , HH.table [ classes [ S.center, S.ui, S.basic, S.compact, S.collapsing, S.celled, S.table ] ]
+            [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Slug" ], HH.th_ [ text "Port" ], HH.th_ [ text "Name" ], HH.th_ [] ] ]
+            , HK.tbody_
+                $ ( map
+                      ( \(Tuple id service) ->
+                          Tuple id
+                            $ case state.editService of
+                                Just editService
+                                  | editService.slug == service.slug ->
+                                    HH.tr_
+                                      [ HH.td_
+                                          [ HH.form
+                                              [ classes [ S.ui, S.form ]
+                                              , onSubmit $ Just <<< (const SubmitEditService)
+                                              ]
+                                              [ sdiv [ S.disabled, S.field ] [ HH.input [ type_ InputText, disabled true, onValueChange $ Just <<< EditServiceUpdate <<< (editService { slug = _ }), value editService.slug ] ] ]
+                                          ]
+                                      , HH.td_
+                                          [ HH.form
+                                              [ classes [ S.ui, S.form ]
+                                              , onSubmit $ Just <<< (const SubmitEditService)
+                                              ]
+                                              [ sdiv [ S.field ]
+                                                  [ HH.input [ type_ InputNumber, onValueChange $ Just <<< EditServiceUpdate <<< (state.addService { port = _ }) <<< fromMaybe 0 <<< fromString, value $ show $ state.addService.port ] ]
+                                              ]
+                                          ]
+                                      , HH.td_
+                                          [ HH.form
+                                              [ classes [ S.ui, S.form ]
+                                              , onSubmit $ Just <<< (const SubmitEditService)
+                                              ]
+                                              [ sdiv [ S.field ]
+                                                  [ HH.input [ type_ InputText, onValueChange $ Just <<< EditServiceUpdate <<< (editService { name = _ }), value editService.name ] ]
+                                              ]
+                                          ]
+                                      , HH.td_
+                                          [ HH.form
+                                              [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitEditService)
+                                              ]
+                                              [ HH.button [ classes [ S.ui, S.mini, S.button, S.green ], onClick $ Just <<< (const SubmitEditService) ] [ text $ "Submit" ] ]
+                                          ]
+                                      ]
+                                _ ->
+                                  HH.tr_
+                                    [ HH.td_ [ text $ service.slug ]
+                                    , HH.td_ [ text $ show service.port ]
+                                    , HH.td_ [ text $ service.name ]
+                                    , HH.td_ [ HH.button [ classes [ S.ui, S.mini, S.button ], onClick $ Just <<< (const $ EditServiceUpdate service) ] [ text $ "Edit" ] ]
+                                    ]
+                      )
+                      $ toUnfoldable config.services
+                  )
+                <> [ Tuple "add"
+                      $ HH.tr_
+                          [ HH.td_
+                              [ HH.form
+                                  [ classes [ S.ui, S.form ]
+                                  , onSubmit $ Just <<< (const SubmitAddService)
+                                  ]
+                                  [ sdiv [ S.field ]
+                                      [ HH.input [ type_ InputText, onValueChange $ Just <<< AddServiceUpdate <<< (state.addService { slug = _ }), value state.addService.slug ] ]
+                                  ]
+                              ]
+                          , HH.td_
+                              [ HH.form
+                                  [ classes [ S.ui, S.form ]
+                                  , onSubmit $ Just <<< (const SubmitAddService)
+                                  ]
+                                  [ sdiv [ S.field ]
+                                      [ HH.input [ type_ InputNumber, onValueChange $ Just <<< AddServiceUpdate <<< (state.addService { port = _ }) <<< fromMaybe 0 <<< fromString, value $ show $ state.addService.port ] ]
+                                  ]
+                              ]
+                          , HH.td_
+                              [ HH.form
+                                  [ classes [ S.ui, S.form ]
+                                  , onSubmit $ Just <<< (const SubmitAddService)
+                                  ]
+                                  [ sdiv [ S.field ]
+                                      [ HH.input [ type_ InputText, onValueChange $ Just <<< AddServiceUpdate <<< (state.addService { name = _ }), value state.addService.name ] ]
+                                  ]
+                              ]
+                          , HH.td_
+                              [ HH.form
+                                  [ classes [ S.ui, S.form ]
+                                  , onSubmit $ Just <<< (const SubmitAddService)
+                                  ]
+                                  [ HH.button [ classes [ S.ui, S.mini, S.button, S.green ], onClick $ Just <<< (const SubmitAddService) ] [ text $ "Add" ] ]
+                              ]
                           ]
                   ]
             ]
@@ -172,6 +333,14 @@ component =
       Dropdown.Selected c -> H.modify_ $ \state -> state { editTag = map (_ { color = c }) state.editTag }
     AddTagColorChange msg -> case msg of
       Dropdown.Selected c -> H.modify_ $ _ { addTag { color = c } }
-    Test e -> do
-      logo e
-      logs $ code e
+    AddServiceUpdate service -> H.modify_ $ _ { addService = service }
+    SubmitAddService -> do
+      state <- H.get
+      logo state.addService
+      void $ Socket.request { updateConfiguration: { setService: state.addService } }
+    EditServiceUpdate service -> H.modify_ $ _ { editService = Just service }
+    SubmitEditService -> do
+      state <- H.get
+      logo state.addService
+      _ <- Socket.request { updateConfiguration: { setService: state.editService } }
+      H.modify_ $ _ { editService = Nothing }

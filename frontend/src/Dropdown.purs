@@ -1,6 +1,7 @@
 module Dropdown where
 
 import Prelude
+import CSS as CSS
 import Data.Array.NonEmpty (NonEmptyArray, cons')
 import Data.Identity (Identity(..))
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -55,7 +56,7 @@ component config =
       [ sdiv [ S.ui, S.simple, S.dropdown, S.item ]
           [ config.renderHeader state.selection
           , HH.i [ classes [ S.dropdown, S.icon ] ] []
-          , sdiv [ S.menu, S.compact ]
+          , sdiv [ S.menu, S.scrolling ]
               $ map (\row -> div [ classes [ S.item ], onClick $ Just <<< (const $ Clicked row) ] [ config.renderInList row ])
                   state.rows
           ]
@@ -106,7 +107,7 @@ brown :: Color
 brown = { name: "Brown", value: "brown" }
 
 black :: Color
-black = { name: "´Black", value: "black" }
+black = { name: "Black", value: "black" }
 
 colors :: NonEmptyArray Color
 colors =
@@ -142,4 +143,4 @@ valueToColor = case _ of
 colorDropdown :: H.Component HH.HTML Identity (Input Color Color) (Message Color Color) Aff
 colorDropdown = component { renderHeader: renderLabel, renderInList: renderLabel }
   where
-  renderLabel color = sdiv [ S.ui, S.label, ClassName color.value ] [ text color.name ]
+  renderLabel color = HH.span_ [ div [ classes [ S.ui, S.empty, S.circular, S.label, ClassName color.value ], HC.style $ CSS.marginRight $ CSS.px 5.0 ] [], text color.name ]
