@@ -2,6 +2,7 @@ module Dropdown where
 
 import Prelude
 import CSS as CSS
+import ConfigurationTypes (Tag, Service)
 import Data.Array.NonEmpty (NonEmptyArray, cons')
 import Data.Identity (Identity(..))
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -34,12 +35,13 @@ data Action h d
 data Message h d
   = Selected d
 
-type Config h d
+type Config h d s
   = { renderHeader :: h -> H.ComponentHTML (Action h d) () Aff
     , renderInList :: d -> H.ComponentHTML (Action h d) () Aff
+    , minWidth :: CSS.Size s
     }
 
-component :: ∀ q h d. Config h d -> H.Component HH.HTML q (Input h d) (Message h d) Aff
+component :: ∀ q h d s. Config h d s -> H.Component HH.HTML q (Input h d) (Message h d) Aff
 component config =
   H.mkComponent
     { initialState
@@ -52,12 +54,17 @@ component config =
 
   render :: State h d -> H.ComponentHTML (Action h d) () Aff
   render state =
-    sdiv [ S.ui, S.compact, S.menu ]
-      [ sdiv [ S.ui, S.simple, S.dropdown, S.item ]
+    div [ classes [ S.ui, S.compact, S.menu ], HC.style $ CSS.minWidth config.minWidth ]
+      [ div
+          [ classes [ S.ui, S.simple, S.fluid, S.dropdown, S.item ]
+          , HC.style do
+              CSS.display CSS.flex
+              CSS.justifyContent CSS.spaceBetween
+          ]
           [ config.renderHeader state.selection
           , HH.i [ classes [ S.dropdown, S.icon ] ] []
           , sdiv [ S.menu, S.scrolling ]
-              $ map (\row -> div [ classes [ S.item ], onClick $ Just <<< (const $ Clicked row) ] [ config.renderInList row ])
+              $ map (\row -> div [ classes [ S.item ], onClick $ Just <<< (const $ Clicked row), HC.style $ CSS.minWidth config.minWidth ] [ config.renderInList row ])
                   state.rows
           ]
       ]
@@ -140,7 +147,37 @@ valueToColor = case _ of
   "black" -> black
   _ -> grey
 
-colorDropdown :: H.Component HH.HTML Identity (Input Color Color) (Message Color Color) Aff
-colorDropdown = component { renderHeader: renderLabel, renderInList: renderLabel }
+colorDropdown :: H.Component HH.HTML Identity (Input Color Color) ColorMessage Aff
+colorDropdown = component { renderHeader: renderLabel, renderInList: renderLabel, minWidth: CSS.px 150.0 }
   where
   renderLabel color = HH.span_ [ div [ classes [ S.ui, S.empty, S.circular, S.label, ClassName color.value ], HC.style $ CSS.marginRight $ CSS.px 5.0 ] [], text color.name ]
+
+type TagMessage
+  = Message (Maybe Tag) (Maybe Tag)
+
+tagDropdown :: H.Component HH.HTML Identity (Input (Maybe Tag) (Maybe Tag)) TagMessage Aff
+tagDropdown = component { renderHeader: render, renderInList: render, minWidth: CSS.px 250.0 }
+  where
+  render = case _ of
+    Nothing -> text "-"
+    Just tag -> HH.span_ [ div [ classes [ S.ui, S.empty, S.circular, S.label, ClassName tag.color ], HC.style $ CSS.marginRight $ CSS.px 5.0 ] [], text tag.name ]
+
+type TagsMessage
+  = Message (Array Tag) Tag
+
+tagsDropdown :: H.Component HH.HTML Identity (Input (Array Tag) Tag) TagsMessage Aff
+tagsDropdown = component { renderHeader: renderHeader, renderInList: renderItem, minWidth: CSS.px 250.0 }
+  where
+  renderItem tag = HH.span_ [ div [ classes [ S.ui, S.empty, S.circular, S.label, ClassName tag.color ], HC.style $ CSS.marginRight $ CSS.px 5.0 ] [], text tag.name ]
+
+  renderHeader = HH.span_ <<< map (\tag -> div [ classes [ S.ui, S.label, ClassName tag.color ], HC.style $ CSS.marginRight $ CSS.px 5.0 ] [ text tag.name ])
+
+type ServiceMessage
+  = Message (Maybe Service) (Maybe Service)
+
+serviceDropdown :: H.Component HH.HTML Identity (Input (Maybe Service) (Maybe Service)) ServiceMessage Aff
+serviceDropdown = component { renderHeader: render, renderInList: render, minWidth: CSS.px 250.0 }
+  where
+  render = case _ of
+    Nothing -> text "-"
+    Just service -> text service.name

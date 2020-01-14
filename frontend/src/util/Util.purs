@@ -20,9 +20,13 @@ module Util
   , css
   , Id
   , prettyShow
+  , fromString
   , onEnter
   , setLocalStorage
   , getLocalStorage
+  , id
+  , matchMaybe
+  , dropUntil
   ) where
 
 import Prelude
@@ -32,7 +36,9 @@ import Data.Argonaut.Core (Json, stringify, toObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
 import Data.BigInt (BigInt, fromNumber, toNumber, toString)
+import Data.BigInt as BigInt
 import Data.Either (Either(..))
+import Data.Foldable (class Foldable, foldr)
 import Data.HeytingAlgebra (tt)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Monoid (class MonoidRecord)
@@ -49,6 +55,7 @@ import Halogen.HTML.Properties as HP
 import Prim.Row as Row
 import Prim.RowList as RL
 import Record as Record
+import Routing.Match (Match(..), str)
 import Type.Data.RowList (RLProxy(..))
 import Web.UIEvent.KeyboardEvent (KeyboardEvent, code)
 
@@ -197,6 +204,9 @@ derive instance idEq :: Eq Id
 
 derive instance ordEq :: Ord Id
 
+fromString :: String -> Id
+fromString = Id <<< fromMaybe (BigInt.fromInt (-1)) <<< BigInt.fromString
+
 prettyShow :: Number -> String
 prettyShow n = maybe (show n) toString $ fromNumber n
 
@@ -209,3 +219,21 @@ foreign import getLocalStorageImpl :: String -> (String -> Maybe String) -> Mayb
 
 getLocalStorage :: String -> Effect (Maybe String)
 getLocalStorage s = getLocalStorageImpl s Just Nothing
+
+id :: Match Id
+id = fromString <$> str
+
+matchMaybe :: ∀ a. Match a -> Match (Maybe a)
+matchMaybe = map Just
+
+dropUntil :: ∀ h a. HeytingAlgebra h => Eq h => (a -> h) -> Array a -> Array a
+dropUntil f =
+  _.result
+    <<< foldr
+        ( \a b ->
+            if b.done then
+              { done: true, result: b.result <> [ a ] }
+            else
+              b { done = f a == tt }
+        )
+        { done: false, result: [] }

@@ -3,7 +3,7 @@ module Stream where
 import Prelude
 import CSS as CSS
 import CSS.TextAlign as CT
-import Configuration (Configuration)
+import ConfigurationTypes (Configuration)
 import Configuration as Config
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson)
@@ -78,7 +78,7 @@ type StreamDetails
   = { id :: Id
     , client :: Addr
     , server :: Addr
-    , tags :: Array Int
+    , tags :: Array Id
     , features :: Object Number
     , segments :: Array SegmentWithData
     , clientDataLen :: Number
@@ -162,17 +162,18 @@ component =
     renderDetails stream =
       HH.span_
         [ HH.table [ classes [ S.ui, S.table, S.basic, S.celled ] ]
-            [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Client" ], HH.th_ [ text "Server" ], HH.th_ [ text "Client Data" ], HH.th_ [ text "Server Data" ], HH.th_ [ text "Tags" ] ] ]
+            [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Client" ], HH.th_ [ text "Server" ], HH.th_ [ text "Client Data" ], HH.th_ [ text "Server Data" ] ] ]
             , HH.tbody_
                 [ HH.tr_
                     [ HH.td_ [ text $ show $ stream.client ]
                     , HH.td_ [ text $ show $ stream.server ]
                     , HH.td_ [ text $ formatBytes $ stream.clientDataLen ]
                     , HH.td_ [ text $ formatBytes $ stream.serverDataLen ]
-                    , HH.td_ [ HH.td_ [ HH.slot _tags unit (Tags.component true) stream.tags absurd ] ]
                     ]
                 ]
             ]
+        , sdiv [ S.ui, S.divider ] []
+        , HH.td_ [ HH.td_ [ HH.slot _tags unit (Tags.component true) { tags: stream.tags, stream: stream.id } absurd ] ]
         , sdiv [ S.ui, S.divider ] []
         , div [ HC.style $ CSS.paddingBottom $ CSS.px 10.0 ]
             [ HH.select [ classes [ S.ui, S.selection, S.dropdown ], onValueChange $ Just <<< DisplayTypeChange ]

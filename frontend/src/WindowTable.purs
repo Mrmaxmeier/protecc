@@ -4,8 +4,9 @@ import Prelude
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Decode (class DecodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
-import Data.Array (all, any, drop, filter, length, reverse, take)
+import Data.Array (all, any, drop, filter, foldr, insert, insertBy, length, reverse, take)
 import Data.Maybe (Maybe(..), isNothing, maybe)
+import Data.Ordering (invert)
 import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff)
 import Effect.Console (log)
@@ -20,12 +21,13 @@ import Halogen.HTML.Events (onChange, onClick, onValueChange)
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties (InputType(..), checked, classes, disabled, type_)
 import Halogen.Query.HalogenM (imapState)
+import Keyevent as Keyevent
 import Partial.Unsafe (unsafeCrashWith)
 import SemanticUI (loaderDiv, sa, sbutton, sdiv, sicon)
 import SemanticUI as S
 import Socket (RequestId)
 import Socket as Socket
-import Util (Id, logj, logo, logs, mwhen, prettifyJson)
+import Util (Id, dropUntil, logj, logo, logs, mwhen, prettifyJson)
 import Web.Event.Event (preventDefault)
 import Web.Event.Internal.Types (Event)
 import Web.HTML.HTMLInputElement (indeterminate)
@@ -43,9 +45,8 @@ data Query a
 type WindowUpdate r
   = { windowUpdate ::
       { new :: Array r
-      , extended :: Array r
-      , changed :: Array r
       , deleted :: Array Id
+      , changed :: Array r
       }
     }
 
@@ -57,6 +58,8 @@ data Action r
   | ToggleAttached
   | NextPage
   | PreviousPage
+  | SelectNext
+  | SelectPrev
 
 type InnerState r
   = { pagesLoaded :: Int
@@ -132,6 +135,11 @@ component identify rows rowRenderer =
         mapInner_ initStream
     Init -> do
       mapInner_ initStream
+      _ <- Keyevent.subscribe 39 NextPage
+      _ <- Keyevent.subscribe 37 PreviousPage
+      _ <- Keyevent.subscribe 38 SelectPrev
+      _ <- Keyevent.subscribe 40 SelectNext
+      void $ Keyevent.subscribe 65 ToggleAttached
     WindowResponse { windowUpdate: update } -> do
       nextPage <-
         mapInner false do
@@ -141,9 +149,8 @@ component identify rows rowRenderer =
                   state
                     { elements =
                       take (state.pagesLoaded * pageSize)
-                        $ (\array -> (reverse update.new) <> array <> update.extended)
-                        $ identity -- TODO changed
-                        $ filter (\stream -> all (_ /= identify stream) update.deleted)
+                        $ (\array -> foldr (insertBy $ \a b -> invert $ compare (identify a) (identify b)) array $ update.new <> update.changed)
+                        $ filter (\stream -> all (_ /= identify stream) (update.deleted <> map identify update.changed))
                         $ state.elements
                     }
               )
@@ -153,8 +160,7 @@ component identify rows rowRenderer =
             H.modify_ (_ { loading = false })
           when (maybe false (\e1 -> all (\e2 -> e1 /= identify e2) state.elements) state.clicked) do
             H.modify_ $ _ { clicked = Nothing }
-            H.raise $ CloseDetails
-          when (length update.new == 0 && length update.changed == 0 && length update.deleted == 0 && length update.extended == 0) do
+          when (length update.new == 0 && length update.deleted == 0) do
             H.modify_ $ _ { recvdEmpty = true }
           pure enoughElements
       when nextPage $ handleAction NextPage
@@ -191,7 +197,15 @@ component identify rows rowRenderer =
     PreviousPage ->
       mapInner_ do
         state <- H.get
-        when (state.page > 0) (H.put $ state { page = state.page - 1 })
+        when (state.page > 0) (H.put $ state { page = state.page - 1, loading = false })
+    SelectNext ->
+      mapInner_ do
+        state <- H.get
+        case state.clicked of
+          Nothing -> pure unit
+          Just clicked -> do
+            pure unit
+    SelectPrev -> pure unit
 
   sendWindowUpdate :: ∀ s. H.HalogenM (InnerState r) (Action r) s (Message r) Aff Unit
   sendWindowUpdate = do

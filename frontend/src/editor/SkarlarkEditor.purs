@@ -1,7 +1,7 @@
 module SkarlarkEditor where
 
 import Prelude
-import Configuration (Configuration)
+import ConfigurationTypes (Configuration)
 import Configuration as Config
 import Data.Maybe (Maybe(..))
 import Effect (Effect)

@@ -1,5 +1,6 @@
-module Configuration (init, set, subscribe, component, Configuration, Tag, Service) where
+module Configuration (init, set, subscribe, component) where
 
+import ConfigurationTypes
 import Prelude
 import Data.Array.NonEmpty (NonEmptyArray, cons', head, singleton, toArray)
 import Data.Identity (Identity(..))
@@ -31,15 +32,6 @@ import Socket as Socket
 import Util (logo, logs, mwhen, onEnter)
 import Web.UIEvent.KeyboardEvent (KeyboardEvent, code)
 
-type Tag
-  = { slug :: String, name :: String, color :: String, owner :: String }
-
-type Service
-  = { slug :: String, port :: Int, name :: String }
-
-type Configuration
-  = { tags :: Object Tag, services :: Object Service }
-
 foreign import listen :: (Configuration -> Effect Unit) -> Effect Unit
 
 foreign import unlisten :: (Configuration -> Effect Unit) -> Effect Unit
@@ -51,8 +43,8 @@ foreign import getImpl :: (Configuration -> Maybe Configuration) -> Maybe Config
 init :: ∀ state a slot m. HalogenM state a slot m Aff RequestId
 init = Socket.request { watch: "configuration" }
 
-set :: ∀ state a slot m. Configuration -> HalogenM state a slot m Aff Unit
-set = H.liftEffect <<< setImpl
+set :: ∀ state a slot m. ConfigurationMessage -> HalogenM state a slot m Aff Unit
+set = H.liftEffect <<< setImpl <<< fromMessage
 
 source :: EventSource Aff Configuration
 source =
@@ -101,9 +93,9 @@ type EditTag
     }
 
 type EditService
-  = Service
+  = ServiceMessage
 
-editTagToTag :: EditTag -> Tag
+editTagToTag :: EditTag -> TagMessage
 editTagToTag et = { name: et.name, slug: et.slug, color: et.color.value, owner: et.owner }
 
 component :: ∀ q o i. H.Component HH.HTML q i o Aff
@@ -117,6 +109,34 @@ component =
   initialState :: i -> State
   initialState input = { config: Nothing, addTag: { slug: "", name: "", color: head Dropdown.colors, owner: "webui" }, editTag: Nothing, addService: { port: 0, slug: "", name: "" }, editService: Nothing }
 
+  handleAction :: Action -> H.HalogenM State Action Slot o Aff Unit
+  handleAction = case _ of
+    Init -> void $ subscribe ConfigUpdate
+    ConfigUpdate config -> do
+      H.modify_ $ _ { config = Just config }
+    AddTagUpdate add -> H.modify_ $ _ { addTag = add }
+    SubmitAddTag -> do
+      state <- H.get
+      void $ Socket.request { updateConfiguration: { setTag: editTagToTag state.addTag } }
+    EditTagUpdate tag -> H.modify_ $ _ { editTag = Just tag }
+    SubmitEditTag -> do
+      state <- H.get
+      _ <- Socket.request { updateConfiguration: { setTag: map editTagToTag state.editTag } }
+      H.modify_ $ _ { editTag = Nothing }
+    EditTagColorChange msg -> case msg of
+      Dropdown.Selected c -> H.modify_ $ \state -> state { editTag = map (_ { color = c }) state.editTag }
+    AddTagColorChange msg -> case msg of
+      Dropdown.Selected c -> H.modify_ $ _ { addTag { color = c } }
+    AddServiceUpdate service -> H.modify_ $ _ { addService = service }
+    SubmitAddService -> do
+      state <- H.get
+      void $ Socket.request { updateConfiguration: { setService: state.addService } }
+    EditServiceUpdate service -> H.modify_ $ _ { editService = Just service }
+    SubmitEditService -> do
+      state <- H.get
+      _ <- Socket.request { updateConfiguration: { setService: state.editService } }
+      H.modify_ $ _ { editService = Nothing }
+
   render :: State -> H.ComponentHTML Action Slot Aff
   render state = sdiv [ S.ui, S.container ] content
     where
@@ -128,8 +148,8 @@ component =
             [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Slug" ], HH.th_ [ text "Name" ], HH.th_ [ text "Owner" ], HH.th_ [ text "Color" ], HH.th_ [] ] ]
             , HK.tbody_
                 $ ( map
-                      ( \(Tuple id tag) ->
-                          Tuple id
+                      ( \tag ->
+                          Tuple (show tag.id)
                             $ case state.editTag of
                                 Just editTag
                                   | editTag.slug == tag.slug ->
@@ -179,7 +199,7 @@ component =
                                     , HH.td_ [ HH.button [ classes [ S.ui, S.mini, S.button ], onClick $ Just <<< (const $ EditTagUpdate { name: tag.name, slug: tag.slug, color: Dropdown.valueToColor tag.color, owner: tag.owner }) ] [ text $ "Edit" ] ]
                                     ]
                       )
-                      $ toUnfoldable config.tags
+                      config.tags
                   )
                 <> [ Tuple "add"
                       $ HH.tr_
@@ -226,8 +246,8 @@ component =
             [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Slug" ], HH.th_ [ text "Port" ], HH.th_ [ text "Name" ], HH.th_ [] ] ]
             , HK.tbody_
                 $ ( map
-                      ( \(Tuple id service) ->
-                          Tuple id
+                      ( \service ->
+                          Tuple (show service.id)
                             $ case state.editService of
                                 Just editService
                                   | editService.slug == service.slug ->
@@ -269,10 +289,10 @@ component =
                                     [ HH.td_ [ text $ service.slug ]
                                     , HH.td_ [ text $ show service.port ]
                                     , HH.td_ [ text $ service.name ]
-                                    , HH.td_ [ HH.button [ classes [ S.ui, S.mini, S.button ], onClick $ Just <<< (const $ EditServiceUpdate service) ] [ text $ "Edit" ] ]
+                                    , HH.td_ [ HH.button [ classes [ S.ui, S.mini, S.button ], onClick $ Just <<< (const $ EditServiceUpdate $ toServiceMessage service) ] [ text $ "Edit" ] ]
                                     ]
                       )
-                      $ toUnfoldable config.services
+                      config.services
                   )
                 <> [ Tuple "add"
                       $ HH.tr_
@@ -314,33 +334,3 @@ component =
                   ]
             ]
         ]
-
-  handleAction :: Action -> H.HalogenM State Action Slot o Aff Unit
-  handleAction = case _ of
-    Init -> void $ subscribe ConfigUpdate
-    ConfigUpdate config -> do
-      H.modify_ $ _ { config = Just config }
-    AddTagUpdate add -> H.modify_ $ _ { addTag = add }
-    SubmitAddTag -> do
-      state <- H.get
-      void $ Socket.request { updateConfiguration: { setTag: editTagToTag state.addTag } }
-    EditTagUpdate tag -> H.modify_ $ _ { editTag = Just tag }
-    SubmitEditTag -> do
-      state <- H.get
-      _ <- Socket.request { updateConfiguration: { setTag: map editTagToTag state.editTag } }
-      H.modify_ $ _ { editTag = Nothing }
-    EditTagColorChange msg -> case msg of
-      Dropdown.Selected c -> H.modify_ $ \state -> state { editTag = map (_ { color = c }) state.editTag }
-    AddTagColorChange msg -> case msg of
-      Dropdown.Selected c -> H.modify_ $ _ { addTag { color = c } }
-    AddServiceUpdate service -> H.modify_ $ _ { addService = service }
-    SubmitAddService -> do
-      state <- H.get
-      logo state.addService
-      void $ Socket.request { updateConfiguration: { setService: state.addService } }
-    EditServiceUpdate service -> H.modify_ $ _ { editService = Just service }
-    SubmitEditService -> do
-      state <- H.get
-      logo state.addService
-      _ <- Socket.request { updateConfiguration: { setService: state.editService } }
-      H.modify_ $ _ { editService = Nothing }

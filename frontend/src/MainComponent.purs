@@ -1,12 +1,15 @@
 module MainComponent where
 
 import Prelude
+import CSS (Predicate(..))
 import CSS as CSS
-import Configuration (Configuration)
 import Configuration as Config
+import ConfigurationTypes (Configuration, ConfigurationMessage)
 import Dashboard as Dashboard
 import Data.Either (Either(..))
 import Data.Foldable (oneOf)
+import Data.Identity (Identity(..))
+import Data.Int as Int
 import Data.Maybe (Maybe(..))
 import Data.Symbol (SProxy(..))
 import Effect.Aff (Aff)
@@ -19,20 +22,22 @@ import Halogen.HTML.Properties (classes)
 import Halogen.HTML.Properties as HP
 import Halogen.Query.HalogenM (mapAction)
 import Routing (match)
-import Routing.Match (Match, end, lit)
+import Routing.Match (Match, end, int, lit, str)
 import SemanticUI (sdiv)
 import SemanticUI as S
+import SkarlarkEditor as Editor
 import Socket as Socket
 import SocketIO as SocketIO
 import Streams as Streams
-import Util (logo)
-import SkarlarkEditor as Editor
+import Util (fromString, logo, id, Id, matchMaybe)
+import Stream as Stream
 
 type Slot
   = ( dashboard :: H.Slot Dashboard.Query Void Unit
     , streams :: H.Slot Streams.Query Void Unit
     , config :: H.Slot Streams.Query Void Unit
     , editor :: H.Slot Editor.Query Void Unit
+    , stream :: H.Slot Identity Void Unit
     )
 
 _dashboard = SProxy :: SProxy "dashboard"
@@ -43,6 +48,8 @@ _config = SProxy :: SProxy "config"
 
 _editor = SProxy :: SProxy "editor"
 
+_stream = SProxy :: SProxy "stream"
+
 data Query a
   = ChangeRoute String a
 
@@ -51,7 +58,7 @@ data Action
   | SocketDisconnect String
   | SocketReconnecting Int
   | SocketMessage String
-  | ConfigMessage { configuration :: Configuration }
+  | ConfigMessage { configuration :: ConfigurationMessage }
   | Init
 
 data SocketState
@@ -103,9 +110,7 @@ handleAction = case _ of
     void $ Socket.subscribeResponses ConfigMessage id
   SocketDisconnect _ -> H.modify_ $ _ { socketState = Disconnected }
   SocketReconnecting _ -> H.modify_ $ _ { socketState = Connecting }
-  ConfigMessage config -> do
-    logo config
-    Config.set config.configuration
+  ConfigMessage config -> Config.set config.configuration
   _ -> pure unit
 
 init :: H.HalogenM State Action Slot Message Aff Unit
@@ -118,7 +123,8 @@ init = do
 -- Routing
 data Route
   = Index
-  | Streams
+  | Streams (Maybe Int) (Maybe Id)
+  | Stream Id
   | Configuration
   | Test
   | NotFound String
@@ -132,7 +138,11 @@ routeMatch :: Match Route
 routeMatch =
   oneOf
     [ Index <$ end
-    , Streams <$ lit "streams" <* end
+    , Streams Nothing Nothing <$ lit "streams" <* end
+    , Streams Nothing <$> (lit "streams" *> lit "tag" *> matchMaybe id <* end)
+    , (\p -> Streams p Nothing) <$> (lit "streams" *> lit "service" *> matchMaybe int <* end)
+    , Streams <$> (lit "streams" *> matchMaybe int) <*> (matchMaybe id <* end)
+    , Stream <$> (lit "stream" *> id <* end)
     , Configuration <$ lit "config" <* end
     , Test <$ lit "test" <* end
     ]
@@ -160,7 +170,7 @@ menuEntries = [ dashboardEntry, streamsEntry, configEntry, testEntry ]
 routeToEntry :: Route -> Maybe MenuEntry
 routeToEntry = case _ of
   Index -> Just dashboardEntry
-  Streams -> Just streamsEntry
+  Streams _ _ -> Just streamsEntry
   Configuration -> Just configEntry
   Test -> Just testEntry
   _ -> Nothing
@@ -169,11 +179,13 @@ routeToEntry = case _ of
 renderRoute :: Route -> State -> H.ComponentHTML Action Slot Aff
 renderRoute Index state = HH.slot _dashboard unit Dashboard.component unit absurd
 
-renderRoute Streams state = HH.slot _streams unit Streams.component unit absurd
+renderRoute (Streams port tag) state = HH.slot _streams unit Streams.component { port: port, tag: tag } absurd
 
 renderRoute Configuration state = HH.slot _config unit Config.component unit absurd
 
 renderRoute Test state = HH.slot _editor unit Editor.component unit absurd
+
+renderRoute (Stream id) state = sdiv [ S.ui, S.container ] [ HH.slot _stream unit Stream.component id absurd ]
 
 renderRoute (NotFound s) state =
   div [ classes [ S.ui, S.container ] ]
