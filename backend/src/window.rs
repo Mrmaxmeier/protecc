@@ -3,10 +3,10 @@ use crate::query::QueryIndex;
 use crate::stream::LightweightStream;
 use futures::{FutureExt, SinkExt};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::ops::Range;
+use std::sync::Arc;
 use tokio::stream::StreamExt;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::{throttle, Throttle};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -33,6 +33,7 @@ pub(crate) struct Window {
 
     limit_for_reattach: Option<StreamID>,
 
+    update_id_chan: broadcast::Receiver<StreamID>,
     latest_id_chan: Throttle<watch::Receiver<StreamID>>,
     params_rx: mpsc::Receiver<WindowParameters>,
 }
@@ -40,16 +41,18 @@ pub(crate) struct Window {
 impl Window {
     pub(crate) async fn new(index: &QueryIndex, db: Arc<Database>) -> (Self, Arc<WindowHandle>) {
         let (params_tx, params_rx) = mpsc::channel(1);
+        let update_id_chan = db.stream_update_tx.subscribe();
         let mut latest_id_chan = db.stream_notification_rx.clone();
         let stream_id_limit = latest_id_chan.recv().await.unwrap();
         let range = stream_id_limit..stream_id_limit;
-        let mut window = Window {
+        let window = Window {
             db,
             range,
             size: 0,
             attached: true,
             limit_for_reattach: None,
             latest_id_chan: throttle(std::time::Duration::MILLISECOND * 250, latest_id_chan),
+            update_id_chan,
             params_rx,
             index: *index,
         };
@@ -76,22 +79,28 @@ impl Window {
     pub(crate) async fn set_size(&mut self, size: usize) -> Option<WindowUpdate> {
         let old_size = self.size;
         self.size = size;
-        let mut extended = Vec::new();
+        let mut new = Vec::new();
         if size > old_size {
             let streams = self.db.streams.read().await;
             let ret_cnt = size - old_size;
-            let range_start = self.db.with_index_iter(self.index, ..self.range.start, |iter| {
-                let mut range_start = self.range.start;
-                for stream_id in iter.rev().take(ret_cnt) {
-                    extended.push(streams[stream_id.idx()].as_lightweight());
-                    range_start = stream_id;
-                }
-                range_start
-            }).await;
+            let mut range_start = self
+                .db
+                .with_index_iter(self.index, ..self.range.start, |iter| {
+                    let mut range_start = StreamID::new(0);
+                    for stream_id in iter.rev().take(ret_cnt) {
+                        new.push(streams[stream_id.idx()].as_lightweight());
+                        range_start = stream_id;
+                    }
+                    range_start
+                })
+                .await;
+            if new.len() != ret_cnt {
+                range_start = StreamID::new(0);
+            }
             self.range = range_start..self.range.end;
-            crate::counters::update_counters(|c| c.window_extended += extended.len() as u64);
+            crate::counters::update_counters(|c| c.window_sent += new.len() as u64);
             return Some(WindowUpdate {
-                extended,
+                new,
                 ..WindowUpdate::default()
             });
         }
@@ -105,30 +114,66 @@ impl Window {
         }
 
         // bump the range iff the new id matches our index
-        let id = self.db.with_index_iter(self.index, id..=id, |iter| {
-            let mut ret = id;
-            for id in iter {
-                ret = id.next();
-            }
-            ret
-        }).await;
+        let id = self
+            .db
+            .with_index_iter(self.index, id..=id, |iter| {
+                let mut ret = id;
+                for id in iter {
+                    ret = id.next();
+                }
+                ret
+            })
+            .await;
 
         let prev_start = self.range.start;
         let old_range = std::mem::replace(&mut self.range, prev_start..id);
 
         let mut new = Vec::new();
         let streams = self.db.streams.read().await;
-        self.db.with_index_iter(self.index, old_range.end..self.range.end, |iter| {
-            for stream_id in iter.rev().take(self.size) {
-                new.push(streams[stream_id.idx()].as_lightweight());
-            }
-        }).await;
+        self.db
+            .with_index_iter(self.index, old_range.end..self.range.end, |iter| {
+                for stream_id in iter.rev().take(self.size) {
+                    new.push(streams[stream_id.idx()].as_lightweight());
+                }
+            })
+            .await;
 
-        crate::counters::update_counters(|c| c.window_new += new.len() as u64);
+        crate::counters::update_counters(|c| c.window_sent += new.len() as u64);
         Some(WindowUpdate {
             new,
             ..WindowUpdate::default()
         })
+    }
+
+    pub(crate) async fn changed_id(&mut self, id: StreamID) -> Option<WindowUpdate> {
+        if !self.range.contains(&id) {
+            return None;
+        }
+
+        let was_deleted = self
+            .db
+            .with_index_iter(self.index, id..=id, |iter| {
+                for _ in iter {
+                    return false;
+                }
+                true
+            })
+            .await;
+
+        if was_deleted {
+            self.size -= 1;
+            let mut update = self.set_size(self.size + 1).await.unwrap_or_default();
+            update.deleted.push(id);
+            crate::incr_counter!(window_sent);
+            Some(update)
+        } else {
+            let streams = self.db.streams.read().await;
+            crate::incr_counter!(window_sent);
+            Some(WindowUpdate {
+                changed: vec![streams[id.idx()].as_lightweight()],
+                ..WindowUpdate::default()
+            })
+        }
     }
 
     pub(crate) async fn stream_results_to(
@@ -164,6 +209,11 @@ impl Window {
                         resp_tx.send(resp_frame(update)).await.unwrap();
                     }
                 },
+                changed_id = self.update_id_chan.next().fuse() => {
+                    if let Some(update) = self.changed_id(changed_id.unwrap().unwrap()).await {
+                        resp_tx.send(resp_frame(update)).await.unwrap();
+                    }
+                },
             }
         }
     }
@@ -173,7 +223,6 @@ impl Window {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WindowUpdate {
     new: Vec<LightweightStream>,
-    extended: Vec<LightweightStream>,
     changed: Vec<LightweightStream>,
     deleted: Vec<StreamID>, // for tags
 }

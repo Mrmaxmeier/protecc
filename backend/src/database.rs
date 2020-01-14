@@ -1,14 +1,14 @@
 use crate::configuration::ConfigurationHandle;
 use crate::incr_counter;
 use crate::pipeline::PipelineManager;
-use crate::reassembly::StreamReassembly;
 use crate::query::QueryIndex;
+use crate::reassembly::StreamReassembly;
 use crate::stream::Stream;
-use std::collections::{HashMap, BTreeSet};
-use std::sync::Arc;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::RangeBounds;
+use std::sync::Arc;
 use tokio::stream::StreamExt;
-use tokio::sync::{mpsc, watch, RwLock};
+use tokio::sync::{broadcast, mpsc, watch, RwLock};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -45,7 +45,7 @@ impl StreamID {
         self.0
     }
     pub(crate) fn next(&self) -> StreamID {
-        StreamID(self.0+1)
+        StreamID(self.0 + 1)
     }
 }
 
@@ -76,7 +76,9 @@ impl<'de> Deserialize<'de> for StreamPayloadID {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct TagID(u32);
 impl TagID {
-    pub fn as_u32(&self) -> u32 { self.0 }
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
     pub fn from_slug(slug: &[u8]) -> Self {
         use std::hash::Hasher;
         let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
@@ -123,6 +125,7 @@ impl Service {
 pub(crate) struct Database {
     pub(crate) streams: RwLock<Vec<Stream>>,
     pub(crate) stream_notification_rx: watch::Receiver<StreamID>,
+    pub(crate) stream_update_tx: broadcast::Sender<StreamID>,
     pub(crate) tag_index: RwLock<TagIndex>,
     pub(crate) services: RwLock<HashMap<u16, Arc<RwLock<Service>>>>,
     pub(crate) pipeline: RwLock<PipelineManager>,
@@ -143,6 +146,7 @@ impl Database {
         let payload_db = rocksdb::DB::open(&opts, "stream_payloads.rocksdb").unwrap();
         let (ingest_tx, ingest_rx) = mpsc::channel(256);
         let (stream_notification_tx, stream_notification_rx) = watch::channel(StreamID(0));
+        let (stream_update_tx, _) = broadcast::channel(128);
         let configuration_handle = crate::configuration::Configuration::spawn();
         let db = Arc::new(Database {
             streams: RwLock::new(Vec::new()),
@@ -152,6 +156,7 @@ impl Database {
             configuration_handle,
             ingest_tx,
             stream_notification_rx,
+            stream_update_tx,
             payload_db,
         });
         tokio::spawn(
@@ -224,7 +229,12 @@ impl Database {
         let malformed_stream_tag_id = self
             .configuration_handle
             .clone()
-            .register_tag("malformed_stream", "reassembly", "Malformed Stream", "yellow")
+            .register_tag(
+                "malformed_stream",
+                "reassembly",
+                "Malformed Stream",
+                "yellow",
+            )
             .await;
         let cyclic_ack_id = self
             .configuration_handle
@@ -251,11 +261,60 @@ impl Database {
         }
     }
 
+    pub(crate) async fn modify_tag_indices<F: Fn(&mut BTreeSet<StreamID>)>(
+        &self,
+        tag_id: TagID,
+        service: u16,
+        f: F,
+    ) {
+        {
+            let mut index = self.tag_index.write().await;
+            f(index.tagged.entry(tag_id).or_default())
+        }
 
+        {
+            let services = self.services.read().await;
+            if let Some(service) = services.get(&service) {
+                let mut service = service.write().await;
+                f(service.tag_index.tagged.entry(tag_id).or_default())
+            }
+        }
+    }
+
+    pub(crate) async fn add_tag(&self, stream_id: StreamID, tag_id: TagID) {
+        let service = {
+            let stream = &mut self.streams.write().await[stream_id.idx()];
+            if !stream.tags.insert(tag_id) {
+                return;
+            }
+            stream.server.1
+        };
+        self.modify_tag_indices(tag_id, service, |idx| {
+            idx.insert(stream_id);
+        })
+        .await;
+        self.stream_update_tx.send(stream_id).unwrap(); // TODO: send (stream_id, tag_id)?
+    }
+
+    pub(crate) async fn remove_tag(&self, stream_id: StreamID, tag_id: TagID) {
+        let service = {
+            let stream = &mut self.streams.write().await[stream_id.idx()];
+            if !stream.tags.remove(&tag_id) {
+                return;
+            }
+            stream.server.1
+        };
+        self.modify_tag_indices(tag_id, service, |idx| {
+            idx.remove(&stream_id);
+        })
+        .await;
+        self.stream_update_tx.send(stream_id).unwrap();
+    }
 
     pub(crate) async fn with_index_iter<R, F, O>(&self, index: QueryIndex, r: R, f: F) -> O
-        where F: FnOnce(&mut dyn DoubleEndedIterator<Item=StreamID>) -> O,
-            R: RangeBounds<StreamID>,
+    where
+        F: FnOnce(&mut dyn DoubleEndedIterator<Item = StreamID>) -> O,
+        R: RangeBounds<StreamID>,
     {
         /* an API like this would be pretty nice :/
         /// Note: The relevant index is locked for the lifetime of the returned value
@@ -264,19 +323,17 @@ impl Database {
         match index {
             QueryIndex::All => {
                 return match r.end_bound() {
-                    std::ops::Bound::Included(end) =>
-                        f(&mut (0..=end.idx()).map(StreamID)),
-                    std::ops::Bound::Excluded(end) =>
-                        f(&mut (0..end.idx()).map(StreamID)),
+                    std::ops::Bound::Included(end) => f(&mut (0..=end.idx()).map(StreamID)),
+                    std::ops::Bound::Excluded(end) => f(&mut (0..end.idx()).map(StreamID)),
                     std::ops::Bound::Unbounded => unreachable!(),
                 }
-            },
+            }
             QueryIndex::Service(port) => {
                 let services = self.services.read().await;
                 if let Some(service) = services.get(&port) {
                     let service = service.read().await;
                     return f(&mut service.streams.range(r).copied());
-                } 
+                }
             }
             QueryIndex::ServiceTagged(port, tag) => {
                 let services = self.services.read().await;

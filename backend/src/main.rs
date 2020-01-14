@@ -9,6 +9,7 @@ static GLOBAL: System = System;
 pub(crate) mod configuration;
 pub(crate) mod counters;
 pub(crate) mod database;
+pub(crate) mod lark;
 pub(crate) mod pcapreader;
 pub(crate) mod pipeline;
 pub(crate) mod query;

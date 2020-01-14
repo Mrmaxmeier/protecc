@@ -418,40 +418,45 @@ fn topo_sort<'a>(
     Some(res)
 }
 
-
-fn make_sequence_numbers_relative(streamA: &mut crate::reassembly::Stream, streamB: &mut crate::reassembly::Stream) {
-        fn seq_start(seqs: &[Packet], acks: &[Packet]) -> u32 {
-            let mut buckets = [None, None, None];
-            for seqno in seqs.iter().map(|p|p.tcp_header.sequence_no).chain(acks.iter().map(|p|p.tcp_header.ack_no)) {
-                let bucket_idx = (seqno >= 0x55555555) as usize + (seqno >= 0xaaaaaaaa) as usize;
-                buckets[bucket_idx] = buckets[bucket_idx].map(|seqno_: u32| seqno_.min(seqno)).or(Some(seqno));
-            }
-            match buckets {
-                [None, None, None] => 0,
-                [Some(x), None, None] => x,
-                [None, Some(x), None] => x,
-                [None, None, Some(x)] => x,
-                [Some(x), Some(_), None] => x,
-                [None, Some(x), Some(_)] => x,
-                [Some(_), None, Some(x)] => x,
-                _ => {
-                    debug_assert!(false, "sequence ids cross both boundaries");
-                    0
-                }
+fn make_sequence_numbers_relative(
+    a: &mut crate::reassembly::Stream,
+    b: &mut crate::reassembly::Stream,
+) {
+    fn seq_start(seqs: &[Packet], acks: &[Packet]) -> u32 {
+        let mut buckets = [None, None, None];
+        for seqno in seqs
+            .iter()
+            .map(|p| p.tcp_header.sequence_no)
+            .chain(acks.iter().map(|p| p.tcp_header.ack_no))
+        {
+            let bucket_idx = (seqno >= 0x55555555) as usize + (seqno >= 0xaaaaaaaa) as usize;
+            buckets[bucket_idx] = buckets[bucket_idx]
+                .map(|seqno_: u32| seqno_.min(seqno))
+                .or(Some(seqno));
+        }
+        match buckets {
+            [None, None, None] => 0,
+            [Some(x), _, None] => x,
+            [None, Some(y), _] => y,
+            [_, None, Some(z)] => z,
+            _ => {
+                debug_assert!(false, "sequence ids cross both boundaries");
+                0
             }
         }
-        let start_seq_a = seq_start(&streamA.packets, &streamB.packets);
-        let start_seq_b = seq_start(&streamB.packets, &streamA.packets);
-        for p in &mut streamA.packets {
-            p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(start_seq_a);
-            if p.tcp_header.flag_ack {
-                p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(start_seq_b);
-            }
+    }
+    let start_seq_a = seq_start(&a.packets, &b.packets);
+    let start_seq_b = seq_start(&b.packets, &a.packets);
+    for p in &mut a.packets {
+        p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(start_seq_a);
+        if p.tcp_header.flag_ack {
+            p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(start_seq_b);
         }
-        for p in &mut streamB.packets {
-            p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(start_seq_b);
-            if p.tcp_header.flag_ack {
-                p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(start_seq_a);
-            }
+    }
+    for p in &mut b.packets {
+        p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(start_seq_b);
+        if p.tcp_header.flag_ack {
+            p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(start_seq_a);
         }
+    }
 }

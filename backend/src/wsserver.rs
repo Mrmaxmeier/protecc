@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::database::{Database, StreamID};
+use crate::database::{Database, StreamID, TagID};
 use crate::incr_counter;
 use crate::query;
 use crate::stream::{SegmentWithData, Stream, StreamDetails};
@@ -34,6 +34,8 @@ struct ReqFrame {
 enum RequestPayload {
     Watch(ResponseStreamKind),
     Cancel,
+    AddTag(StreamID, TagID),
+    RemoveTag(StreamID, TagID),
     StepCursor(query::Cursor),
     Query2Cursor(query::Query),
     DoS(DebugDenialOfService),
@@ -142,49 +144,62 @@ impl ConnectionHandler {
                 let mut tx = self.stream_tx.clone();
 
                 let db = self.db.clone();
-                let stream = {
-                    let streams = db.streams.read().await;
-                    streams[stream_id.idx()].clone() // might panic, but that's ok
-                };
-                let mut client_payload = db
-                    .datablob(stream.client_data_id)
-                    .expect("couldn't find client payload");
-                let mut server_payload = db
-                    .datablob(stream.server_data_id)
-                    .expect("couldn't find server payload");
-                let mut segments = Vec::new();
-                for segment in stream.segments.iter().rev() {
-                    use crate::database::Sender;
-                    let data = match segment.sender {
-                        Sender::Client => client_payload.split_off(segment.start),
-                        Sender::Server => server_payload.split_off(segment.start),
+                let mut update_id_chan = self.db.stream_update_tx.subscribe();
+
+                loop {
+                    let stream = {
+                        let streams = db.streams.read().await;
+                        streams
+                            .get(stream_id.idx())
+                            .expect("stream details for unknown stream requested")
+                            .clone()
                     };
-                    segments.push(SegmentWithData {
-                        data,
-                        seq: segment.seq,
-                        ack: segment.ack,
-                        flags: segment.flags,
-                        timestamp: segment.timestamp,
-                        sender: segment.sender.clone(),
+                    let mut client_payload = db
+                        .datablob(stream.client_data_id)
+                        .expect("couldn't find client payload");
+                    let mut server_payload = db
+                        .datablob(stream.server_data_id)
+                        .expect("couldn't find server payload");
+                    let mut segments = Vec::new();
+                    for segment in stream.segments.iter().rev() {
+                        use crate::database::Sender;
+                        let data = match segment.sender {
+                            Sender::Client => client_payload.split_off(segment.start),
+                            Sender::Server => server_payload.split_off(segment.start),
+                        };
+                        segments.push(SegmentWithData {
+                            data,
+                            seq: segment.seq,
+                            ack: segment.ack,
+                            flags: segment.flags,
+                            timestamp: segment.timestamp,
+                            sender: segment.sender.clone(),
+                        })
+                    }
+                    segments.reverse();
+                    tx.send(RespFrame {
+                        id: req_id,
+                        payload: ResponsePayload::StreamDetails(StreamDetails {
+                            id: stream.id,
+                            client: stream.client,
+                            server: stream.server,
+                            features: stream.features,
+                            tags: stream.tags,
+                            client_data_len: stream.client_data_len,
+                            server_data_len: stream.server_data_len,
+                            segments,
+                        }),
                     })
+                    .await
+                    .unwrap();
+
+                    loop {
+                        let id = update_id_chan.recv().await.unwrap();
+                        if id == stream.id {
+                            break;
+                        }
+                    }
                 }
-                segments.reverse();
-                tx.send(RespFrame {
-                    id: req_id,
-                    payload: ResponsePayload::StreamDetails(StreamDetails {
-                        id: stream.id,
-                        client: stream.client,
-                        server: stream.server,
-                        features: stream.features,
-                        tags: stream.tags,
-                        client_data_len: stream.client_data_len,
-                        server_data_len: stream.server_data_len,
-                        segments,
-                    }),
-                })
-                .await
-                .unwrap();
-                // TODO: stream tag updates?
             }
         }
     }
@@ -292,6 +307,12 @@ impl ConnectionHandler {
                     handle.tx.send(conf_update.clone()).await.unwrap();
                 }
                 RequestPayload::RegisterActor(..) => todo!(),
+                RequestPayload::AddTag(stream_id, tag_id) => {
+                    self_.db.add_tag(*stream_id, *tag_id).await
+                }
+                RequestPayload::RemoveTag(stream_id, tag_id) => {
+                    self_.db.remove_tag(*stream_id, *tag_id).await
+                }
                 RequestPayload::Cancel => unreachable!(),
             };
         })

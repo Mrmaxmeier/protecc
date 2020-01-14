@@ -65,7 +65,13 @@ pub(crate) struct ConfigurationHandle {
 }
 
 impl ConfigurationHandle {
-    pub(crate) async fn register_tag(&mut self, slug: &str, owner: &str, name: &str, color: &str) -> TagID {
+    pub(crate) async fn register_tag(
+        &mut self,
+        slug: &str,
+        owner: &str,
+        name: &str,
+        color: &str,
+    ) -> TagID {
         let tag = Tag {
             slug: slug.into(),
             owner: owner.into(),
@@ -123,9 +129,7 @@ impl Configuration {
                 self.tags.insert(tag.as_id(), tag);
             }
             ConfigurationUpdate::RegisterTag(tag) => {
-                self.tags
-                    .entry(tag.as_id())
-                    .or_insert_with(|| tag);
+                self.tags.entry(tag.as_id()).or_insert_with(|| tag);
             }
         }
     }
