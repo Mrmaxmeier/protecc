@@ -3,6 +3,7 @@ use crate::database::{Database, StreamID, TagID};
 use crate::query::QueryIndex;
 use crate::stream::Stream;
 use starlark::codemap::CodeMap;
+use starlark::codemap_diagnostic::Diagnostic;
 use starlark::environment::{Environment, TypeValues};
 use starlark::stdlib::global_environment;
 use starlark::syntax::parser::parse;
@@ -102,32 +103,40 @@ pub(crate) struct QueryFilterCore {
 }
 
 impl QueryFilterCore {
-    pub(crate) fn new(content: &str, config: Configuration, db: Arc<Database>) -> Self {
+    pub(crate) fn new(
+        content: &str,
+        config: Configuration,
+        db: Arc<Database>,
+    ) -> Result<Self, Diagnostic> {
         let code_map = Arc::new(Mutex::new(CodeMap::new()));
 
         let (mut env, mut type_values) = environment();
         decision_functions(&mut env, &mut type_values);
 
         let dialect = starlark::syntax::dialect::Dialect::Bzl;
-        let module = parse(&code_map, "input", content, dialect).unwrap();
+        let module = parse(&code_map, "input", content, dialect)?;
 
-        QueryFilterCore {
+        Ok(QueryFilterCore {
             config,
             db,
             module,
             code_map,
             env,
             type_values,
-        }
+        })
     }
 
-    pub(crate) fn get_meta(&self) -> QueryIndex {
-        self.get_verdict(&Stream::dummy())
+    pub(crate) fn get_meta(&self) -> Result<QueryIndex, starlark::eval::EvalException> {
+        Ok(self
+            .get_verdict(&Stream::dummy())?
             .index
-            .unwrap_or(QueryIndex::All)
+            .unwrap_or(QueryIndex::All))
     }
 
-    pub(crate) fn get_verdict(&self, stream: &Stream) -> StreamDecisions {
+    pub(crate) fn get_verdict(
+        &self,
+        stream: &Stream,
+    ) -> Result<StreamDecisions, starlark::eval::EvalException> {
         let mut env = self.env.child("stream");
         let ctx = StreamDecisionSession {
             db: self.db.clone(),
@@ -153,8 +162,7 @@ impl QueryFilterCore {
             self.code_map.clone(),
             &starlark::eval::noload::NoLoadFileLoader,
             1337, // fuel
-        )
-        .unwrap();
+        )?;
 
         let val = env.get("$ctx").unwrap();
         let holder = val.value_holder();
@@ -170,7 +178,7 @@ impl QueryFilterCore {
             assert!(_ctx.accept.is_none());
             _ctx.accept = Some(res.to_bool());
         }
-        _ctx
+        Ok(_ctx)
     }
 }
 

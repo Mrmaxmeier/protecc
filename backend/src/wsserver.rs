@@ -86,6 +86,7 @@ enum DebugDenialOfService {
 #[serde(rename_all = "camelCase")]
 struct StarlarkScanQuery {
     code: String,
+    window_size: usize,
     bound_low: Option<StreamID>,
     bound_high: Option<StreamID>,
     reverse: bool,
@@ -95,7 +96,10 @@ struct StarlarkScanQuery {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StarlarkScanResp {
     error: Option<String>,
-    scan_limit: StreamID,                                // inclusive
+    scan_progress: StreamID, // inclusive
+    range_exhausted: bool,
+    bound_low: StreamID,
+    bound_high: StreamID,
     scan_results: Vec<crate::stream::LightweightStream>, // TODO: attached data
 }
 
@@ -187,13 +191,13 @@ impl ConnectionHandler {
                         let data = match segment.sender {
                             Sender::Client => {
                                 let (a, b) = client_payload.split_at(segment.start);
-                                client_payload = b;
-                                a
+                                client_payload = a;
+                                b
                             }
                             Sender::Server => {
                                 let (a, b) = server_payload.split_at(segment.start);
-                                server_payload = b;
-                                a
+                                server_payload = a;
+                                b
                             }
                         };
                         segments.push(SegmentWithData {
@@ -272,7 +276,10 @@ impl ConnectionHandler {
         ResponsePayload::CursorResult(cursor, buf, has_next)
     }
 
-    async fn starlark_scan(&self, query: &StarlarkScanQuery) -> ResponsePayload {
+    async fn starlark_scan(
+        &self,
+        query: &StarlarkScanQuery,
+    ) -> Result<ResponsePayload, ResponsePayload> {
         let config = self
             .db
             .configuration_handle
@@ -284,6 +291,8 @@ impl ConnectionHandler {
         let latest_id = self.db.stream_notification_rx.clone().recv().await.unwrap();
         let bound_high = query.bound_high.unwrap_or(latest_id);
         let bound_low = query.bound_low.unwrap_or(StreamID::new(0));
+        let scan_progress = if query.reverse { bound_low } else { bound_high };
+        let range_exhausted = false;
         let streams = self.db.streams.read().await;
 
         // This makes me sad.
@@ -292,14 +301,37 @@ impl ConnectionHandler {
         //    construct filter_core twice.
         let mut toscan_streamids = Vec::new();
 
+        let diag_to_error = |diagnostic: starlark::codemap_diagnostic::Diagnostic| {
+            ResponsePayload::StarlarkScan(StarlarkScanResp {
+                bound_high,
+                bound_low,
+                scan_progress,
+                range_exhausted,
+                scan_results: Vec::new(),
+                error: Some(format!("{:?}", diagnostic)),
+            })
+        };
+
+        let exception_to_error = |diagnostic: starlark::eval::EvalException| {
+            ResponsePayload::StarlarkScan(StarlarkScanResp {
+                bound_high,
+                bound_low,
+                scan_progress,
+                range_exhausted,
+                scan_results: Vec::new(),
+                error: Some(format!("{:?}", diagnostic)),
+            })
+        };
+
         let index = {
             let filter_core =
-                crate::starlark::QueryFilterCore::new(&query.code, config.clone(), self.db.clone());
-            filter_core.get_meta()
+                crate::starlark::QueryFilterCore::new(&query.code, config.clone(), self.db.clone())
+                    .map_err(diag_to_error)?;
+            filter_core.get_meta().map_err(exception_to_error)?
         };
         self.db
             .with_index_iter(index, bound_low..bound_high, |iter| {
-                toscan_streamids = iter.rev().take(0x400).collect();
+                toscan_streamids = iter.rev().take(0x1000).collect();
             })
             .await;
 
@@ -308,25 +340,36 @@ impl ConnectionHandler {
         }
 
         let mut scan_results = Vec::new();
-        let mut scan_limit = if query.reverse { bound_low } else { bound_high };
+        let mut scan_progress = scan_progress;
+        let mut range_exhausted = toscan_streamids.len() < 0x1000;
         {
             let filter_core =
-                crate::starlark::QueryFilterCore::new(&query.code, config, self.db.clone());
+                crate::starlark::QueryFilterCore::new(&query.code, config, self.db.clone())
+                    .map_err(diag_to_error)?;
             for stream_id in toscan_streamids {
-                if filter_core.get_verdict(&streams[stream_id.idx()]).accept == Some(true) {
+                if filter_core
+                    .get_verdict(&streams[stream_id.idx()])
+                    .map_err(exception_to_error)?
+                    .accept
+                    == Some(true)
+                {
                     scan_results.push(streams[stream_id.idx()].as_lightweight());
                 }
-                scan_limit = stream_id;
-                if scan_results.len() > 50 {
+                scan_progress = stream_id;
+                if scan_results.len() >= query.window_size {
+                    range_exhausted = false;
                     break;
                 }
             }
         }
-        ResponsePayload::StarlarkScan(StarlarkScanResp {
-            scan_limit,
+        Ok(ResponsePayload::StarlarkScan(StarlarkScanResp {
+            scan_progress,
             scan_results,
+            range_exhausted,
             error: None,
-        })
+            bound_high,
+            bound_low,
+        }))
     }
 
     async fn await_cancel(self: Arc<Self>, id: u64) {
@@ -400,7 +443,14 @@ impl ConnectionHandler {
                     self_.db.remove_tag(*stream_id, *tag_id).await
                 }
                 RequestPayload::StarlarkScan(query) => {
-                    self_.send_out(&req, self_.starlark_scan(query)).await
+                    self_
+                        .send_out(&req, async {
+                            match self_.starlark_scan(query).await {
+                                Ok(v) => v,
+                                Err(v) => v,
+                            }
+                        })
+                        .await
                 }
                 RequestPayload::Cancel => unreachable!(),
             };
