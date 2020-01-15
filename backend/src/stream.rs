@@ -44,14 +44,18 @@ impl Stream {
             server,
             mut client_to_server,
             mut server_to_client,
-            malformed,
+            mut malformed,
             ..
         } = stream;
 
         client_to_server.remove_retransmissions();
         server_to_client.remove_retransmissions();
 
-        make_sequence_numbers_relative(&mut client_to_server, &mut server_to_client);
+        if let Err(()) =
+            make_sequence_numbers_relative(&mut client_to_server, &mut server_to_client)
+        {
+            malformed = true;
+        }
 
         let mut client_data = Vec::new();
         let mut server_data = Vec::new();
@@ -89,19 +93,33 @@ impl Stream {
             .map(|(i, (_, p))| (i, *p))
             .collect::<Vec<_>>();
 
-        let mut topo_edges = Vec::with_capacity(packets.len() * 2);
-        // linearize
-        topo_edges.extend(LinearizeBySeq::new(&client_packets));
-        topo_edges.extend(LinearizeBySeq::new(&server_packets));
-        // ensure ack after seq
-        client_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
-        server_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
-        topo_edges.extend(LinearizeBySeqAck::new(&client_packets, &server_packets));
-        server_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
-        client_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
-        topo_edges.extend(LinearizeBySeqAck::new(&server_packets, &client_packets));
-        topo_edges.sort();
-        topo_edges.dedup();
+        let mut topo_edges = Vec::with_capacity(packets.len() * 3);
+
+        {
+            tracyrs::zone!("Stream::from", "topo edges");
+            // linearize
+            {
+                tracyrs::zone!("Stream::from", "linearizeBySeq");
+                topo_edges.extend(LinearizeBySeq::new(&client_packets));
+                topo_edges.extend(LinearizeBySeq::new(&server_packets));
+            }
+            // ensure ack after seq
+            {
+                tracyrs::zone!("Stream::from", "linearizeBySeqAck");
+                client_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
+                server_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
+                topo_edges.extend(LinearizeBySeqAck::new(&client_packets, &server_packets));
+                server_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
+                client_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
+                topo_edges.extend(LinearizeBySeqAck::new(&server_packets, &client_packets));
+            }
+
+            {
+                tracyrs::zone!("Stream::from", "sort/dedup");
+                topo_edges.sort();
+                topo_edges.dedup();
+            }
+        }
 
         let cyclic;
         if let Some(res) = topo_sort(&topo_edges, &packets) {
@@ -396,6 +414,7 @@ fn topo_sort<'a>(
     edges: &[(u32, u32)],
     packets: &[(Sender, &'a Packet)],
 ) -> Option<Vec<(Sender, &'a Packet)>> {
+    tracyrs::zone!("topo_sort");
     let mut indeg: HashMap<u32, u32> = HashMap::new();
     let mut adj: HashMap<u32, Vec<u32>> = HashMap::new();
     for (i, _) in packets.iter().enumerate() {
@@ -438,32 +457,46 @@ fn topo_sort<'a>(
 fn make_sequence_numbers_relative(
     a: &mut crate::reassembly::Stream,
     b: &mut crate::reassembly::Stream,
-) {
-    fn seq_start(seqs: &[Packet], acks: &[Packet]) -> u32 {
+) -> Result<(), ()> {
+    fn seq_start(seqs: &[Packet], acks: &[Packet]) -> Option<u32> {
         let mut buckets = [None, None, None];
-        for seqno in seqs
-            .iter()
-            .map(|p| p.tcp_header.sequence_no)
-            .chain(acks.iter().map(|p| p.tcp_header.ack_no))
-        {
+        for seqno in seqs.iter().map(|p| p.tcp_header.sequence_no).chain(
+            acks.iter()
+                .filter(|p| p.tcp_header.flag_ack)
+                .map(|p| p.tcp_header.ack_no),
+        ) {
             let bucket_idx = (seqno >= 0x55555555) as usize + (seqno >= 0xaaaaaaaa) as usize;
             buckets[bucket_idx] = buckets[bucket_idx]
                 .map(|seqno_: u32| seqno_.min(seqno))
                 .or(Some(seqno));
         }
         match buckets {
-            [None, None, None] => 0,
-            [Some(x), _, None] => x,
-            [None, Some(y), _] => y,
-            [_, None, Some(z)] => z,
+            [None, None, None] => None,
+            [Some(x), _, None] => Some(x),
+            [None, Some(y), _] => Some(y),
+            [_, None, Some(z)] => Some(z),
             _ => {
-                debug_assert!(false, "sequence ids cross both boundaries");
-                0
+                eprintln!(
+                    "sequence ids cross both boundaries: {:?} (#packets {})",
+                    buckets,
+                    seqs.len() + acks.len()
+                );
+                None
             }
         }
     }
-    let start_seq_a = seq_start(&a.packets, &b.packets);
-    let start_seq_b = seq_start(&b.packets, &a.packets);
+
+    let mut malformed = false;
+
+    let start_seq_a = seq_start(&a.packets, &b.packets).unwrap_or_else(|| {
+        malformed = true;
+        0
+    });
+    let start_seq_b = seq_start(&b.packets, &a.packets).unwrap_or_else(|| {
+        malformed = true;
+        0
+    });
+
     for p in &mut a.packets {
         p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(start_seq_a);
         if p.tcp_header.flag_ack {
@@ -475,5 +508,11 @@ fn make_sequence_numbers_relative(
         if p.tcp_header.flag_ack {
             p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(start_seq_a);
         }
+    }
+
+    if malformed {
+        Err(())
+    } else {
+        Ok(())
     }
 }

@@ -29,12 +29,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = database::Database::new();
     let mut reassembler = Reassembler::new(database.clone());
 
+    /*
     let mut config = configuration::Configuration::default();
     let tag = configuration::Tag::from_slug_and_owner("abc".into(), "abc".into());
     config.tags.insert(tag.as_id(), tag);
     let score =
         starlark::QueryFilterCore::new("index(service=123)\ntag.abc", config, database.clone());
-    score.get_meta();
+    for i in 0u64.. {
+        score.get_meta();
+        if i.is_power_of_two() {
+            println!("{}", i);
+        }
+    } */
 
     let fut = tokio::spawn(async move {
         let addr = "0.0.0.0:10000".parse::<std::net::SocketAddr>().unwrap();
@@ -52,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for path in &pcaps {
         println!("importing pcap {:?}", path);
         pcapreader::read_pcap_file(&path, &mut reassembler).await;
-        std::thread::sleep(std::time::Duration::from_millis(450));
+        // std::thread::sleep(std::time::Duration::from_millis(450));
         reassembler.expire().await;
     }
 

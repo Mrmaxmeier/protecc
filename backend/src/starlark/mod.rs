@@ -18,17 +18,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-enum DecisionItem {
-    Index(Option<u16>, Option<TagID>),
-    Accept(bool),
-    AddTag(bool),
-}
-
-#[derive(Debug)]
-struct StreamDecisions {
-    index: Option<QueryIndex>,
-    accept: Option<bool>,
-    add_tag: Option<TagID>,
+#[derive(Debug, Clone)]
+pub(crate) struct StreamDecisions {
+    pub(crate) index: Option<QueryIndex>,
+    pub(crate) accept: Option<bool>,
+    pub(crate) add_tag: Option<TagID>,
 }
 
 struct StreamDecisionSession {
@@ -127,11 +121,13 @@ impl QueryFilterCore {
         }
     }
 
-    pub(crate) fn get_meta(&self) {
+    pub(crate) fn get_meta(&self) -> QueryIndex {
         self.get_verdict(&Stream::dummy())
+            .index
+            .unwrap_or(QueryIndex::All)
     }
 
-    pub(crate) fn get_verdict(&self, stream: &Stream) {
+    pub(crate) fn get_verdict(&self, stream: &Stream) -> StreamDecisions {
         let mut env = self.env.child("stream");
         let ctx = StreamDecisionSession {
             db: self.db.clone(),
@@ -142,36 +138,50 @@ impl QueryFilterCore {
             }),
             stream_id: stream.id,
         };
-        env.set("_ctx", Value::new(ctx)).unwrap();
+        env.set("$ctx", Value::new(ctx)).unwrap();
         let mut tag_map = HashMap::new();
         for (k, v) in self.config.tags.iter() {
             tag_map.insert(v.slug.clone(), stream.tags.contains(k));
         }
         let tag = StarlarkTagsStruct::new(tag_map);
         env.set("tag", Value::new(tag)).unwrap();
-        println!(
-            "{:?}",
-            starlark::eval::eval_module(
-                &self.module,
-                &mut env,
-                &self.type_values,
-                self.code_map.clone(),
-                &starlark::eval::noload::NoLoadFileLoader,
-                1337, // fuel
-            )
+
+        let res = starlark::eval::eval_module(
+            &self.module,
+            &mut env,
+            &self.type_values,
+            self.code_map.clone(),
+            &starlark::eval::noload::NoLoadFileLoader,
+            1337, // fuel
+        )
+        .unwrap();
+
+        let val = env.get("$ctx").unwrap();
+        let holder = val.value_holder();
+        let mut _ctx = holder
+            .as_any_ref()
+            .downcast_ref::<StreamDecisionSession>()
             .unwrap()
-        );
+            .outcome
+            .borrow()
+            .clone();
+
+        if res.get_type() == "bool" {
+            assert!(_ctx.accept.is_none());
+            _ctx.accept = Some(res.to_bool());
+        }
+        _ctx
     }
 }
 
 fn modify_decisions<F: Fn(&mut StreamDecisions)>(env: &Environment, f: F) -> ValueResult {
-    let val = env.get("_ctx").unwrap();
+    let val = env.get("$ctx").unwrap();
     let holder = val.value_holder();
     let _ctx = holder.as_any_ref().downcast_ref::<StreamDecisionSession>();
     if let Some(_ctx) = _ctx {
         let mut outcome = _ctx.outcome.borrow_mut();
         f(&mut *outcome);
-        println!("decisions: {:?}", outcome);
+    //println!("decisions: {:?}", outcome);
     } else {
         Err(ValueError::Runtime(RuntimeError {
             code: "internal error",

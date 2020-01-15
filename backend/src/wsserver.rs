@@ -38,6 +38,7 @@ enum RequestPayload {
     RemoveTag(StreamID, TagID),
     StepCursor(query::Cursor),
     Query2Cursor(query::Query),
+    StarlarkScan(StarlarkScanQuery),
     DoS(DebugDenialOfService),
     WindowUpdate {
         id: u64,
@@ -57,6 +58,7 @@ pub(crate) enum ResponsePayload {
     Error(String),
     WindowUpdate(crate::window::WindowUpdate),
     StreamDetails(StreamDetails),
+    StarlarkScan(StarlarkScanResp),
 }
 
 #[derive(Deserialize, Debug)]
@@ -78,6 +80,23 @@ enum DebugDenialOfService {
     HoldWriteLock,
     Panic,
     HoldAndPanic,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct StarlarkScanQuery {
+    code: String,
+    bound_low: Option<StreamID>,
+    bound_high: Option<StreamID>,
+    reverse: bool,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StarlarkScanResp {
+    error: Option<String>,
+    scan_limit: StreamID,                                // inclusive
+    scan_results: Vec<crate::stream::LightweightStream>, // TODO: attached data
 }
 
 struct ConnectionHandler {
@@ -253,6 +272,63 @@ impl ConnectionHandler {
         ResponsePayload::CursorResult(cursor, buf, has_next)
     }
 
+    async fn starlark_scan(&self, query: &StarlarkScanQuery) -> ResponsePayload {
+        let config = self
+            .db
+            .configuration_handle
+            .clone()
+            .rx
+            .recv()
+            .await
+            .unwrap();
+        let latest_id = self.db.stream_notification_rx.clone().recv().await.unwrap();
+        let bound_high = query.bound_high.unwrap_or(latest_id);
+        let bound_low = query.bound_low.unwrap_or(StreamID::new(0));
+        let streams = self.db.streams.read().await;
+
+        // This makes me sad.
+        // QueryFilterCore is !Send and can't cross await bounds
+        // => collect all streamids that'll be searched and
+        //    construct filter_core twice.
+        let mut toscan_streamids = Vec::new();
+
+        let index = {
+            let filter_core =
+                crate::starlark::QueryFilterCore::new(&query.code, config.clone(), self.db.clone());
+            filter_core.get_meta()
+        };
+        self.db
+            .with_index_iter(index, bound_low..bound_high, |iter| {
+                toscan_streamids = iter.rev().take(0x400).collect();
+            })
+            .await;
+
+        if query.reverse {
+            toscan_streamids.reverse();
+        }
+
+        let mut scan_results = Vec::new();
+        let mut scan_limit = if query.reverse { bound_low } else { bound_high };
+        {
+            let filter_core =
+                crate::starlark::QueryFilterCore::new(&query.code, config, self.db.clone());
+            for stream_id in toscan_streamids {
+                if filter_core.get_verdict(&streams[stream_id.idx()]).accept == Some(true) {
+                    scan_results.push(streams[stream_id.idx()].as_lightweight());
+                }
+                scan_limit = stream_id;
+                if scan_results.len() > 50 {
+                    break;
+                }
+            }
+        }
+        ResponsePayload::StarlarkScan(StarlarkScanResp {
+            scan_limit,
+            scan_results,
+            error: None,
+        })
+    }
+
     async fn await_cancel(self: Arc<Self>, id: u64) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         {
@@ -322,6 +398,9 @@ impl ConnectionHandler {
                 }
                 RequestPayload::RemoveTag(stream_id, tag_id) => {
                     self_.db.remove_tag(*stream_id, *tag_id).await
+                }
+                RequestPayload::StarlarkScan(query) => {
+                    self_.send_out(&req, self_.starlark_scan(query)).await
                 }
                 RequestPayload::Cancel => unreachable!(),
             };

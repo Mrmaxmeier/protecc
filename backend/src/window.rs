@@ -60,6 +60,7 @@ impl Window {
     }
 
     pub(crate) async fn set_attached(&mut self, attached: bool) -> Option<WindowUpdate> {
+        tracyrs::zone!("window::set_attached");
         if self.attached == attached {
             return None;
         }
@@ -77,6 +78,7 @@ impl Window {
     }
 
     pub(crate) async fn set_size(&mut self, size: usize) -> Option<WindowUpdate> {
+        tracyrs::zone!("window::set_size");
         let old_size = self.size;
         self.size = size;
         let mut new = Vec::new();
@@ -108,6 +110,7 @@ impl Window {
     }
 
     pub(crate) async fn new_id(&mut self, id: StreamID) -> Option<WindowUpdate> {
+        tracyrs::zone!("window::new_id");
         if !self.attached {
             self.limit_for_reattach = Some(id);
             return None;
@@ -146,6 +149,7 @@ impl Window {
     }
 
     pub(crate) async fn changed_id(&mut self, id: StreamID) -> Option<WindowUpdate> {
+        tracyrs::zone!("window::changed_id");
         if !self.range.contains(&id) {
             return None;
         }
