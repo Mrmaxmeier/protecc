@@ -154,21 +154,31 @@ impl ConnectionHandler {
                             .expect("stream details for unknown stream requested")
                             .clone()
                     };
-                    let mut client_payload = db
+                    let client_payload_ = db
                         .datablob(stream.client_data_id)
                         .expect("couldn't find client payload");
-                    let mut server_payload = db
+                    let mut client_payload = client_payload_.as_ref();
+                    let server_payload_ = db
                         .datablob(stream.server_data_id)
                         .expect("couldn't find server payload");
+                    let mut server_payload = server_payload_.as_ref();
                     let mut segments = Vec::new();
                     for segment in stream.segments.iter().rev() {
                         use crate::database::Sender;
                         let data = match segment.sender {
-                            Sender::Client => client_payload.split_off(segment.start),
-                            Sender::Server => server_payload.split_off(segment.start),
+                            Sender::Client => {
+                                let (a, b) = client_payload.split_at(segment.start);
+                                client_payload = b;
+                                a
+                            }
+                            Sender::Server => {
+                                let (a, b) = server_payload.split_at(segment.start);
+                                server_payload = b;
+                                a
+                            }
                         };
                         segments.push(SegmentWithData {
-                            data,
+                            data: data.to_vec(),
                             seq: segment.seq,
                             ack: segment.ack,
                             flags: segment.flags,

@@ -50,7 +50,7 @@ impl StreamID {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub(crate) struct StreamPayloadID(u64);
+pub(crate) struct StreamPayloadID(pub u64);
 
 impl Serialize for StreamPayloadID {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -74,11 +74,8 @@ impl<'de> Deserialize<'de> for StreamPayloadID {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub(crate) struct TagID(u32);
+pub(crate) struct TagID(pub(crate) u32);
 impl TagID {
-    pub fn as_u32(&self) -> u32 {
-        self.0
-    }
     pub fn from_slug(slug: &[u8]) -> Self {
         use std::hash::Hasher;
         let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
@@ -130,20 +127,20 @@ pub(crate) struct Database {
     pub(crate) services: RwLock<HashMap<u16, Arc<RwLock<Service>>>>,
     pub(crate) pipeline: RwLock<PipelineManager>,
     pub(crate) configuration_handle: ConfigurationHandle,
-    pub(crate) payload_db: rocksdb::DB,
+    pub(crate) payload_db: sled::Db,
     pub(crate) ingest_tx: mpsc::Sender<StreamReassembly>,
 }
 
 impl Database {
     pub(crate) fn new() -> Arc<Self> {
         tracyrs::zone!("Database::new");
-        let mut opts = rocksdb::Options::default();
-        opts.set_write_buffer_size(256 << 20);
-        opts.set_compression_type(rocksdb::DBCompressionType::Zstd);
-        opts.set_max_background_compactions(4);
-        opts.set_max_background_flushes(2);
-        opts.create_if_missing(true);
-        let payload_db = rocksdb::DB::open(&opts, "stream_payloads.rocksdb").unwrap();
+        let payload_db = sled::Config::default()
+            .cache_capacity(64 << 20) // 64 mb but memory usage grows a lot higher?
+            .use_compression(true)
+            .compression_factor(3)
+            .path("stream_payloads.sled")
+            .open()
+            .unwrap();
         let (ingest_tx, ingest_rx) = mpsc::channel(256);
         let (stream_notification_tx, stream_notification_rx) = watch::channel(StreamID(0));
         let (stream_update_tx, _) = broadcast::channel(128);
@@ -172,17 +169,20 @@ impl Database {
         let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
         hasher.write(data);
         let id = StreamPayloadID(hasher.finish());
-        self.payload_db
-            .put(id.0.to_be_bytes(), data)
-            .expect("Failed to write to RocksDB");
+        let key = id.0.to_be_bytes();
+        if !self.payload_db.contains_key(key).unwrap() {
+            self.payload_db
+                .insert(key, data)
+                .expect("Failed to write to Sled");
+        }
         id
     }
 
-    pub(crate) fn datablob(&self, id: StreamPayloadID) -> Option<Vec<u8>> {
+    pub(crate) fn datablob(&self, id: StreamPayloadID) -> Option<sled::IVec> {
         // TODO(perf): read into pooled buffer
         self.payload_db
             .get(id.0.to_be_bytes())
-            .expect("failed to read from RocksDB")
+            .expect("failed to read from Sled")
     }
 
     // should only be called with stream_id == self.streams.len()-1

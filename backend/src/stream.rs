@@ -174,6 +174,23 @@ impl Stream {
         (stream, malformed, cyclic)
     }
 
+    pub(crate) fn dummy() -> Self {
+        let data_id = StreamPayloadID(0);
+        let addr = (IpAddr::V6(std::net::Ipv6Addr::LOCALHOST), 0);
+        Stream {
+            id: StreamID::new(0),
+            client: addr,
+            server: addr,
+            segments: Vec::new(),
+            client_data_len: 0,
+            server_data_len: 0,
+            client_data_id: data_id,
+            server_data_id: data_id,
+            tags: HashSet::new(),
+            features: HashMap::new(),
+        }
+    }
+
     pub(crate) fn as_lightweight(&self) -> LightweightStream {
         LightweightStream {
             id: self.id.clone(),
@@ -230,8 +247,8 @@ impl<'a> StreamDataWrapper<'a> {
                 }
             }
             StreamDataWrapper::Stream(stream) => {
-                let client_data = db.datablob(stream.client_data_id).unwrap();
-                let server_data = db.datablob(stream.client_data_id).unwrap();
+                let client_data = db.datablob(stream.client_data_id).unwrap().to_vec(); // TODO
+                let server_data = db.datablob(stream.client_data_id).unwrap().to_vec();
                 *self = StreamDataWrapper::StreamWithDataRef(stream, client_data, server_data);
                 self.as_stream_with_data(db)
             }

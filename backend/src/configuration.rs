@@ -6,18 +6,18 @@ use tokio::sync::{mpsc, watch};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Tag {
-    slug: String,
-    name: String,
-    color: String,
-    owner: String,
+    pub(crate) slug: String,
+    pub(crate) name: String,
+    pub(crate) color: String,
+    pub(crate) owner: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Service {
-    slug: String,
-    name: String,
-    port: u16,
+    pub(crate) slug: String,
+    pub(crate) name: String,
+    pub(crate) port: u16,
 }
 
 impl Service {
@@ -97,8 +97,8 @@ impl ConfigurationHandle {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Configuration {
-    tags: HashMap<TagID, Tag>,
-    services: HashMap<ServiceID, Service>,
+    pub(crate) tags: HashMap<TagID, Tag>,
+    pub(crate) services: HashMap<ServiceID, Service>,
 }
 
 impl Configuration {

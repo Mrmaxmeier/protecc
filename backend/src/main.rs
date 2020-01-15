@@ -9,12 +9,12 @@ static GLOBAL: System = System;
 pub(crate) mod configuration;
 pub(crate) mod counters;
 pub(crate) mod database;
-pub(crate) mod lark;
 pub(crate) mod pcapreader;
 pub(crate) mod pipeline;
 pub(crate) mod query;
 pub(crate) mod reassembly;
 pub(crate) mod serde_aux;
+pub(crate) mod starlark;
 pub(crate) mod stream;
 pub(crate) mod window;
 pub(crate) mod wsserver;
@@ -28,6 +28,13 @@ use tokio::net::TcpListener;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = database::Database::new();
     let mut reassembler = Reassembler::new(database.clone());
+
+    let mut config = configuration::Configuration::default();
+    let tag = configuration::Tag::from_slug_and_owner("abc".into(), "abc".into());
+    config.tags.insert(tag.as_id(), tag);
+    let score =
+        starlark::QueryFilterCore::new("index(service=123)\ntag.abc", config, database.clone());
+    score.get_meta();
 
     let fut = tokio::spawn(async move {
         let addr = "0.0.0.0:10000".parse::<std::net::SocketAddr>().unwrap();
