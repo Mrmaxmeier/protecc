@@ -137,6 +137,7 @@ impl QueryFilterCore {
         &self,
         stream: &Stream,
     ) -> Result<StreamDecisions, starlark::eval::EvalException> {
+        tracyrs::zone!("get_verdict");
         let mut env = self.env.child("stream");
         let ctx = StreamDecisionSession {
             db: self.db.clone(),
@@ -155,14 +156,25 @@ impl QueryFilterCore {
         let tag = StarlarkTagsStruct::new(tag_map);
         env.set("tag", Value::new(tag)).unwrap();
 
-        let res = starlark::eval::eval_module(
-            &self.module,
-            &mut env,
-            &self.type_values,
-            self.code_map.clone(),
-            &starlark::eval::noload::NoLoadFileLoader,
-            1337, // fuel
-        )?;
+        env.set("tags", Value::from(stream.tags.iter().map(|t| t.0 as i64).collect::<Vec<_>>())).unwrap();
+        env.set("client_data_len", Value::new(stream.client_data_len as i64)).unwrap();
+        env.set("server_data_len", Value::new(stream.server_data_len as i64)).unwrap();
+        env.set("client_ip", Value::new(format!("{}", stream.client.0))).unwrap();
+        env.set("server_ip", Value::new(format!("{}", stream.server.0))).unwrap();
+        env.set("client_port", Value::new(stream.client.1 as i64)).unwrap();
+        env.set("server_port", Value::new(stream.server.1 as i64)).unwrap();
+
+        let res = {
+            tracyrs::zone!("get_verdict", "eval_module");
+            starlark::eval::eval_module(
+                &self.module,
+                &mut env,
+                &self.type_values,
+                self.code_map.clone(),
+                &starlark::eval::noload::NoLoadFileLoader,
+                1337, // fuel
+            )?
+        };
 
         let val = env.get("$ctx").unwrap();
         let holder = val.value_holder();
