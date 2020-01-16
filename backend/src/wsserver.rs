@@ -330,7 +330,7 @@ impl ConnectionHandler {
             filter_core.get_meta().map_err(exception_to_error)?
         };
         self.db
-            .with_index_iter(index, bound_low..bound_high, |iter| {
+            .with_index_iter(index, bound_low..=bound_high, |iter| {
                 toscan_streamids = iter.rev().take(0x1000).collect();
             })
             .await;
