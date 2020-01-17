@@ -31,12 +31,13 @@ import SocketIO as SocketIO
 import Streams as Streams
 import Util (fromString, logo, id, Id, matchMaybe)
 import Stream as Stream
+import Query as Query
 
 type Slot
   = ( dashboard :: H.Slot Dashboard.Query Void Unit
     , streams :: H.Slot Streams.Query Void Unit
     , config :: H.Slot Streams.Query Void Unit
-    , editor :: H.Slot Editor.Query Void Unit
+    , query :: H.Slot Identity Void Unit
     , stream :: H.Slot Identity Void Unit
     )
 
@@ -46,9 +47,9 @@ _streams = SProxy :: SProxy "streams"
 
 _config = SProxy :: SProxy "config"
 
-_editor = SProxy :: SProxy "editor"
-
 _stream = SProxy :: SProxy "stream"
+
+_query = SProxy :: SProxy "query"
 
 data Query a
   = ChangeRoute String a
@@ -126,7 +127,7 @@ data Route
   | Streams (Maybe Int) (Maybe Id)
   | Stream Id
   | Configuration
-  | Test
+  | Query
   | NotFound String
 
 pathToRoute :: String -> Route
@@ -144,7 +145,7 @@ routeMatch =
     , Streams <$> (lit "streams" *> matchMaybe int) <*> (matchMaybe id <* end)
     , Stream <$> (lit "stream" *> id <* end)
     , Configuration <$ lit "config" <* end
-    , Test <$ lit "test" <* end
+    , Query <$ lit "query" <* end
     ]
 
 type MenuEntry
@@ -161,18 +162,18 @@ streamsEntry = { name: "Streams", link: "#streams" }
 configEntry :: MenuEntry
 configEntry = { name: "Config", link: "#config" }
 
-testEntry :: MenuEntry
-testEntry = { name: "Test", link: "#test" }
+queryEntry :: MenuEntry
+queryEntry = { name: "Query", link: "#query" }
 
 menuEntries :: Array MenuEntry
-menuEntries = [ dashboardEntry, streamsEntry, configEntry, testEntry ]
+menuEntries = [ dashboardEntry, streamsEntry, configEntry, queryEntry ]
 
 routeToEntry :: Route -> Maybe MenuEntry
 routeToEntry = case _ of
   Index -> Just dashboardEntry
   Streams _ _ -> Just streamsEntry
   Configuration -> Just configEntry
-  Test -> Just testEntry
+  Query -> Just queryEntry
   _ -> Nothing
 
 -- rendering
@@ -183,7 +184,7 @@ renderRoute (Streams port tag) state = HH.slot _streams unit Streams.component {
 
 renderRoute Configuration state = HH.slot _config unit Config.component unit absurd
 
-renderRoute Test state = HH.slot _editor unit Editor.component unit absurd
+renderRoute Query state = HH.slot _query unit Query.component unit absurd
 
 renderRoute (Stream id) state = sdiv [ S.ui, S.container ] [ HH.slot _stream unit Stream.component id absurd ]
 

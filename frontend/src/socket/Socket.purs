@@ -8,8 +8,11 @@ module Socket
   , subscribeResponses
   , RequestId
   , subscribeConnect
+  , errorId
+  , subscribeResponse
   ) where
 
+import Halogen.HTML.CSS
 import Prelude
 import Data.Argonaut.Core (Json, stringify)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson)
@@ -19,16 +22,17 @@ import Data.Either (Either(..))
 import Data.Function.Uncurried (Fn2)
 import Data.Int (pow)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Console (error)
 import Effect.Random (randomInt)
-import Halogen.HTML.CSS
 import Foreign.Object (Object)
 import Halogen as H
 import Halogen.Query.EventSource (EventSource, Finalizer(..), effectEventSource, emit)
 import Halogen.Query.HalogenM (SubscriptionId, mapAction)
 import SocketIO as SIO
+import Util (mwhen)
 import Web.HTML.Event.EventTypes (cancel)
 
 foreign import get :: Effect SIO.Socket
@@ -49,17 +53,16 @@ type StreamMessage
 newtype RequestId
   = RequestId Int
 
-instance eqRequestId :: Eq RequestId where
-  eq (RequestId a) (RequestId b) = a == b
+errorId :: RequestId
+errorId = RequestId 0
 
-instance showRequestId :: Show RequestId where
-  show (RequestId i) = "RequestId(" <> show i <> ")"
+derive instance eqRequestId :: Eq RequestId
 
-instance encodeRequestId :: EncodeJson RequestId where
-  encodeJson (RequestId i) = encodeJson i
+derive newtype instance showRequestId :: Show RequestId
 
-instance decodeRequestId :: DecodeJson RequestId where
-  decodeJson j = map RequestId $ decodeJson j
+derive newtype instance encodeRequestId :: EncodeJson RequestId
+
+derive newtype instance decodeRequestId :: DecodeJson RequestId
 
 decodeString :: ∀ a. DecodeJson a => String -> Either String a
 decodeString s = decodeJson =<< jsonParser s
@@ -82,18 +85,21 @@ subscribe source = do
   socket <- H.liftEffect get
   H.subscribe $ source socket
 
-messageSource :: ∀ a. DecodeJson a => RequestId -> EventSource Aff a
-messageSource id =
+messageSource :: ∀ a. DecodeJson a => Boolean -> RequestId -> EventSource Aff a
+messageSource cancel id =
   effectEventSource \emitter -> do
     registerListener id
       ( \json -> case decodeJson json of
           Left e -> error $ "Could not decode message " <> stringify json <> " with id " <> show id <> ": " <> e
           Right arg -> emit emitter arg
       )
-    pure $ Finalizer $ cancelEffect id
+    pure $ mwhen cancel $ Finalizer $ cancelEffect id
 
 subscribeResponses :: ∀ a1 a2 state slot m. DecodeJson a1 => (a1 -> a2) -> RequestId -> H.HalogenM state a2 slot m Aff SubscriptionId
-subscribeResponses f = mapAction f <<< H.subscribe <<< messageSource
+subscribeResponses f = mapAction f <<< H.subscribe <<< messageSource true
+
+subscribeResponse :: ∀ a1 a2 state slot m. DecodeJson a1 => (a1 -> a2) -> RequestId -> H.HalogenM state a2 slot m Aff SubscriptionId
+subscribeResponse f = mapAction f <<< H.subscribe <<< messageSource false
 
 subscribeConnect :: ∀ a state slot m. a -> H.HalogenM state a slot m Aff SubscriptionId
 subscribeConnect action = mapAction (const action) $ subscribe SIO.connectSource

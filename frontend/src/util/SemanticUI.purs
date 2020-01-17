@@ -353,3 +353,39 @@ floated = ClassName "floated"
 
 fluid :: ClassName
 fluid = ClassName "fluid"
+
+radio :: ClassName
+radio = ClassName "radio"
+
+grouped :: ClassName
+grouped = ClassName "grouped"
+
+hidden :: ClassName
+hidden = ClassName "hidden"
+
+inline :: ClassName
+inline = ClassName "inline"
+
+arrow :: ClassName
+arrow = ClassName "arrow"
+
+long :: ClassName
+long = ClassName "long"
+
+alternate :: ClassName
+alternate = ClassName "alternate"
+
+progress :: ClassName
+progress = ClassName "progress"
+
+bar :: ClassName
+bar = ClassName "bar"
+
+pause :: ClassName
+pause = ClassName "pause"
+
+play :: ClassName
+play = ClassName "play"
+
+orange :: ClassName
+orange = ClassName "orange"

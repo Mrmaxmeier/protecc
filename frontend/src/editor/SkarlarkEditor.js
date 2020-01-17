@@ -184,12 +184,53 @@ monaco.languages.setMonarchTokensProvider('starlark', {
     }
 });
 
+exports.setError = (error) => {
+    if (error == undefined || error == "")
+        return () => {
+            monaco.languages.registerCodeLensProvider('starlark', {
+                provideCodeLenses: function (model, token) {
+                    return {
+                        lenses: [
+                        ]
+                    };
+                },
+                resolveCodeLens: function (model, codeLens, token) {
+                    return codeLens;
+                }
+            });
+        }
+    return () => {
+        monaco.languages.registerCodeLensProvider('starlark', {
+            provideCodeLenses: function (model, token) {
+                return {
+                    lenses: [
+                        {
+                            range: {
+                                startLineNumber: 1,
+                                startColumn: 1,
+                                endLineNumber: 2,
+                                endColumn: 1
+                            },
+                            command: {
+                                title: "ERROR: " + error
+                            }
+                        }
+                    ]
+                };
+            },
+            resolveCodeLens: function (model, codeLens, token) {
+                return codeLens;
+            }
+        });
+    }
+}
+
 // Define a new theme that contains only rules that match this language
 monaco.editor.defineTheme('starlark-dark', {
     base: 'vs-dark',
     inherit: true,
     rules: [
-        { token: 'fake-keyword', fontStyle: 'strikethrough' }
+        { token: 'fake-keyword', foreground: 'ff0000', fontStyle: 'italic' }
     ]
 });
 
@@ -263,45 +304,7 @@ monaco.languages.registerCompletionItemProvider('starlark', {
     }
 });
 
-code = `# Define a number
-number = 18
-
-# Define a dictionary
-people = {
-    "Alice": 22,
-    "Bob": 40,
-    "Charlie": 55,
-    "Dave": 14,
-}
-
-while True:
-    pass
-
-names = ", ".join(people.keys())  # Alice, Bob, Charlie, Dave
-
-# Define a function
-def greet(name):
-  """Return a greeting."""
-  return "Hello {}!".format(name)
-
-greeting = greet(names)
-
-above30 = [name for name, age in people.items() if age >= 30]
-
-print("{} people are above 30.".format(len(above30)))
-
-def fizz_buzz(n):
-    """Print Fizz Buzz numbers from 1 to n."""
-    for i in range(1, n + 1):
-        s = ""
-        if i % 3 == 0:
-            s += "Fizz"
-        if i % 5 == 0:
-            s += "Buzz"
-        print(s if s else i)
-
-fizz_buzz(20)
-`
+code = 'True'
 
 exports.init = function (element) {
     return function () {

@@ -1,6 +1,7 @@
 module WindowTable where
 
 import Prelude
+import CSS as CSS
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Decode (class DecodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
@@ -246,7 +247,7 @@ component identify rows rowRenderer =
                           )
                           (take pageSize $ drop (pageSize * inner.page) $ inner.elements)
                   ]
-              , sdiv [ S.ui, S.right, S.rail ]
+              , div [ classes [ S.ui, S.right, S.rail ], HC.style $ CSS.marginTop $ CSS.em 1.0 ]
                   [ sdiv [ S.ui, S.compact, S.segments ]
                       [ sdiv [ S.ui, S.compact, S.segment ]
                           [ sdiv ([ S.ui, S.toggle, S.checkbox ] <> mwhen inner.attached [ S.checked ])

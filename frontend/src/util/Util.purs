@@ -21,12 +21,16 @@ module Util
   , Id
   , prettyShow
   , fromString
+  , tryFromString
   , onEnter
   , setLocalStorage
   , getLocalStorage
   , id
+  , diff
   , matchMaybe
   , dropUntil
+  , inc
+  , dec
   ) where
 
 import Prelude
@@ -35,7 +39,7 @@ import Control.Plus (class Alt, class Plus, alt, empty)
 import Data.Argonaut.Core (Json, stringify, toObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
-import Data.BigInt (BigInt, fromNumber, toNumber, toString)
+import Data.BigInt (BigInt, abs, fromInt, fromNumber, toNumber, toString)
 import Data.BigInt as BigInt
 import Data.Either (Either(..))
 import Data.Foldable (class Foldable, foldr)
@@ -52,6 +56,8 @@ import Halogen.HTML.Core as HC
 import Halogen.HTML.Events (onKeyDown)
 import Halogen.HTML.Properties (IProp(..))
 import Halogen.HTML.Properties as HP
+import Halogen.Query.HalogenM (imapState)
+import Partial.Unsafe (unsafeCrashWith)
 import Prim.Row as Row
 import Prim.RowList as RL
 import Record as Record
@@ -204,8 +210,22 @@ derive instance idEq :: Eq Id
 
 derive instance ordEq :: Ord Id
 
+inc :: Id -> Id
+inc (Id b) = Id $ b + fromInt 1
+
+dec :: Id -> Id
+dec (Id b) = Id $ b - fromInt 1
+
 fromString :: String -> Id
-fromString = Id <<< fromMaybe (BigInt.fromInt (-1)) <<< BigInt.fromString
+fromString = fromMaybe (Id $ BigInt.fromInt (-1)) <<< tryFromString
+
+tryFromString :: String -> Maybe Id
+tryFromString "" = Nothing
+
+tryFromString s = Id <$> BigInt.fromString s
+
+diff :: Id -> Id -> BigInt
+diff (Id b1) (Id b2) = abs $ b1 - b2
 
 prettyShow :: Number -> String
 prettyShow n = maybe (show n) toString $ fromNumber n

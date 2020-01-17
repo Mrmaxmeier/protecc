@@ -25,11 +25,14 @@ foreign import init :: HTMLElement -> Effect Editor
 
 foreign import content :: Editor -> Effect String
 
+foreign import setError :: String -> Effect Unit
+
 type State
   = { config :: Maybe Configuration, editor :: Maybe Editor }
 
 data Query a
-  = Value (String -> a)
+  = GetValue (String -> a)
+  | SetError (String) a
 
 data Action
   = Init
@@ -49,7 +52,7 @@ component =
   elem = H.RefLabel "element"
 
   render :: ∀ s. State -> H.ComponentHTML Action s Aff
-  render state = sdiv [ S.ui, S.container ] [ div [ HP.ref elem, classes [ ClassName "editor" ] ] [] ]
+  render state = div [ HP.ref elem, classes [ ClassName "editor" ] ] []
 
   handleAction :: ∀ s. Action -> H.HalogenM State Action s o Aff Unit
   handleAction = case _ of
@@ -63,10 +66,13 @@ component =
 
   handleQuery :: ∀ a s. Query a -> H.HalogenM State Action s o Aff (Maybe a)
   handleQuery = case _ of
-    Value f -> do
+    GetValue f -> do
       state <- H.get
       case state.editor of
         Nothing -> pure Nothing
         Just editor -> do
           cnt <- H.liftEffect $ content editor
           pure $ Just $ f cnt
+    SetError s a -> do
+      H.liftEffect $ setError s
+      pure $ Just a

@@ -30,12 +30,12 @@ import Halogen.HTML.Events (onClick, onValueChange)
 import Halogen.HTML.Properties (InputType(..), classes, selected, type_, value)
 import Halogen.HTML.Properties as HP
 import Numeral (formatBytes)
-import SemanticUI (loaderDiv, sa, sbutton, sdiv)
+import SemanticUI (loaderDiv, sdiv)
 import SemanticUI as S
-import Socket (RequestId, subscribe)
+import Socket (RequestId)
 import Socket as Socket
 import Tags as Tags
-import Util (Id, logo, mwhen, prettifyJson, prettyShow)
+import Util (Id, mwhen, prettyShow)
 
 newtype Addr
   = Addr (Tuple String Int)
