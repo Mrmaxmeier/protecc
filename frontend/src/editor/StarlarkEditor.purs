@@ -15,6 +15,8 @@ import Halogen.HTML.CSS as HC
 import Halogen.HTML.Elements.Keyed as HK
 import Halogen.HTML.Properties (classes)
 import Halogen.HTML.Properties as HP
+import Halogen.Query.EventSource (EventSource(..), effectEventSource, emit)
+import Halogen.Query.HalogenM (mapAction)
 import SemanticUI (sa, sdiv)
 import SemanticUI as S
 import Util (logo, logs)
@@ -32,6 +34,16 @@ foreign import updateLanguage :: (Array Tag) -> (Array Service) -> Effect Unit
 
 foreign import setContent :: Editor -> String -> Effect Unit
 
+foreign import addAction :: Editor -> EditorAction -> Effect Unit
+
+type EditorAction
+  = { id :: String
+    , label :: String
+    , keybindings :: Array Int
+    , contextMenuOrder :: Number
+    , run :: Effect Unit
+    }
+
 type State
   = { config :: Maybe Configuration, editor :: Maybe Editor }
 
@@ -39,9 +51,13 @@ data Query a
   = GetValue (String -> a)
   | SetError (String) a
 
+data Message
+  = Execute
+
 data Action
   = Init
   | ConfigUpdate Configuration
+  | TriggerExecute
 
 defaultContent :: String
 defaultContent =
@@ -60,11 +76,20 @@ id % 500 == 0
 # and non-recursive function definitions
 # more infos here: https://github.com/bazelbuild/starlark/blob/master/spec.md
 # press F1 to see all available commands, these are all custom ones:
-# TODO: execute
+# Execute Query (Shift + Enter)
 # TODO: save
 # TODO: load"""
 
-component :: ∀ o i. H.Component HH.HTML Query i o Aff
+source :: ∀ a. ((a -> Effect Unit) -> Effect Unit) -> EventSource Aff a
+source f =
+  effectEventSource \emitter -> do
+    f $ emit emitter
+    pure mempty
+
+actionSource :: Editor -> { id :: String, label :: String, keybindings :: Array Int, contextMenuOrder :: Number } -> EventSource Aff Unit
+actionSource editor action = source $ \callback -> addAction editor { id: action.id, label: action.label, keybindings: action.keybindings, contextMenuOrder: action.contextMenuOrder, run: callback unit }
+
+component :: ∀ i. H.Component HH.HTML Query i Message Aff
 component =
   H.mkComponent
     { initialState
@@ -81,7 +106,7 @@ component =
   render :: ∀ s. State -> H.ComponentHTML Action s Aff
   render state = div [ HP.ref elem, classes [ ClassName "editor" ] ] []
 
-  handleAction :: ∀ s. Action -> H.HalogenM State Action s o Aff Unit
+  handleAction :: ∀ s. Action -> H.HalogenM State Action s Message Aff Unit
   handleAction = case _ of
     Init -> do
       _ <- Config.subscribe ConfigUpdate
@@ -92,12 +117,14 @@ component =
         Just element -> do
           editor <- H.liftEffect $ init element
           H.liftEffect $ setContent editor defaultContent
+          _ <- mapAction (const TriggerExecute) $ H.subscribe $ actionSource editor { id: "execute", label: "Execute Query", keybindings: [ 1027 ], contextMenuOrder: 0.0 }
           H.modify_ $ _ { editor = Just editor }
     ConfigUpdate config -> do
       H.modify_ $ _ { config = Just config }
       H.liftEffect $ updateLanguage config.tags config.services
+    TriggerExecute -> H.raise Execute
 
-  handleQuery :: ∀ a s. Query a -> H.HalogenM State Action s o Aff (Maybe a)
+  handleQuery :: ∀ a s. Query a -> H.HalogenM State Action s Message Aff (Maybe a)
   handleQuery = case _ of
     GetValue f -> do
       state <- H.get

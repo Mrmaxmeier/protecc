@@ -178,6 +178,7 @@ exports.setContent = (editor) => {
 monaco.languages.registerCompletionItemProvider('starlark', {
     provideCompletionItems: () => {
         var suggestions = [
+            builtinVal('id', 'int', 'The id of the stream'),
             builtinVal('client_addr', 'string', 'The ip address of the client'),
             builtinVal('server_addr', 'string', 'The ip address of the server'),
             builtinVal('client_port', 'int', 'The port of the client'),
@@ -233,6 +234,14 @@ exports.updateLanguage = (tags2) => {
         return () => {
             tags = tags2;
             services = services2;
+        }
+    }
+}
+
+exports.addAction = (editor) => {
+    return (action) => {
+        return () => {
+            editor.addAction(action);
         }
     }
 }

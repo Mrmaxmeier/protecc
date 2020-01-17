@@ -33,12 +33,12 @@ import Numeral (formatBytes, formatPercent)
 import Numeral as Numeral
 import SemanticUI (sdiv, sicon)
 import SemanticUI as S
-import StarlarkEditor (Editor)
-import StarlarkEditor as Editor
 import Socket (RequestId, errorId)
 import Socket as Socket
 import SocketIO (Socket)
 import SocketIO as SIO
+import StarlarkEditor (Editor)
+import StarlarkEditor as Editor
 import Streams as Streams
 import Util (Id, Rec, WMaybe, dec, diff, fromString, inc, logo, logs, mwhen, prettifyJson, prettyShow, rec, tryFromString, unrec, wmaybe)
 
@@ -46,7 +46,7 @@ maxPageFetch :: Int
 maxPageFetch = 10
 
 type Slot
-  = ( editor :: H.Slot Editor.Query Void Unit
+  = ( editor :: H.Slot Editor.Query Editor.Message Unit
     )
 
 _editor = SProxy :: SProxy "editor"
@@ -64,6 +64,7 @@ data Action
   | TogglePause
   | ContinueFetching
   | Init
+  | EditorProxy Editor.Message
 
 type Result
   = Streams.Stream
@@ -134,6 +135,8 @@ component =
     LowerChange s -> H.modify_ $ _ { lower = s }
     UpperChange s -> H.modify_ $ _ { upper = s }
     PageSizeChange i -> H.modify_ $ _ { pageSize = i }
+    EditorProxy msg -> case msg of
+      Editor.Execute -> handleAction Execute
     NextPage -> do
       state <- H.get
       case state.query of
@@ -320,7 +323,7 @@ component =
   render :: State -> H.ComponentHTML Action Slot Aff
   render state =
     sdiv [ S.ui, S.container ]
-      $ [ HH.slot _editor unit Editor.component unit absurd
+      $ [ HH.slot _editor unit Editor.component unit $ Just <<< EditorProxy
         , sdiv [ S.ui, S.divider ] []
         , HH.form [ classes [ S.ui, S.form ] ]
             [ sdiv [ S.inline, S.fields ]
