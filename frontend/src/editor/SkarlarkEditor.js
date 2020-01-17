@@ -7,46 +7,6 @@ self.MonacoEnvironment = {
     },
 };
 
-monaco.languages.register({ id: 'starlark' });
-monaco.languages.setLanguageConfiguration('starlark', {
-    comments: {
-        lineComment: '#',
-        blockComment: ['\'\'\'', '\'\'\''],
-    },
-    brackets: [
-        ['{', '}'],
-        ['[', ']'],
-        ['(', ')']
-    ],
-    autoClosingPairs: [
-        { open: '{', close: '}' },
-        { open: '[', close: ']' },
-        { open: '(', close: ')' },
-        { open: '"', close: '"', notIn: ['string'] },
-        { open: '\'', close: '\'', notIn: ['string', 'comment'] },
-    ],
-    surroundingPairs: [
-        { open: '{', close: '}' },
-        { open: '[', close: ']' },
-        { open: '(', close: ')' },
-        { open: '"', close: '"' },
-        { open: '\'', close: '\'' },
-    ],
-    onEnterRules: [
-        {
-            beforeText: new RegExp("^\\s*(?:def|for|if|elif|else).*?:\\s*$"),
-            action: { indentAction: monaco.languages.IndentAction.Indent }
-        }
-    ],
-    folding: {
-        offSide: true,
-        markers: {
-            start: new RegExp("^\\s*#region\\b"),
-            end: new RegExp("^\\s*#endregion\\b")
-        }
-    }
-})
-
 monaco.languages.setMonarchTokensProvider('starlark', {
     defaultToken: 'invalid',
     tokenPostfix: '.starlark',
@@ -184,6 +144,86 @@ monaco.languages.setMonarchTokensProvider('starlark', {
     }
 });
 
+let tags = [];
+let services = [];
+
+const builtinVal = (name, type, doc) => {
+    return {
+        label: name,
+        kind: monaco.languages.CompletionItemKind.Constant,
+        insertText: name,
+        detail: type,
+        documentation: doc
+    }
+}
+
+monaco.languages.registerCompletionItemProvider('starlark', {
+    provideCompletionItems: () => {
+        var suggestions = [
+            builtinVal('client_addr', 'string', 'The ip address of the client'),
+            builtinVal('server_addr', 'string', 'The ip address of the server'),
+            builtinVal('client_port', 'int', 'The port of the client'),
+            builtinVal('server_port', 'int', 'The port of the server'),
+            builtinVal('client_len', 'int', 'The length of the data the client sent'),
+            builtinVal('server_len', 'int', 'The length of the data the server sent'),
+            builtinVal('length', 'int', 'The total length of the data of this stream'),
+            builtinVal('tags', 'list int', 'A list of all tags that are attached to this stream')
+        ].concat(tags.map((tag) => builtinVal('tag.' + tag.slug, 'int', 'The id of the tag ' + tag.name)
+        ).concat(services.map((service) => builtinVal('service.' + service.slug, 'int', 'The port of the service ' + service.port))));
+        return { suggestions: suggestions };
+    }
+});
+
+exports.updateLanguage = (tags2) => {
+    return (services2) => {
+        return () => {
+            tags = tags2;
+            services = services2;
+        }
+    }
+}
+
+monaco.languages.register({ id: 'starlark' });
+monaco.languages.setLanguageConfiguration('starlark', {
+    comments: {
+        lineComment: '#',
+        blockComment: ['\'\'\'', '\'\'\''],
+    },
+    brackets: [
+        ['{', '}'],
+        ['[', ']'],
+        ['(', ')']
+    ],
+    autoClosingPairs: [
+        { open: '{', close: '}' },
+        { open: '[', close: ']' },
+        { open: '(', close: ')' },
+        { open: '"', close: '"', notIn: ['string'] },
+        { open: '\'', close: '\'', notIn: ['string', 'comment'] },
+    ],
+    surroundingPairs: [
+        { open: '{', close: '}' },
+        { open: '[', close: ']' },
+        { open: '(', close: ')' },
+        { open: '"', close: '"' },
+        { open: '\'', close: '\'' },
+    ],
+    onEnterRules: [
+        {
+            beforeText: new RegExp("^\\s*(?:def|for|if|elif|else).*?:\\s*$"),
+            action: { indentAction: monaco.languages.IndentAction.Indent }
+        }
+    ],
+    folding: {
+        offSide: true,
+        markers: {
+            start: new RegExp("^\\s*#region\\b"),
+            end: new RegExp("^\\s*#endregion\\b")
+        }
+    }
+})
+
+
 exports.setError = (error) => {
     if (error == undefined || error == "")
         return () => {
@@ -191,7 +231,8 @@ exports.setError = (error) => {
                 provideCodeLenses: function (model, token) {
                     return {
                         lenses: [
-                        ]
+                        ],
+                        dispose: () => { }
                     };
                 },
                 resolveCodeLens: function (model, codeLens, token) {
@@ -232,76 +273,6 @@ monaco.editor.defineTheme('starlark-dark', {
     rules: [
         { token: 'fake-keyword', foreground: 'ff0000', fontStyle: 'italic' }
     ]
-});
-
-monaco.languages.registerCompletionItemProvider('starlark', {
-    provideCompletionItems: () => {
-        var suggestions = [{
-            label: 'client_addr',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'client_addr'
-        }, {
-            label: 'server_addr',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'server_addr'
-        }, {
-            label: 'client_port',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'client_port'
-        }, {
-            label: 'server_port',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'server_port'
-        }, {
-            label: 'client_data',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'c_data = client_data()'
-        }, {
-            label: 'server_data',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 's_data = server_data()'
-        }, {
-            label: 'client_len',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'client_len'
-        }, {
-            label: 'server_len',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'server_len'
-        }, {
-            label: 'length',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'length'
-        }, {
-            label: 'tags',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'tags'
-        }, {
-            label: 'segments',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'segments'
-        }, {
-            label: 'segments_with_data',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'data_segs = segments_with_data()'
-        }, {
-            label: 'features',
-            kind: monaco.languages.CompletionItemKind.Text,
-            insertText: 'features'
-        }, {
-            label: 'tag',
-            kind: monaco.languages.CompletionItemKind.Keyword,
-            insertText: 'tag.$0',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-        }, {
-            label: 'service',
-            kind: monaco.languages.CompletionItemKind.Keyword,
-            insertText: 'service.$0',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-        }
-        ];
-        return { suggestions: suggestions };
-    }
 });
 
 code = 'True'

@@ -1,11 +1,12 @@
 module SkarlarkEditor where
 
 import Prelude
-import ConfigurationTypes (Configuration)
 import Configuration as Config
+import ConfigurationTypes (Configuration, Service, Tag)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Aff (Aff)
+import Effect.Console (error)
 import Halogen (ClassName(..))
 import Halogen as H
 import Halogen.HTML (a, div, div_, text)
@@ -27,6 +28,8 @@ foreign import content :: Editor -> Effect String
 
 foreign import setError :: String -> Effect Unit
 
+foreign import updateLanguage :: (Array Tag) -> (Array Service) -> Effect Unit
+
 type State
   = { config :: Maybe Configuration, editor :: Maybe Editor }
 
@@ -36,6 +39,7 @@ data Query a
 
 data Action
   = Init
+  | ConfigUpdate Configuration
 
 component :: ∀ o i. H.Component HH.HTML Query i o Aff
 component =
@@ -57,12 +61,17 @@ component =
   handleAction :: ∀ s. Action -> H.HalogenM State Action s o Aff Unit
   handleAction = case _ of
     Init -> do
+      _ <- Config.subscribe ConfigUpdate
+      H.liftEffect $ updateLanguage [] []
       element <- H.getHTMLElementRef elem
       case element of
-        Nothing -> logs "wtf element is missing"
+        Nothing -> H.liftEffect $ error "wtf element is missing"
         Just element -> do
           editor <- H.liftEffect $ init element
           H.modify_ $ _ { editor = Just editor }
+    ConfigUpdate config -> do
+      H.modify_ $ _ { config = Just config }
+      H.liftEffect $ updateLanguage config.tags config.services
 
   handleQuery :: ∀ a s. Query a -> H.HalogenM State Action s o Aff (Maybe a)
   handleQuery = case _ of
