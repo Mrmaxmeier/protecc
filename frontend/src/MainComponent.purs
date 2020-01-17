@@ -25,7 +25,7 @@ import Routing (match)
 import Routing.Match (Match, end, int, lit, str)
 import SemanticUI (sdiv)
 import SemanticUI as S
-import SkarlarkEditor as Editor
+import StarlarkEditor as Editor
 import Socket as Socket
 import SocketIO as SocketIO
 import Streams as Streams

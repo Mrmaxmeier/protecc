@@ -33,8 +33,8 @@ import Numeral (formatBytes, formatPercent)
 import Numeral as Numeral
 import SemanticUI (sdiv, sicon)
 import SemanticUI as S
-import SkarlarkEditor (Editor)
-import SkarlarkEditor as Editor
+import StarlarkEditor (Editor)
+import StarlarkEditor as Editor
 import Socket (RequestId, errorId)
 import Socket as Socket
 import SocketIO (Socket)
