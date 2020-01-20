@@ -156,13 +156,24 @@ impl QueryFilterCore {
         let tag = StarlarkTagsStruct::new(tag_map);
         env.set("tag", Value::new(tag)).unwrap();
 
-        env.set("tags", Value::from(stream.tags.iter().map(|t| t.0 as i64).collect::<Vec<_>>())).unwrap();
-        env.set("client_data_len", Value::new(stream.client_data_len as i64)).unwrap();
-        env.set("server_data_len", Value::new(stream.server_data_len as i64)).unwrap();
-        env.set("client_ip", Value::new(format!("{}", stream.client.0))).unwrap();
-        env.set("server_ip", Value::new(format!("{}", stream.server.0))).unwrap();
-        env.set("client_port", Value::new(stream.client.1 as i64)).unwrap();
-        env.set("server_port", Value::new(stream.server.1 as i64)).unwrap();
+        env.set(
+            "tags",
+            Value::from(stream.tags.iter().map(|t| t.0 as i64).collect::<Vec<_>>()),
+        )
+        .unwrap();
+        env.set("client_data_len", Value::new(stream.client_data_len as i64))
+            .unwrap();
+        env.set("server_data_len", Value::new(stream.server_data_len as i64))
+            .unwrap();
+        env.set("client_ip", Value::new(format!("{}", stream.client.0)))
+            .unwrap();
+        env.set("server_ip", Value::new(format!("{}", stream.server.0)))
+            .unwrap();
+        env.set("client_port", Value::new(stream.client.1 as i64))
+            .unwrap();
+        env.set("server_port", Value::new(stream.server.1 as i64))
+            .unwrap();
+        env.set("id", Value::new(stream.id.idx() as i64)).unwrap();
 
         let res = {
             tracyrs::zone!("get_verdict", "eval_module");
@@ -227,4 +238,11 @@ starlark_module! { decision_functions =>
     filter(renv env, value: bool) {
         modify_decisions(env, |o| o.accept = Some(value))
     }
+}
+
+// # Safety: Starlark (non-Send) values are not exposed via QueryFilterCore's pub(crate) API and QueryFilterCore can't be cloned.
+unsafe impl Send for QueryFilterCore {}
+fn assert_send<T: Send>() {}
+fn test_send() {
+    assert_send::<QueryFilterCore>();
 }

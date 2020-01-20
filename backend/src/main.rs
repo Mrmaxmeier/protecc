@@ -9,6 +9,7 @@ static GLOBAL: System = System;
 pub(crate) mod configuration;
 pub(crate) mod counters;
 pub(crate) mod database;
+pub(crate) mod pcapmanager;
 pub(crate) mod pcapreader;
 pub(crate) mod pipeline;
 pub(crate) mod query;
@@ -26,21 +27,11 @@ use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let pcap_folder = args().skip(1).next().unwrap_or("pcaps/".into());
+    let mut pcap_process_rx = crate::pcapmanager::PcapManager::start(&pcap_folder);
+
     let database = database::Database::new();
     let mut reassembler = Reassembler::new(database.clone());
-
-    /*
-    let mut config = configuration::Configuration::default();
-    let tag = configuration::Tag::from_slug_and_owner("abc".into(), "abc".into());
-    config.tags.insert(tag.as_id(), tag);
-    let score =
-        starlark::QueryFilterCore::new("index(service=123)\ntag.abc", config, database.clone());
-    for i in 0u64.. {
-        score.get_meta();
-        if i.is_power_of_two() {
-            println!("{}", i);
-        }
-    } */
 
     let fut = tokio::spawn(async move {
         let addr = "0.0.0.0:10000".parse::<std::net::SocketAddr>().unwrap();
@@ -53,15 +44,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // TODO: move pcap parser into own thread
-    let pcaps = args().skip(1).collect::<Vec<_>>();
-    for path in &pcaps {
-        println!("importing pcap {:?}", path);
-        pcapreader::read_pcap_file(&path, &mut reassembler).await;
-        // std::thread::sleep(std::time::Duration::from_millis(450));
-        reassembler.expire().await;
-    }
+    let fut2 = tokio::spawn(async move {
+        while let Some(path) = pcap_process_rx.recv().await {
+            println!("importing pcap {:?}", path);
+            pcapreader::read_pcap_file(&path, &mut reassembler).await;
+            {
+                tracyrs::zone!("sleep between pcap imports");
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            reassembler.expire().await;
+        }
+    });
 
     fut.await.expect("wsserver died");
+    fut2.await.expect("parser died");
     Ok(())
 }

@@ -295,12 +295,6 @@ impl ConnectionHandler {
         let range_exhausted = false;
         let streams = self.db.streams.read().await;
 
-        // This makes me sad.
-        // QueryFilterCore is !Send and can't cross await bounds
-        // => collect all streamids that'll be searched and
-        //    construct filter_core twice.
-        let mut toscan_streamids = Vec::new();
-
         let diag_to_error = |diagnostic: starlark::codemap_diagnostic::Diagnostic| {
             ResponsePayload::StarlarkScan(StarlarkScanResp {
                 bound_high,
@@ -323,45 +317,50 @@ impl ConnectionHandler {
             })
         };
 
-        let index = {
-            let filter_core =
-                crate::starlark::QueryFilterCore::new(&query.code, config.clone(), self.db.clone())
-                    .map_err(diag_to_error)?;
-            filter_core.get_meta().map_err(exception_to_error)?
-        };
-        self.db
-            .with_index_iter(index, bound_low..=bound_high, |iter| {
-                toscan_streamids = iter.rev().take(0x1000).collect();
-            })
-            .await;
-
-        if query.reverse {
-            toscan_streamids.reverse();
-        }
+        let filter_core =
+            crate::starlark::QueryFilterCore::new(&query.code, config.clone(), self.db.clone())
+                .map_err(diag_to_error)?;
+        let index = filter_core.get_meta().map_err(exception_to_error)?;
 
         let mut scan_results = Vec::new();
         let mut scan_progress = scan_progress;
-        let mut range_exhausted = toscan_streamids.len() < 0x1000;
-        {
-            let filter_core =
-                crate::starlark::QueryFilterCore::new(&query.code, config, self.db.clone())
-                    .map_err(diag_to_error)?;
-            for stream_id in toscan_streamids {
-                if filter_core
-                    .get_verdict(&streams[stream_id.idx()])
-                    .map_err(exception_to_error)?
-                    .accept
-                    == Some(true)
-                {
-                    scan_results.push(streams[stream_id.idx()].as_lightweight());
+        let mut range_exhausted = true;
+
+        let scan_results_ref = &mut scan_results;
+
+        const QUERY_SCAN_LIMIT: usize = 0x1000;
+        self.db
+            .with_index_iter(index, bound_low..=bound_high, move |iter| {
+                let iter = if query.reverse {
+                    Box::new(iter) as Box<dyn Iterator<Item = StreamID>>
+                } else {
+                    Box::new(iter.rev()) as Box<dyn Iterator<Item = StreamID>>
+                };
+
+                for (i, stream_id) in iter.take(QUERY_SCAN_LIMIT).enumerate() {
+                    if i == QUERY_SCAN_LIMIT - 1 {
+                        range_exhausted = false;
+                    }
+
+                    if filter_core
+                        .get_verdict(&streams[stream_id.idx()])
+                        .map_err(exception_to_error)?
+                        .accept
+                        == Some(true)
+                    {
+                        scan_results_ref.push(streams[stream_id.idx()].as_lightweight());
+                    }
+                    scan_progress = stream_id;
+                    if scan_results_ref.len() >= query.window_size {
+                        range_exhausted = false;
+                        break;
+                    }
                 }
-                scan_progress = stream_id;
-                if scan_results.len() >= query.window_size {
-                    range_exhausted = false;
-                    break;
-                }
-            }
-        }
+
+                Ok(())
+            })
+            .await?;
+
         Ok(ResponsePayload::StarlarkScan(StarlarkScanResp {
             scan_progress,
             scan_results,

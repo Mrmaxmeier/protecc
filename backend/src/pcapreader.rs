@@ -3,7 +3,9 @@ use pcap_parser::traits::PcapReaderIterator;
 use pcap_parser::{Block, LegacyPcapReader, PcapBlockOwned, PcapError, PcapNGReader};
 use pktparse;
 use std::fs::File;
+use std::io::Read;
 use std::net::IpAddr;
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use crate::incr_counter;
@@ -84,17 +86,33 @@ fn handle_tcp(data: &[u8], addrs: (IpAddr, IpAddr)) -> Option<Packet> {
     }
 }
 
-pub(crate) async fn read_pcap_file(path: &str, reassembler: &mut Reassembler) {
+pub(crate) async fn read_pcap_file(path: &Path, reassembler: &mut Reassembler) {
     tracyrs::zone!("pcap_read_file");
     let start = std::time::Instant::now();
 
-    let file = File::open(path).unwrap();
-    let mut reader = if path.ends_with(".pcapng") {
-        Box::new(PcapNGReader::new(65536, file).expect("PcapNGReader"))
-            as Box<dyn PcapReaderIterator<std::fs::File>>
+    let file = File::open(path).expect("unable to open pcap file");
+
+    let mut filename = path
+        .file_name()
+        .expect("malformed pcap path")
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    let reader = if filename.ends_with(".zstd") {
+        filename.truncate(filename.len() - 5);
+        Box::new(zstd::stream::read::Decoder::new(file).unwrap()) as Box<dyn Read + Send>
     } else {
-        Box::new(LegacyPcapReader::new(65536, file).expect("PcapNGReader"))
-            as Box<dyn PcapReaderIterator<std::fs::File>>
+        dbg!(&path);
+        Box::new(file) as Box<dyn Read + Send>
+    };
+
+    let mut reader = if filename.ends_with(".pcapng") {
+        Box::new(PcapNGReader::new(1 << 20, reader).expect("PcapNGReader"))
+            as Box<dyn PcapReaderIterator<Box<dyn Read + Send>> + Send>
+    } else {
+        Box::new(LegacyPcapReader::new(1 << 20, reader).expect("LegacyPcapReader"))
+            as Box<dyn PcapReaderIterator<Box<dyn Read + Send>> + Send>
     };
     let mut if_linktypes = Vec::new();
     let mut if_tsconfig = Vec::new();

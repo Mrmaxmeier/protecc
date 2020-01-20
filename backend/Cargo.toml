@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 tokio = { version = "0.2.7", features = ["macros", "sync", "tcp", "rt-core", "rt-threaded", "time", "stream"]}
-tokio-tungstenite = { git = "https://github.com/dbcfd/tokio-tungstenite", branch="tokio2" }
+tokio-tungstenite = { git = "https://github.com/snapview/tokio-tungstenite", branch="master" }
 futures = { version = "0.3.1", default-features = false, features = ["alloc"] }
 pktparse = "0.4.1"
 pcap-parser = { version = "0.8.2", features = ["data"] }
@@ -20,6 +20,8 @@ lazy_static = "1.4.0"
 tracyrs = { git= "https://github.com/Mrmaxmeier/tracyrs", default-features = false, features = ["tracy_on_demand"] }
 base64 = "0.11.0"
 starlark = { git = "https://gogs.ente.ninja/Mrmaxmeier/starlark-rust.git", branch="ad-fixes" }
+zstd = "0.5.1"
+inotify = "0.8.0"
 
 [features]
 tracy = ["tracyrs/tracy_enable"]
