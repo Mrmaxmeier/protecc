@@ -1,7 +1,8 @@
 use crate::configuration::Configuration;
-use crate::database::{Database, StreamID, TagID};
+use crate::database::{Database, StreamID, StreamPayloadID, TagID};
 use crate::query::QueryIndex;
 use crate::stream::Stream;
+use regex::bytes::Regex;
 use starlark::codemap::CodeMap;
 use starlark::codemap_diagnostic::Diagnostic;
 use starlark::environment::{Environment, TypeValues};
@@ -28,6 +29,8 @@ pub(crate) struct StreamDecisions {
 
 struct StreamDecisionSession {
     stream_id: StreamID,
+    client_payload_id: StreamPayloadID,
+    server_payload_id: StreamPayloadID,
     db: Arc<Database>,
     outcome: RefCell<StreamDecisions>,
 }
@@ -127,6 +130,7 @@ impl QueryFilterCore {
     }
 
     pub(crate) fn get_meta(&self) -> Result<QueryIndex, starlark::eval::EvalException> {
+        tracyrs::zone!("get_meta");
         Ok(self
             .get_verdict(&Stream::dummy())?
             .index
@@ -147,6 +151,8 @@ impl QueryFilterCore {
                 accept: None,
             }),
             stream_id: stream.id,
+            client_payload_id: stream.client_data_id,
+            server_payload_id: stream.server_data_id,
         };
         env.set("$ctx", Value::new(ctx)).unwrap();
         let mut tag_map = HashMap::new();
@@ -157,7 +163,7 @@ impl QueryFilterCore {
         env.set("tag", Value::new(tag)).unwrap();
 
         env.set(
-            "tags",
+            "tag_list",
             Value::from(stream.tags.iter().map(|t| t.0 as i64).collect::<Vec<_>>()),
         )
         .unwrap();
@@ -165,6 +171,11 @@ impl QueryFilterCore {
             .unwrap();
         env.set("server_data_len", Value::new(stream.server_data_len as i64))
             .unwrap();
+        env.set(
+            "server_data_len",
+            Value::new(stream.client_data_len as i64 + stream.server_data_len as i64),
+        )
+        .unwrap();
         env.set("client_ip", Value::new(format!("{}", stream.client.0)))
             .unwrap();
         env.set("server_ip", Value::new(format!("{}", stream.server.0)))
@@ -223,6 +234,33 @@ fn modify_decisions<F: Fn(&mut StreamDecisions)>(env: &Environment, f: F) -> Val
     Ok(Value::new(NoneType::None))
 }
 
+fn payload_matches(env: &Environment, regex: &str) -> bool {
+    // TODO: refactor
+    let val = env.get("$ctx").unwrap();
+    let holder = val.value_holder();
+    let session = holder
+        .as_any_ref()
+        .downcast_ref::<StreamDecisionSession>()
+        .expect("session downcast failed");
+
+    let regex = Regex::new(regex).unwrap(); // TODO: cache
+
+    if let Some(client_data) = session.db.datablob(session.client_payload_id) {
+        // TODO: cache
+        if regex.is_match(&client_data) {
+            return true;
+        }
+    }
+
+    if let Some(server_data) = session.db.datablob(session.server_payload_id) {
+        // TODO: cache
+        if regex.is_match(&server_data) {
+            return true;
+        }
+    }
+    false
+}
+
 starlark_module! { decision_functions =>
     index(renv env, service = NoneType::None, tag = NoneType::None) {
         let index = match (service.to_int(), tag.to_int()) {
@@ -238,11 +276,12 @@ starlark_module! { decision_functions =>
     filter(renv env, value: bool) {
         modify_decisions(env, |o| o.accept = Some(value))
     }
+    payload_matches_(renv env, regex: String) {
+        Ok(payload_matches(env, &regex).into())
+    }
 }
 
-// # Safety: Starlark (non-Send) values are not exposed via QueryFilterCore's pub(crate) API and QueryFilterCore can't be cloned.
+// # Safety:
+// Non-send fields are not exposed via QueryFilterCore's
+// pub(crate) API and QueryFilterCore can't be cloned.
 unsafe impl Send for QueryFilterCore {}
-fn assert_send<T: Send>() {}
-fn test_send() {
-    assert_send::<QueryFilterCore>();
-}

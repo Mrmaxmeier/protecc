@@ -79,7 +79,6 @@ fn handle_tcp(data: &[u8], addrs: (IpAddr, IpAddr)) -> Option<Packet> {
             timestamp: None,
         };
         Some(packet)
-    // reassembler.advance_state(packet);
     } else {
         incr_counter!(packets_malformed);
         None
@@ -99,8 +98,8 @@ pub(crate) async fn read_pcap_file(path: &Path, reassembler: &mut Reassembler) {
         .unwrap()
         .to_owned();
 
-    let reader = if filename.ends_with(".zstd") {
-        filename.truncate(filename.len() - 5);
+    let reader = if filename.ends_with(".zst") {
+        filename.truncate(filename.len() - 4);
         Box::new(zstd::stream::read::Decoder::new(file).unwrap()) as Box<dyn Read + Send>
     } else {
         dbg!(&path);

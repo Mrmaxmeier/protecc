@@ -59,6 +59,10 @@ pub(crate) enum ResponsePayload {
     WindowUpdate(crate::window::WindowUpdate),
     StreamDetails(StreamDetails),
     StarlarkScan(StarlarkScanResp),
+    IndexSizes {
+        services: HashMap<u16, u64>,
+        tags: HashMap<TagID, u64>,
+    },
 }
 
 #[derive(Deserialize, Debug)]
@@ -66,6 +70,7 @@ pub(crate) enum ResponsePayload {
 enum ResponseStreamKind {
     Counters,
     Configuration,
+    IndexSizes,
     Window {
         index: query::QueryIndex,
         params: crate::window::WindowParameters,
@@ -234,6 +239,50 @@ impl ConnectionHandler {
                     }
                 }
             }
+            ResponseStreamKind::IndexSizes => {
+                let mut tx = self.stream_tx.clone();
+
+                let db = self.db.clone();
+
+                let fetch_index_sizes = async || {
+                    let services = {
+                        let services = db.services.read().await;
+                        let mut count = HashMap::new();
+                        let lots_of_services = services.len() > 256;
+                        for (k, v) in services.iter() {
+                            let v = v.read().await.streams.len();
+                            if !lots_of_services || v > 100 {
+                                // TODO: above mean?
+                                count.insert(*k, v as u64);
+                            }
+                        }
+                        count
+                    };
+
+                    let tags = {
+                        let tag_index = db.tag_index.read().await;
+                        let mut count = HashMap::new();
+                        for (k, v) in tag_index.tagged.iter() {
+                            count.insert(*k, v.len() as u64);
+                        }
+                        count
+                    };
+
+                    RespFrame {
+                        id: req_id,
+                        payload: ResponsePayload::IndexSizes { tags, services },
+                    }
+                };
+
+                tx.send(fetch_index_sizes().await).await.unwrap();
+                let mut chan = tokio::time::throttle(
+                    std::time::Duration::SECOND,
+                    self.db.stream_update_tx.subscribe(),
+                );
+                while let Some(_) = chan.next().await {
+                    tx.send(fetch_index_sizes().await).await.unwrap();
+                }
+            }
         }
     }
 
@@ -280,6 +329,7 @@ impl ConnectionHandler {
         &self,
         query: &StarlarkScanQuery,
     ) -> Result<ResponsePayload, ResponsePayload> {
+        tracyrs::zone!("starlark_scan");
         let config = self
             .db
             .configuration_handle
@@ -323,13 +373,12 @@ impl ConnectionHandler {
         let index = filter_core.get_meta().map_err(exception_to_error)?;
 
         let mut scan_results = Vec::new();
-        let mut scan_progress = scan_progress;
-        let mut range_exhausted = true;
 
         let scan_results_ref = &mut scan_results;
 
         const QUERY_SCAN_LIMIT: usize = 0x1000;
-        self.db
+        let (range_exhausted, scan_progress) = self
+            .db
             .with_index_iter(index, bound_low..=bound_high, move |iter| {
                 let iter = if query.reverse {
                     Box::new(iter) as Box<dyn Iterator<Item = StreamID>>
@@ -337,6 +386,8 @@ impl ConnectionHandler {
                     Box::new(iter.rev()) as Box<dyn Iterator<Item = StreamID>>
                 };
 
+                let mut range_exhausted = true;
+                let mut scan_progress = scan_progress;
                 for (i, stream_id) in iter.take(QUERY_SCAN_LIMIT).enumerate() {
                     if i == QUERY_SCAN_LIMIT - 1 {
                         range_exhausted = false;
@@ -357,7 +408,7 @@ impl ConnectionHandler {
                     }
                 }
 
-                Ok(())
+                Ok((range_exhausted, scan_progress))
             })
             .await?;
 
