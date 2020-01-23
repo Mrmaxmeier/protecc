@@ -37,11 +37,24 @@ pub(crate) struct Stream {
 }
 
 impl Stream {
-    pub(crate) async fn from(stream: StreamReassembly, db: &Database) -> (Self, bool, bool) {
+    pub(crate) fn skeleton_from(stream: &StreamReassembly, id: StreamID) -> Self {
+        Stream {
+            id,
+            client: stream.client.clone(),
+            server: stream.server.clone(),
+            segments: Vec::new(),
+            client_data_len: 0,
+            server_data_len: 0,
+            client_data_id: StreamPayloadID(0),
+            server_data_id: StreamPayloadID(0),
+            tags: HashSet::new(),
+            features: HashMap::new(),
+        }
+    }
+
+    pub(crate) async fn reconstruct_segments(stream: StreamReassembly) -> StreamSegmentResult {
         tracyrs::zone!("Stream::from");
         let StreamReassembly {
-            client,
-            server,
             mut client_to_server,
             mut server_to_client,
             mut malformed,
@@ -131,6 +144,8 @@ impl Stream {
 
         // TODO: dedup acks that are directly followed by another PSH ack
 
+        let mut missing_data = false;
+
         let mut segments = Vec::with_capacity(packets.len());
         let mut client_pos = 0;
         let mut server_pos = 0;
@@ -142,6 +157,10 @@ impl Stream {
             match sender {
                 Sender::Client => client_pos += packet.data.len(),
                 Sender::Server => server_pos += packet.data.len(),
+            }
+
+            if pos < packet.tcp_header.sequence_no as usize {
+                missing_data = true;
             }
 
             match sender {
@@ -174,22 +193,14 @@ impl Stream {
             });
         }
 
-        let client_data_id = db.store_data(&client_data);
-        let server_data_id = db.store_data(&server_data);
-        let stream = Stream {
-            id: StreamID::new(0),
-            client,
-            server,
+        StreamSegmentResult {
             segments,
-            client_data_len: client_data.len() as u32,
-            server_data_len: server_data.len() as u32,
-            client_data_id,
-            server_data_id,
-            tags: HashSet::new(),
-            features: HashMap::new(),
-        };
-
-        (stream, malformed, cyclic)
+            client_data,
+            server_data,
+            malformed,
+            cyclic,
+            missing_data,
+        }
     }
 
     pub(crate) fn dummy() -> Self {
@@ -219,6 +230,16 @@ impl Stream {
             server_data_len: self.server_data_len,
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct StreamSegmentResult {
+    pub(crate) segments: Vec<Segment>,
+    pub(crate) client_data: Vec<u8>,
+    pub(crate) server_data: Vec<u8>,
+    pub(crate) malformed: bool,
+    pub(crate) cyclic: bool,
+    pub(crate) missing_data: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

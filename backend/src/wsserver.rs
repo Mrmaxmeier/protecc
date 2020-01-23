@@ -329,7 +329,7 @@ impl ConnectionHandler {
         &self,
         query: &StarlarkScanQuery,
     ) -> Result<ResponsePayload, ResponsePayload> {
-        tracyrs::zone!("starlark_scan");
+        // tracyrs::zone!("starlark_scan");
         let config = self
             .db
             .configuration_handle
@@ -456,7 +456,6 @@ impl ConnectionHandler {
     }
 
     async fn handle_req(self: Arc<Self>, req: ReqFrame) {
-        tracyrs::zone!("ConnHandler::handle_req");
         if let RequestPayload::Cancel = req.payload {
             let mut cancel_chans = self.cancel_chans.lock().await;
             let _ = cancel_chans.remove(&req.id); // drop cancel channel if present

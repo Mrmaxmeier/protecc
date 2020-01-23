@@ -200,35 +200,14 @@ impl Database {
         }
     }
 
-    pub(crate) async fn push(&self, mut stream: Stream) -> StreamID {
-        let service = stream.service();
-        let tags = stream.tags.iter().cloned().collect::<Vec<TagID>>();
-        let stream_id = {
-            let mut streams = self.streams.write().await;
-            let id = StreamID(streams.len());
-            stream.id = id;
-            streams.push(stream);
-            id
-        };
-
-        crate::counters::update_counters(|c| {
-            c.db_streams_rss += std::mem::size_of::<Stream>() as u64
-        });
-
-        self.push_index(stream_id, service, &tags).await;
-
-        stream_id
-    }
-
     pub(crate) async fn ingest_streams_from(
         self: Arc<Self>,
         mut rx: mpsc::Receiver<StreamReassembly>,
         streamid_tx: watch::Sender<StreamID>,
     ) {
-        tracyrs::zone!("ingest_streams");
-        let malformed_stream_tag_id = self
-            .configuration_handle
-            .clone()
+        // tracyrs::zone!("ingest_streams");
+        let mut config_handle = self.configuration_handle.clone();
+        let malformed_stream_tag_id = config_handle
             .register_tag(
                 "malformed_stream",
                 "reassembly",
@@ -236,28 +215,75 @@ impl Database {
                 "yellow",
             )
             .await;
-        let cyclic_ack_id = self
-            .configuration_handle
-            .clone()
+        let cyclic_ack_id = config_handle
             .register_tag("cyclic_ack", "reassembly", "Cyclic Ack", "red")
             .await;
-        let missing_data_id = self
-            .configuration_handle
-            .clone()
+        let missing_data_id = config_handle
             .register_tag("missing_data", "reassembly", "Missing Data", "red")
             .await;
+
+        let (tx_, mut rx_) = mpsc::channel::<(StreamID, crate::stream::StreamSegmentResult)>(64);
+        let db = self.clone();
+
+        tokio::spawn(async move {
+            while let Some((stream_id, data)) = rx_.next().await {
+                let crate::stream::StreamSegmentResult {
+                    client_data,
+                    server_data,
+                    malformed,
+                    cyclic,
+                    missing_data,
+                    segments,
+                } = data;
+                let client_data_id = db.store_data(&client_data);
+                let server_data_id = db.store_data(&server_data);
+
+                let mut streams = db.streams.write().await;
+                let stream = &mut streams[stream_id.idx()];
+
+                if malformed {
+                    stream.tags.insert(malformed_stream_tag_id);
+                }
+                if cyclic {
+                    stream.tags.insert(cyclic_ack_id);
+                }
+                if missing_data {
+                    stream.tags.insert(missing_data_id);
+                }
+
+                stream.segments = segments;
+                stream.client_data_id = client_data_id;
+                stream.server_data_id = server_data_id;
+                stream.client_data_len = client_data.len() as u32;
+                stream.server_data_len = server_data.len() as u32;
+
+                let service = stream.service();
+                let tags = stream.tags.iter().cloned().collect::<Vec<TagID>>();
+
+                crate::counters::update_counters(|c| {
+                    c.db_streams_rss += std::mem::size_of::<Stream>() as u64
+                });
+
+                db.push_index(stream_id, service, &tags).await;
+
+                streamid_tx.broadcast(stream_id).unwrap();
+            }
+        });
+
         while let Some(stream) = rx.next().await {
-            tracyrs::zone!("ingest_streams", "ingesting stream");
-            let (mut stream, is_malformed, is_cyclic) = Stream::from(stream, &self).await;
-            if is_malformed {
-                stream.tags.insert(malformed_stream_tag_id);
-            }
-            if is_cyclic {
-                stream.tags.insert(cyclic_ack_id);
-            }
-            // TODO: pipeline
-            let stream_id = self.push(stream).await;
-            streamid_tx.broadcast(stream_id).unwrap();
+            // tracyrs::zone!("ingest_streams", "ingesting stream");
+            let stream_id = {
+                let mut streams = self.streams.write().await;
+                let id = StreamID(streams.len());
+                streams.push(Stream::skeleton_from(&stream, id));
+                id
+            };
+
+            let mut tx_ = tx_.clone();
+            tokio::spawn(async move {
+                let reconstructed = Stream::reconstruct_segments(stream).await;
+                tx_.send((stream_id, reconstructed)).await.unwrap();
+            });
         }
     }
 

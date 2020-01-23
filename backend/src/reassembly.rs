@@ -164,7 +164,7 @@ impl Reassembler {
     }
 
     pub(crate) async fn advance_state(&mut self, p: Packet) {
-        tracyrs::zone!("Reassembler::advance_state");
+        // tracyrs::zone!("Reassembler::advance_state");
         let timestamp_secs = packet_time_secs(&p);
         assert!(timestamp_secs >= self.latest_timestamp);
         self.latest_timestamp = timestamp_secs;
@@ -223,18 +223,18 @@ impl Reassembler {
         if is_done {
             incr_counter!(streams_completed);
             let stream = self.reassemblies.remove(&id).unwrap();
-            tracyrs::zone!("database_ingest.send");
+            // tracyrs::zone!("database_ingest.send");
             self.database_ingest.send(stream).await.unwrap();
         }
     }
 
     pub(crate) async fn expire(&mut self) {
-        tracyrs::zone!("Reassembler::expire");
+        //        tracyrs::zone!("Reassembler::expire");
         let reassemblies = std::mem::replace(&mut self.reassemblies, HashMap::new());
         for (key, stream) in reassemblies.into_iter() {
             if stream.latest_timestamp + PACKET_EXPIRE_THRESHOLD_SECS < self.latest_timestamp {
                 incr_counter!(streams_timeout_expired);
-                tracyrs::zone!("database_ingest.send");
+                // tracyrs::zone!("database_ingest.send");
                 self.database_ingest.send(stream).await.unwrap();
             } else {
                 self.reassemblies.insert(key, stream);

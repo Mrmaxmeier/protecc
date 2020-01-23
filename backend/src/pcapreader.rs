@@ -86,7 +86,7 @@ fn handle_tcp(data: &[u8], addrs: (IpAddr, IpAddr)) -> Option<Packet> {
 }
 
 pub(crate) async fn read_pcap_file(path: &Path, reassembler: &mut Reassembler) {
-    tracyrs::zone!("pcap_read_file");
+    //    tracyrs::zone!("pcap_read_file");
     let start = std::time::Instant::now();
 
     let file = File::open(path).expect("unable to open pcap file");
@@ -117,12 +117,12 @@ pub(crate) async fn read_pcap_file(path: &Path, reassembler: &mut Reassembler) {
     let mut if_tsconfig = Vec::new();
     loop {
         match {
-            tracyrs::zone!("pcap_read_file", "reader.next");
+            //tracyrs::zone!("pcap_read_file", "reader.next");
             reader.next()
         } {
             Ok((offset, block)) => {
                 incr_counter!(pcap_blocks);
-                tracyrs::zone!("pcap_read_file", "pcap process block");
+                //                tracyrs::zone!("pcap_read_file", "pcap process block");
                 match block {
                     PcapBlockOwned::NG(Block::SectionHeader(ref _shb)) => {
                         // starting a new section, clear known interfaces

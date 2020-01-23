@@ -48,10 +48,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(path) = pcap_process_rx.recv().await {
             println!("importing pcap {:?}", path);
             pcapreader::read_pcap_file(&path, &mut reassembler).await;
+            /*
             {
                 tracyrs::zone!("sleep between pcap imports");
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
+            */
             reassembler.expire().await;
         }
     });
