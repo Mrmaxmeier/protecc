@@ -19,6 +19,7 @@ pub(crate) mod starlark;
 pub(crate) mod stream;
 pub(crate) mod window;
 pub(crate) mod wsserver;
+pub(crate) mod workq;
 
 use reassembly::Reassembler;
 

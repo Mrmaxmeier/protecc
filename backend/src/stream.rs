@@ -52,8 +52,8 @@ impl Stream {
         }
     }
 
-    pub(crate) async fn reconstruct_segments(stream: StreamReassembly) -> StreamSegmentResult {
-        tracyrs::zone!("Stream::from");
+    pub(crate) fn reconstruct_segments(stream: StreamReassembly) -> StreamSegmentResult {
+        tracyrs::zone!("reconstruct_segments");
         let StreamReassembly {
             mut client_to_server,
             mut server_to_client,

@@ -1,15 +1,12 @@
+use crate::database::Database;
+use crate::incr_counter;
+use crate::workq::WorkQ;
+use pktparse::tcp::TcpHeader;
+use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::SystemTime;
-use tokio::sync::mpsc;
-
-use pktparse::tcp::TcpHeader;
-use std::cmp::max;
-
-use crate::incr_counter;
-
-use crate::database::Database;
 
 const PACKET_EXPIRE_THRESHOLD_SECS: u64 = 60 * 5;
 
@@ -149,12 +146,12 @@ impl StreamId {
 pub(crate) struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
     latest_timestamp: u64,
-    database_ingest: mpsc::Sender<StreamReassembly>,
+    database_ingest: Arc<WorkQ<StreamReassembly>>,
     tcp_initiations_by_ip: HashMap<IpAddr, u64>,
 }
 impl Reassembler {
     pub(crate) fn new(database: Arc<Database>) -> Self {
-        let database_ingest = database.ingest_tx.clone();
+        let database_ingest = database.streams_queue.clone();
         Reassembler {
             reassemblies: HashMap::new(),
             tcp_initiations_by_ip: HashMap::new(),
@@ -223,8 +220,7 @@ impl Reassembler {
         if is_done {
             incr_counter!(streams_completed);
             let stream = self.reassemblies.remove(&id).unwrap();
-            // tracyrs::zone!("database_ingest.send");
-            self.database_ingest.send(stream).await.unwrap();
+            self.database_ingest.push(stream).await;
         }
     }
 
@@ -234,8 +230,7 @@ impl Reassembler {
         for (key, stream) in reassemblies.into_iter() {
             if stream.latest_timestamp + PACKET_EXPIRE_THRESHOLD_SECS < self.latest_timestamp {
                 incr_counter!(streams_timeout_expired);
-                // tracyrs::zone!("database_ingest.send");
-                self.database_ingest.send(stream).await.unwrap();
+                self.database_ingest.push(stream).await;
             } else {
                 self.reassemblies.insert(key, stream);
             }

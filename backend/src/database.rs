@@ -4,11 +4,11 @@ use crate::pipeline::PipelineManager;
 use crate::query::QueryIndex;
 use crate::reassembly::StreamReassembly;
 use crate::stream::Stream;
-use std::collections::{BTreeSet, HashMap};
+use crate::workq::WorkQ;
+use std::collections::{BTreeSet, BinaryHeap, HashMap};
 use std::ops::RangeBounds;
 use std::sync::Arc;
-use tokio::stream::StreamExt;
-use tokio::sync::{broadcast, mpsc, watch, RwLock};
+use tokio::sync::{broadcast, watch, RwLock};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -128,7 +128,7 @@ pub(crate) struct Database {
     pub(crate) pipeline: RwLock<PipelineManager>,
     pub(crate) configuration_handle: ConfigurationHandle,
     pub(crate) payload_db: sled::Db,
-    pub(crate) ingest_tx: mpsc::Sender<StreamReassembly>,
+    pub(crate) streams_queue: Arc<WorkQ<StreamReassembly>>,
 }
 
 impl Database {
@@ -141,7 +141,7 @@ impl Database {
             .path("stream_payloads.sled")
             .open()
             .unwrap();
-        let (ingest_tx, ingest_rx) = mpsc::channel(256);
+        let streams_queue = WorkQ::new(256, b"StreamsWQ\0");
         let (stream_notification_tx, stream_notification_rx) = watch::channel(StreamID(0));
         let (stream_update_tx, _) = broadcast::channel(128);
         let configuration_handle = crate::configuration::Configuration::spawn();
@@ -151,26 +151,30 @@ impl Database {
             services: RwLock::new(HashMap::new()),
             pipeline: RwLock::new(PipelineManager::new()),
             configuration_handle,
-            ingest_tx,
+            streams_queue: streams_queue.clone(),
             stream_notification_rx,
             stream_update_tx,
             payload_db,
         });
         tokio::spawn(
             db.clone()
-                .ingest_streams_from(ingest_rx, stream_notification_tx),
+                .ingest_streams_from(streams_queue, stream_notification_tx),
         );
         db
     }
 
     pub(crate) fn store_data(&self, data: &[u8]) -> StreamPayloadID {
-        tracyrs::zone!("Database::store_data");
-        use std::hash::Hasher;
-        let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
-        hasher.write(data);
-        let id = StreamPayloadID(hasher.finish());
+        tracyrs::zone!("store_data");
+        let id = {
+            tracyrs::zone!("store_data", "hash");
+            use std::hash::Hasher;
+            let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
+            hasher.write(data);
+            StreamPayloadID(hasher.finish())
+        };
         let key = id.0.to_be_bytes();
         if !self.payload_db.contains_key(key).unwrap() {
+            tracyrs::zone!("store_data", "insert");
             self.payload_db
                 .insert(key, data)
                 .expect("Failed to write to Sled");
@@ -202,7 +206,7 @@ impl Database {
 
     pub(crate) async fn ingest_streams_from(
         self: Arc<Self>,
-        mut rx: mpsc::Receiver<StreamReassembly>,
+        rx: Arc<WorkQ<StreamReassembly>>,
         streamid_tx: watch::Sender<StreamID>,
     ) {
         // tracyrs::zone!("ingest_streams");
@@ -222,68 +226,124 @@ impl Database {
             .register_tag("missing_data", "reassembly", "Missing Data", "red")
             .await;
 
-        let (tx_, mut rx_) = mpsc::channel::<(StreamID, crate::stream::StreamSegmentResult)>(64);
-        let db = self.clone();
+        let reconstruct_wq = WorkQ::<(StreamID, StreamReassembly)>::new(256, b"ReconstructWQ\0");
+        let finished_streamid_wq = WorkQ::new(128, b"SidWQ\0");
+
+        let workers = (num_cpus::get_physical() / 2).max(1);
+        for _ in 0..workers {
+            let reconstruct_wq = reconstruct_wq.clone();
+            let finished_streamid_wq = finished_streamid_wq.clone();
+            let db = self.clone();
+            tokio::spawn(async move {
+                let mut buffer = Vec::new();
+                loop {
+                    tracyrs::message!("reconstruct.pop_batch");
+                    reconstruct_wq.pop_batch(&mut buffer).await;
+
+                    for (stream_id, stream) in buffer.drain(..) {
+                        let reconstructed = tokio::task::block_in_place(|| {
+                            /*
+                            if stream_id.idx() == 420 {
+                                for _ in 0.. {
+                                    tracyrs::zone!("DEBUG_BLOCK");
+                                    std::thread::sleep(std::time::Duration::from_millis(420));
+                                }
+                            }
+                            */
+                            Stream::reconstruct_segments(stream)
+                        });
+                        let crate::stream::StreamSegmentResult {
+                            client_data,
+                            server_data,
+                            malformed,
+                            cyclic,
+                            missing_data,
+                            segments,
+                        } = reconstructed;
+                        let (client_data_id, server_data_id) = tokio::task::block_in_place(|| {
+                            (db.store_data(&client_data), db.store_data(&server_data))
+                        });
+                        let service;
+                        let tags;
+
+                        tracyrs::message!("db.streams.write");
+                        {
+                            let mut streams = db.streams.write().await;
+                            tracyrs::message!("holding db.streams");
+                            let stream = &mut streams[stream_id.idx()];
+
+                            if malformed {
+                                stream.tags.insert(malformed_stream_tag_id);
+                            }
+                            if cyclic {
+                                stream.tags.insert(cyclic_ack_id);
+                            }
+                            if missing_data {
+                                stream.tags.insert(missing_data_id);
+                            }
+
+                            stream.segments = segments;
+                            stream.client_data_id = client_data_id;
+                            stream.server_data_id = server_data_id;
+                            stream.client_data_len = client_data.len() as u32;
+                            stream.server_data_len = server_data.len() as u32;
+
+                            service = stream.service();
+                            tags = stream.tags.iter().cloned().collect::<Vec<TagID>>();
+
+                            crate::counters::update_counters(|c| {
+                                c.db_streams_rss += std::mem::size_of::<Stream>() as u64
+                            });
+                        }
+                        tracyrs::message!("db.push_index");
+                        db.push_index(stream_id, service, &tags).await;
+
+                        tracyrs::message!("finished_streamid_wq.push");
+                        finished_streamid_wq.push(stream_id).await;
+                    }
+                }
+            });
+        }
 
         tokio::spawn(async move {
-            while let Some((stream_id, data)) = rx_.next().await {
-                let crate::stream::StreamSegmentResult {
-                    client_data,
-                    server_data,
-                    malformed,
-                    cyclic,
-                    missing_data,
-                    segments,
-                } = data;
-                let client_data_id = db.store_data(&client_data);
-                let server_data_id = db.store_data(&server_data);
+            let mut next = 0;
+            let mut pq = BinaryHeap::new();
+            let mut buffer = Vec::new();
+            loop {
+                tracyrs::message!("finished_streamid_wq.pop_batch");
+                finished_streamid_wq.pop_batch(&mut buffer).await;
+                tracyrs::zone!("broadcast stream_id logic");
+                for stream_id in buffer.drain(..) {
+                    if stream_id.idx() == next {
+                        streamid_tx.broadcast(stream_id).unwrap();
+                        next = stream_id.idx() + 1;
+                        continue;
+                    }
 
-                let mut streams = db.streams.write().await;
-                let stream = &mut streams[stream_id.idx()];
+                    pq.push(stream_id.idx());
 
-                if malformed {
-                    stream.tags.insert(malformed_stream_tag_id);
+                    while pq.peek().copied() == Some(next) {
+                        let sid = pq.pop().unwrap();
+                        streamid_tx.broadcast(StreamID(sid)).unwrap();
+                        next = sid + 1;
+                    }
                 }
-                if cyclic {
-                    stream.tags.insert(cyclic_ack_id);
-                }
-                if missing_data {
-                    stream.tags.insert(missing_data_id);
-                }
-
-                stream.segments = segments;
-                stream.client_data_id = client_data_id;
-                stream.server_data_id = server_data_id;
-                stream.client_data_len = client_data.len() as u32;
-                stream.server_data_len = server_data.len() as u32;
-
-                let service = stream.service();
-                let tags = stream.tags.iter().cloned().collect::<Vec<TagID>>();
-
-                crate::counters::update_counters(|c| {
-                    c.db_streams_rss += std::mem::size_of::<Stream>() as u64
-                });
-
-                db.push_index(stream_id, service, &tags).await;
-
-                streamid_tx.broadcast(stream_id).unwrap();
             }
         });
 
-        while let Some(stream) = rx.next().await {
-            // tracyrs::zone!("ingest_streams", "ingesting stream");
+        loop {
+            let stream = rx.pop().await;
             let stream_id = {
                 let mut streams = self.streams.write().await;
+                tracyrs::zone!("streams push skeleton");
                 let id = StreamID(streams.len());
                 streams.push(Stream::skeleton_from(&stream, id));
                 id
             };
 
-            let mut tx_ = tx_.clone();
-            tokio::spawn(async move {
-                let reconstructed = Stream::reconstruct_segments(stream).await;
-                tx_.send((stream_id, reconstructed)).await.unwrap();
-            });
+            tracyrs::message!("reconstruct.push");
+            reconstruct_wq.push((stream_id, stream)).await;
+            tracyrs::message!("database_ingest.recv");
         }
     }
 
