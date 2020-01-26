@@ -1,11 +1,12 @@
 module WindowTable where
 
 import Prelude
+import CSS (a)
 import CSS as CSS
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Decode (class DecodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
-import Data.Array (all, any, drop, filter, foldr, insert, insertBy, length, reverse, take)
+import Data.Array (all, any, drop, filter, foldr, head, insert, insertBy, length, reverse, take)
 import Data.Maybe (Maybe(..), isNothing, maybe)
 import Data.Ordering (invert)
 import Data.Tuple (Tuple(..))
@@ -41,7 +42,10 @@ initialWindowParams :: { size :: Int, attached :: Boolean }
 initialWindowParams = { size: pageSize * 2, attached: true }
 
 data Query a
-  = NoOpQ a
+  = NextPageQ a
+  | PreviousPageQ a
+  | SelectNextQ a
+  | SelectPrevQ a
 
 type WindowUpdate r
   = { windowUpdate ::
@@ -55,12 +59,10 @@ data Action r
   = InputChanged (Input r)
   | Init
   | WindowResponse (WindowUpdate r)
-  | RowClick r MouseEvent
+  | RowClick r
   | ToggleAttached
   | NextPage
   | PreviousPage
-  | SelectNext
-  | SelectPrev
 
 type InnerState r
   = { pagesLoaded :: Int
@@ -91,7 +93,7 @@ component identify rows rowRenderer =
   H.mkComponent
     { initialState
     , render
-    , eval: H.mkEval $ H.defaultEval { handleAction = handleAction, receive = Just <<< InputChanged, initialize = Just Init }
+    , eval: H.mkEval $ H.defaultEval { handleAction = handleAction, receive = Just <<< InputChanged, initialize = Just Init, handleQuery = map Just <<< handleQuery }
     }
   where
   initialInnerState :: (Input r) -> Maybe (InnerState r)
@@ -127,7 +129,57 @@ component identify rows rowRenderer =
   mapInner_ :: ∀ s a. H.HalogenM (InnerState r) (Action r) s (Message r) Aff a -> H.HalogenM (State r) (Action r) s (Message r) Aff Unit
   mapInner_ = mapInner unit <<< void
 
-  handleAction :: ∀ s. (Action r) -> H.HalogenM (State r) (Action r) s (Message r) Aff Unit
+  handleQuery :: ∀ a. Query a -> H.HalogenM (State r) (Action r) s (Message r) Aff a
+  handleQuery = case _ of
+    NextPageQ a -> do
+      mapInner_ do
+        state <- H.get
+        let
+          canAdvance = (state.page + 2) * pageSize <= length state.elements
+        when canAdvance do
+          H.modify_ $ \s -> s { page = s.page + 1 }
+          let
+            loadMore = state.page + 1 == state.pagesLoaded - 1
+          when (state.attached) do
+            H.modify_ $ _ { attached = false }
+            when (not loadMore) $ sendWindowUpdate
+          when loadMore do
+            H.modify_ $ \s -> s { pagesLoaded = s.pagesLoaded + 1 }
+            sendWindowUpdate
+        when (not canAdvance) do
+          H.modify_ $ _ { loading = true }
+      pure a
+    PreviousPageQ a -> do
+      mapInner_ do
+        state <- H.get
+        when (state.page > 0) (H.put $ state { page = state.page - 1, loading = false })
+      pure a
+    SelectNextQ a -> do
+      state <- H.get
+      maybe (pure unit)
+        ( \state -> case state.clicked of
+            Nothing -> pure unit
+            Just clicked -> do
+              let
+                rest = dropUntil (\e -> identify e == clicked) $ reverse state.elements
+              maybe (pure unit) (\h -> handleAction $ RowClick h) $ head rest
+        )
+        state
+      pure a
+    SelectPrevQ a -> do
+      state <- H.get
+      maybe (pure unit)
+        ( \state -> case state.clicked of
+            Nothing -> pure unit
+            Just clicked -> do
+              let
+                rest = dropUntil (\e -> identify e == clicked) $ state.elements
+              maybe (pure unit) (\h -> handleAction $ RowClick h) $ head rest
+        )
+        state
+      pure a
+
+  handleAction :: (Action r) -> H.HalogenM (State r) (Action r) s (Message r) Aff Unit
   handleAction = case _ of
     InputChanged input -> do
       state <- H.get
@@ -136,10 +188,6 @@ component identify rows rowRenderer =
         mapInner_ initStream
     Init -> do
       mapInner_ initStream
-      _ <- Keyevent.subscribe 39 NextPage
-      _ <- Keyevent.subscribe 37 PreviousPage
-      _ <- Keyevent.subscribe 38 SelectPrev
-      _ <- Keyevent.subscribe 40 SelectNext
       void $ Keyevent.subscribe 65 ToggleAttached
     WindowResponse { windowUpdate: update } -> do
       nextPage <-
@@ -165,7 +213,7 @@ component identify rows rowRenderer =
             H.modify_ $ _ { recvdEmpty = true }
           pure enoughElements
       when nextPage $ handleAction NextPage
-    RowClick element _ -> do
+    RowClick element -> do
       mapInner_ do
         H.raise $ ShowDetails element
         state <- H.get
@@ -178,35 +226,8 @@ component identify rows rowRenderer =
         state <- H.modify (\state -> state { attached = not state.attached })
         when (state.attached) $ H.modify_ $ _ { page = 0, pagesLoaded = 2, elements = take (2 * pageSize) state.elements }
         sendWindowUpdate
-    NextPage ->
-      mapInner_ do
-        state <- H.get
-        let
-          canAdvance = (state.page + 2) * pageSize <= length state.elements
-        when canAdvance do
-          H.modify_ $ \s -> s { page = s.page + 1 }
-          let
-            loadMore = state.page + 1 == state.pagesLoaded - 1
-          when (state.attached) do
-            H.modify_ $ _ { attached = false }
-            when (not loadMore) $ sendWindowUpdate
-          when loadMore do
-            H.modify_ $ \s -> s { pagesLoaded = s.pagesLoaded + 1 }
-            sendWindowUpdate
-        when (not canAdvance) do
-          H.modify_ $ _ { loading = true }
-    PreviousPage ->
-      mapInner_ do
-        state <- H.get
-        when (state.page > 0) (H.put $ state { page = state.page - 1, loading = false })
-    SelectNext ->
-      mapInner_ do
-        state <- H.get
-        case state.clicked of
-          Nothing -> pure unit
-          Just clicked -> do
-            pure unit
-    SelectPrev -> pure unit
+    NextPage -> void $ handleQuery $ NextPageQ unit
+    PreviousPage -> void $ handleQuery $ PreviousPageQ unit
 
   sendWindowUpdate :: ∀ s. H.HalogenM (InnerState r) (Action r) s (Message r) Aff Unit
   sendWindowUpdate = do
@@ -240,7 +261,7 @@ component identify rows rowRenderer =
                                 Tuple (show id)
                                   ( HH.tr
                                       [ classes $ mwhen (Just id == inner.clicked) [ S.active ]
-                                      , HE.onClick (Just <<< RowClick r)
+                                      , HE.onClick $ const $ Just $ RowClick r
                                       ]
                                       $ rowRenderer r
                                   )

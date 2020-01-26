@@ -3,8 +3,8 @@ module Stream where
 import Prelude
 import CSS as CSS
 import CSS.TextAlign as CT
-import ConfigurationTypes (Configuration)
 import Configuration as Config
+import ConfigurationTypes (Configuration)
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson)
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
@@ -12,7 +12,8 @@ import Data.Array (filter)
 import Data.Either (Either(..))
 import Data.Int.Bits (and, shl, (.&.))
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
-import Data.String (toCodePointArray)
+import Data.String (joinWith, toCodePointArray)
+import Data.String.Base64 (decode, encodeUrl)
 import Data.String.CodeUnits (length)
 import Data.Symbol (SProxy(..))
 import Data.Tuple (Tuple(..), fst, snd)
@@ -27,7 +28,7 @@ import Halogen.HTML as HH
 import Halogen.HTML.CSS as HC
 import Halogen.HTML.Elements.Keyed as HK
 import Halogen.HTML.Events (onClick, onValueChange)
-import Halogen.HTML.Properties (InputType(..), classes, selected, type_, value)
+import Halogen.HTML.Properties (InputType(..), classes, download, href, selected, type_, value)
 import Halogen.HTML.Properties as HP
 import Numeral (formatBytes)
 import SemanticUI (loaderDiv, sdiv)
@@ -60,6 +61,8 @@ instance encodeAddr :: EncodeJson Addr where
 data Sender
   = Client
   | Server
+
+derive instance senderEq :: Eq Sender
 
 instance decodeJsonSender :: DecodeJson Sender where
   decodeJson json = do
@@ -156,19 +159,32 @@ component =
   initialState :: Input -> State
   initialState input = { id: input, stream: Nothing, requestId: Nothing, collapse: true, displayType: Auto }
 
+  dataFiltered :: (SegmentWithData -> Boolean) -> StreamDetails -> String
+  dataFiltered f stream =
+    encodeUrl
+      $ joinWith ""
+      $ map
+          ( \s -> case decode s.data of
+              Left _ -> ""
+              Right s -> s
+          )
+      $ filter f
+      $ stream.segments
+
   render :: ∀ a. State -> H.ComponentHTML Action (Slot a) Aff
   render state = maybe (loaderDiv false) renderDetails state.stream
     where
     renderDetails stream =
       HH.span_
         [ HH.table [ classes [ S.ui, S.table, S.basic, S.celled ] ]
-            [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Client" ], HH.th_ [ text "Server" ], HH.th_ [ text "Client Data" ], HH.th_ [ text "Server Data" ] ] ]
+            [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Client" ], HH.th_ [ text "Server" ], HH.th_ [ text "Stream Data" ], HH.th_ [ text "Client Data" ], HH.th_ [ text "Server Data" ] ] ]
             , HH.tbody_
                 [ HH.tr_
                     [ HH.td_ [ text $ show $ stream.client ]
                     , HH.td_ [ text $ show $ stream.server ]
-                    , HH.td_ [ text $ formatBytes $ stream.clientDataLen ]
-                    , HH.td_ [ text $ formatBytes $ stream.serverDataLen ]
+                    , HH.td_ [ HH.a [ download $ show stream.id <> ".bin", href $ "data:text/plain;base64," <> dataFiltered (const true) stream ] [ text "Download" ], text $ "(" <> (formatBytes $ stream.clientDataLen + stream.serverDataLen) <> ")" ]
+                    , HH.td_ [ HH.a [ download $ show stream.id <> "-client.bin", href $ "data:text/plain;base64," <> dataFiltered (\s -> s.sender == Client) stream ] [ text "Download" ], text $ "(" <> (formatBytes stream.clientDataLen) <> ")" ]
+                    , HH.td_ [ HH.a [ download $ show stream.id <> "-server.bin", href $ "data:text/plain;base64," <> dataFiltered (\s -> s.sender == Server) stream ] [ text "Download" ], text $ "(" <> (formatBytes stream.serverDataLen) <> ")" ]
                     ]
                 ]
             ]

@@ -9,7 +9,7 @@ import Data.Argonaut.Encode (class EncodeJson, encodeJson)
 import Data.Array (filter, head, (:))
 import Data.Either (Either(..))
 import Data.Identity (Identity(..))
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Newtype (class Newtype)
 import Data.Symbol (SProxy(..))
 import Data.Tuple (Tuple(..), fst, snd)
@@ -76,6 +76,8 @@ data Action
   | TagUpdate TagMessage
   | ServiceUpdate ServiceMessage
   | InputChanged Input
+  | NextThing
+  | PreviousThing
 
 data Query a
   = NoOpQ a
@@ -117,6 +119,8 @@ component =
   handleAction = case _ of
     Init -> do
       _ <- Keyevent.subscribe 27 $ WindowTable WindowTable.CloseDetails
+      _ <- Keyevent.subscribe 39 NextThing
+      _ <- Keyevent.subscribe 37 PreviousThing
       _ <- Socket.subscribeConnect SocketConnect
       void $ Config.subscribe ConfigUpdate
     WindowTable msg -> case msg of
@@ -140,6 +144,16 @@ component =
         state <- H.modify $ _ { index = input }
         maybe (pure unit) Socket.cancel state.windowStream
         sendRequest
+    NextThing -> do
+      state <- H.get
+      case state.windowStream of
+        Nothing -> pure unit
+        Just _ -> void $ H.query _table unit $ (maybe WindowTable.NextPageQ (const WindowTable.SelectNextQ) state.streamDetails) unit
+    PreviousThing -> do
+      state <- H.get
+      case state.windowStream of
+        Nothing -> pure unit
+        Just _ -> void $ H.query _table unit $ (maybe WindowTable.PreviousPageQ (const WindowTable.SelectPrevQ) state.streamDetails) unit
 
   sendRequest :: ∀ s. H.HalogenM State Action (Slot s) o Aff Unit
   sendRequest = do
