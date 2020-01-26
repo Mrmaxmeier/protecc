@@ -10,11 +10,11 @@ pub(crate) struct WorkQ<T> {
     free: Semaphore,
     ready: Semaphore,
     size: usize,
-    debug_name: &'static [u8],
+    debug_name: Option<&'static [u8]>,
 }
 
 impl<T> WorkQ<T> {
-    pub(crate) fn new(size: usize, debug_name: &'static [u8]) -> Arc<Self> {
+    pub(crate) fn new(size: usize, debug_name: Option<&'static [u8]>) -> Arc<Self> {
         Arc::new(WorkQ {
             data: Mutex::new(VecDeque::with_capacity(size)),
             free: Semaphore::new(size),
@@ -35,7 +35,9 @@ impl<T> WorkQ<T> {
         {
             let mut data = self.data.lock().await;
             data.push_back(elem);
-            tracyrs::emit_plot(self.debug_name, data.len() as f64);
+            if let Some(debug_name) = self.debug_name {
+                tracyrs::emit_plot(debug_name, data.len() as f64);
+            }
         }
         self.ready.add_permits(1);
     }
@@ -46,7 +48,9 @@ impl<T> WorkQ<T> {
         {
             let mut data = self.data.lock().await;
             res = data.pop_front().expect("invalid WorkQ state");
-            tracyrs::emit_plot(self.debug_name, data.len() as f64);
+            if let Some(debug_name) = self.debug_name {
+                tracyrs::emit_plot(debug_name, data.len() as f64);
+            }
         }
         self.free.add_permits(1);
         res
@@ -70,12 +74,16 @@ impl<T> WorkQ<T> {
         }
         {
             let mut data = self.data.lock().await;
-            tracyrs::emit_plot(self.debug_name, data.len() as f64);
+            if let Some(debug_name) = self.debug_name {
+                tracyrs::emit_plot(debug_name, data.len() as f64);
+            }
             for _ in 0..permits {
                 let elem = data.pop_front().expect("invalid WorkQ state");
                 buffer.push(elem);
             }
-            tracyrs::emit_plot(self.debug_name, data.len() as f64);
+            if let Some(debug_name) = self.debug_name {
+                tracyrs::emit_plot(debug_name, data.len() as f64);
+            }
         }
         self.free.add_permits(permits);
     }

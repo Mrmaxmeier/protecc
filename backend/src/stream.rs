@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
@@ -136,6 +136,7 @@ impl Stream {
 
         let cyclic;
         if let Some(res) = topo_sort(&topo_edges, &packets) {
+            // TODO: this takes a while for streams with >10k packets. look into wireshark's source maybe
             packets = res;
             cyclic = false;
         } else {
@@ -323,13 +324,13 @@ struct LinearizeBySeq<'a> {
     seqs: &'a [(usize, &'a Packet)],
     left_idx: usize,
     right_idx: usize,
-    buffer: Vec<(u32, u32)>,
+    buffer: VecDeque<(u32, u32)>,
 }
 
 impl<'a> LinearizeBySeq<'a> {
     fn new(seqs: &'a [(usize, &'a Packet)]) -> Self {
         LinearizeBySeq {
-            buffer: Vec::new(),
+            buffer: VecDeque::new(),
             left_idx: 0,
             right_idx: 0,
             seqs,
@@ -340,27 +341,28 @@ impl<'a> LinearizeBySeq<'a> {
 impl<'a> Iterator for LinearizeBySeq<'a> {
     type Item = (u32, u32);
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(res) = self.buffer.pop() {
-            return Some(res);
-        }
-        self.right_idx += 1;
-        if self.right_idx >= self.seqs.len() {
-            return None;
-        }
-        let seq_no = self.seqs[self.right_idx].1.tcp_header.sequence_no;
-        while self.left_idx < self.seqs.len()
-            && self.seqs[self.left_idx].1.tcp_header.sequence_no < seq_no
-        {
-            let left_id = self.seqs[self.left_idx].0 as u32;
-            for (right_id, right) in &self.seqs[self.right_idx..] {
-                if right.tcp_header.sequence_no != seq_no {
-                    break;
-                }
-                self.buffer.insert(0, (left_id, *right_id as u32));
+        loop {
+            if let Some(res) = self.buffer.pop_front() {
+                return Some(res);
             }
-            self.left_idx += 1;
+            self.right_idx += 1;
+            if self.right_idx >= self.seqs.len() {
+                return None;
+            }
+            let seq_no = self.seqs[self.right_idx].1.tcp_header.sequence_no;
+            while self.left_idx < self.seqs.len()
+                && self.seqs[self.left_idx].1.tcp_header.sequence_no < seq_no
+            {
+                let left_id = self.seqs[self.left_idx].0 as u32;
+                for (right_id, right) in &self.seqs[self.right_idx..] {
+                    if right.tcp_header.sequence_no != seq_no {
+                        break;
+                    }
+                    self.buffer.push_back((left_id, *right_id as u32));
+                }
+                self.left_idx += 1;
+            }
         }
-        self.next()
     }
 }
 
@@ -369,13 +371,13 @@ struct LinearizeBySeqAck<'a> {
     acks: &'a [(usize, &'a Packet)],
     left_idx: usize,
     right_idx: usize,
-    buffer: Vec<(u32, u32)>,
+    buffer: VecDeque<(u32, u32)>,
 }
 
 impl<'a> LinearizeBySeqAck<'a> {
     fn new(seqs: &'a [(usize, &'a Packet)], acks: &'a [(usize, &'a Packet)]) -> Self {
         LinearizeBySeqAck {
-            buffer: Vec::new(),
+            buffer: VecDeque::new(),
             left_idx: 0,
             right_idx: 0,
             seqs,
@@ -387,29 +389,30 @@ impl<'a> LinearizeBySeqAck<'a> {
 impl<'a> Iterator for LinearizeBySeqAck<'a> {
     type Item = (u32, u32);
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(res) = self.buffer.pop() {
-            return Some(res);
-        }
-        if self.right_idx == self.acks.len() {
-            return None;
-        }
-        if self.acks[self.right_idx].1.tcp_header.flag_ack {
-            let ack = self.acks[self.right_idx].1.tcp_header.ack_no;
-            while self.left_idx < self.seqs.len()
-                && self.seqs[self.left_idx].1.tcp_header.sequence_no < ack
-            {
-                let left_id = self.seqs[self.left_idx].0 as u32;
-                for (right_id, right) in &self.acks[self.right_idx..] {
-                    if right.tcp_header.ack_no != ack {
-                        break;
-                    }
-                    self.buffer.insert(0, (left_id, *right_id as u32));
-                }
-                self.left_idx += 1;
+        loop {
+            if let Some(res) = self.buffer.pop_front() {
+                return Some(res);
             }
+            if self.right_idx == self.acks.len() {
+                return None;
+            }
+            if self.acks[self.right_idx].1.tcp_header.flag_ack {
+                let ack = self.acks[self.right_idx].1.tcp_header.ack_no;
+                while self.left_idx < self.seqs.len()
+                    && self.seqs[self.left_idx].1.tcp_header.sequence_no < ack
+                {
+                    let left_id = self.seqs[self.left_idx].0 as u32;
+                    for (right_id, right) in &self.acks[self.right_idx..] {
+                        if right.tcp_header.ack_no != ack {
+                            break;
+                        }
+                        self.buffer.push_back((left_id, *right_id as u32));
+                    }
+                    self.left_idx += 1;
+                }
+            }
+            self.right_idx += 1;
         }
-        self.right_idx += 1;
-        self.next()
     }
 }
 
