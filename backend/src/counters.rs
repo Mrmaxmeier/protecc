@@ -32,6 +32,7 @@ pub(crate) struct Counters {
     pub(crate) streams_completed: u64,
     pub(crate) streams_timeout_expired: u64,
     pub(crate) streams_without_syn: u64,
+    pub(crate) streams_processed_out_of_order: u64,
     pub(crate) pcap_blocks: u64,
     pub(crate) pcaps_imported: u64,
     pub(crate) db_services: u64,

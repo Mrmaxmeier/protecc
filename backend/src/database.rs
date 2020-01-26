@@ -141,7 +141,7 @@ impl Database {
             .path("stream_payloads.sled")
             .open()
             .unwrap();
-        let streams_queue = WorkQ::new(256, b"StreamsWQ\0");
+        let streams_queue = WorkQ::new(256, Some(b"StreamsWQ\0"));
         let (stream_notification_tx, stream_notification_rx) = watch::channel(StreamID(0));
         let (stream_update_tx, _) = broadcast::channel(128);
         let configuration_handle = crate::configuration::Configuration::spawn();
@@ -226,8 +226,9 @@ impl Database {
             .register_tag("missing_data", "reassembly", "Missing Data", "red")
             .await;
 
-        let reconstruct_wq = WorkQ::<(StreamID, StreamReassembly)>::new(256, b"ReconstructWQ\0");
-        let finished_streamid_wq = WorkQ::new(128, b"SidWQ\0");
+        let reconstruct_wq =
+            WorkQ::<(StreamID, StreamReassembly)>::new(256, Some(b"ReconstructWQ\0"));
+        let finished_streamid_wq = WorkQ::new(128, Some(b"SidWQ\0"));
 
         let workers = (num_cpus::get_physical() / 2).max(1);
         for _ in 0..workers {
@@ -237,7 +238,6 @@ impl Database {
             tokio::spawn(async move {
                 let mut buffer = Vec::new();
                 loop {
-                    tracyrs::message!("reconstruct.pop_batch");
                     reconstruct_wq.pop_batch(&mut buffer).await;
 
                     for (stream_id, stream) in buffer.drain(..) {
@@ -266,10 +266,8 @@ impl Database {
                         let service;
                         let tags;
 
-                        tracyrs::message!("db.streams.write");
                         {
                             let mut streams = db.streams.write().await;
-                            tracyrs::message!("holding db.streams");
                             let stream = &mut streams[stream_id.idx()];
 
                             if malformed {
@@ -295,10 +293,8 @@ impl Database {
                                 c.db_streams_rss += std::mem::size_of::<Stream>() as u64
                             });
                         }
-                        tracyrs::message!("db.push_index");
                         db.push_index(stream_id, service, &tags).await;
 
-                        tracyrs::message!("finished_streamid_wq.push");
                         finished_streamid_wq.push(stream_id).await;
                     }
                 }
@@ -306,13 +302,12 @@ impl Database {
         }
 
         tokio::spawn(async move {
+            use std::cmp::Reverse;
             let mut next = 0;
             let mut pq = BinaryHeap::new();
             let mut buffer = Vec::new();
             loop {
-                tracyrs::message!("finished_streamid_wq.pop_batch");
                 finished_streamid_wq.pop_batch(&mut buffer).await;
-                tracyrs::zone!("broadcast stream_id logic");
                 for stream_id in buffer.drain(..) {
                     if stream_id.idx() == next {
                         streamid_tx.broadcast(stream_id).unwrap();
@@ -320,10 +315,11 @@ impl Database {
                         continue;
                     }
 
-                    pq.push(stream_id.idx());
+                    pq.push(Reverse(stream_id.idx()));
+                    crate::incr_counter!(streams_processed_out_of_order);
 
-                    while pq.peek().copied() == Some(next) {
-                        let sid = pq.pop().unwrap();
+                    while pq.peek().copied() == Some(Reverse(next)) {
+                        let Reverse(sid) = pq.pop().unwrap();
                         streamid_tx.broadcast(StreamID(sid)).unwrap();
                         next = sid + 1;
                     }
@@ -341,9 +337,7 @@ impl Database {
                 id
             };
 
-            tracyrs::message!("reconstruct.push");
             reconstruct_wq.push((stream_id, stream)).await;
-            tracyrs::message!("database_ingest.recv");
         }
     }
 
