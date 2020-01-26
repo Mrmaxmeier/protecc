@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pcapreader::read_pcap_file(&path, &mut reassembler).await;
             {
                 tracyrs::zone!("sleep between pcap imports");
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                tokio::time::delay_for(std::time::Duration::from_millis(250)).await;
             }
             reassembler.expire().await;
         }

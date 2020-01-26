@@ -136,6 +136,7 @@ impl Database {
         tracyrs::zone!("Database::new");
         let payload_db = sled::Config::default()
             .cache_capacity(64 << 20) // 64 mb but memory usage grows a lot higher?
+            .flush_every_ms(Some(10000))
             .use_compression(true)
             .compression_factor(3)
             .path("stream_payloads.sled")
@@ -225,6 +226,14 @@ impl Database {
         let missing_data_id = config_handle
             .register_tag("missing_data", "reassembly", "Missing Data", "red")
             .await;
+        let greedy_reassembly_id = config_handle
+            .register_tag(
+                "greedy_reassembly",
+                "reassembly",
+                "Greedy Reassembly",
+                "red",
+            )
+            .await;
 
         let reconstruct_wq =
             WorkQ::<(StreamID, StreamReassembly)>::new(256, Some(b"ReconstructWQ\0"));
@@ -258,6 +267,7 @@ impl Database {
                             malformed,
                             cyclic,
                             missing_data,
+                            greedy_reassembly,
                             segments,
                         } = reconstructed;
                         let (client_data_id, server_data_id) = tokio::task::block_in_place(|| {
@@ -278,6 +288,9 @@ impl Database {
                             }
                             if missing_data {
                                 stream.tags.insert(missing_data_id);
+                            }
+                            if greedy_reassembly {
+                                stream.tags.insert(greedy_reassembly_id);
                             }
 
                             stream.segments = segments;

@@ -48,7 +48,6 @@ impl Stream {
     }
 
     fn add(&mut self, p: Packet) {
-        tracyrs::zone!("Stream::add");
         // TODO: acked vs non-acked
         let timestamp_secs = packet_time_secs(&p);
         self.latest_packet = Some(max(self.latest_packet.unwrap_or(0), timestamp_secs));
@@ -63,7 +62,7 @@ impl Stream {
 
     fn ack(&mut self, ack_number: u32) {
         self.highest_ack = Some(max(self.highest_ack.unwrap_or(0), ack_number));
-        self.is_closed = self
+        self.is_closed = self.is_closed || self
             .unacked
             .iter()
             .any(|p| p.tcp_header.sequence_no < ack_number && p.tcp_header.flag_fin);
@@ -74,6 +73,7 @@ impl Stream {
     }
 
     pub(crate) fn remove_retransmissions(&mut self) {
+        tracyrs::zone!("Stream::remove_retransmissions");
         let mut seen = HashSet::new();
         self.packets.retain(|p| {
             let th = &p.tcp_header;

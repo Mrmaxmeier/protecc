@@ -106,61 +106,79 @@ impl Stream {
             .map(|(i, (_, p))| (i, *p))
             .collect::<Vec<_>>();
 
-        let mut topo_edges = Vec::with_capacity(packets.len() * 3);
+        let mut cyclic = false;
+        let greedy_reassembly = packets.len() >= 10_000;
 
-        {
-            tracyrs::zone!("Stream::from", "topo edges");
-            // linearize
-            {
-                tracyrs::zone!("Stream::from", "linearizeBySeq");
-                topo_edges.extend(LinearizeBySeq::new(&client_packets));
-                topo_edges.extend(LinearizeBySeq::new(&server_packets));
-            }
-            // ensure ack after seq
-            {
-                tracyrs::zone!("Stream::from", "linearizeBySeqAck");
-                client_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
-                server_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
-                topo_edges.extend(LinearizeBySeqAck::new(&client_packets, &server_packets));
-                server_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
-                client_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
-                topo_edges.extend(LinearizeBySeqAck::new(&server_packets, &client_packets));
-            }
+        if !greedy_reassembly {
+            let mut topo_edges = Vec::with_capacity(packets.len() * 3);
 
             {
-                tracyrs::zone!("Stream::from", "sort/dedup");
-                topo_edges.sort();
-                topo_edges.dedup();
+                tracyrs::zone!("Stream::from", "topo edges");
+                // linearize
+                {
+                    tracyrs::zone!("Stream::from", "linearizeBySeq");
+                    topo_edges.extend(LinearizeBySeq::new(&client_packets));
+                    topo_edges.extend(LinearizeBySeq::new(&server_packets));
+                }
+                // ensure ack after seq
+                {
+                    tracyrs::zone!("Stream::from", "linearizeBySeqAck");
+                    client_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
+                    server_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
+                    topo_edges.extend(LinearizeBySeqAck::new(&client_packets, &server_packets));
+                    server_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
+                    client_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
+                    topo_edges.extend(LinearizeBySeqAck::new(&server_packets, &client_packets));
+                }
+
+                // TODO: psh with same seqno after non-push packets
+
+                {
+                    tracyrs::zone!("Stream::from", "sort/dedup");
+                    topo_edges.sort();
+                    topo_edges.dedup();
+                }
+            }
+
+            if let Some(res) = topo_sort(&topo_edges, &packets) {
+                // TODO: this takes a while for streams with >10k packets. look into wireshark's source maybe
+                packets = res;
+            } else {
+                cyclic = true;
             }
         }
 
-        let cyclic;
-        if let Some(res) = topo_sort(&topo_edges, &packets) {
-            // TODO: this takes a while for streams with >10k packets. look into wireshark's source maybe
-            packets = res;
-            cyclic = false;
-        } else {
-            cyclic = true;
-        }
-
-        // TODO: dedup acks that are directly followed by another PSH ack
+        // TODO: dedup acks that are directly followed by another PSH ack?
 
         let mut missing_data = false;
 
         let mut segments = Vec::with_capacity(packets.len());
         let mut client_pos = 0;
         let mut server_pos = 0;
+        let mut client_seg_len = 0;
+        let mut server_seg_len = 0;
         for (sender, packet) in packets.into_iter() {
             let pos = match sender {
                 Sender::Client => client_pos,
                 Sender::Server => server_pos,
+            };
+            let seg_len = match sender {
+                Sender::Client => &mut client_seg_len,
+                Sender::Server => &mut server_seg_len,
             };
             match sender {
                 Sender::Client => client_pos += packet.data.len(),
                 Sender::Server => server_pos += packet.data.len(),
             }
 
-            if pos < packet.tcp_header.sequence_no as usize {
+            if packet.tcp_header.flag_syn {
+                *seg_len += 1;
+            }
+            if packet.tcp_header.flag_fin {
+                *seg_len += 1;
+            }
+
+            if pos + *seg_len < packet.tcp_header.sequence_no as usize {
                 missing_data = true;
             }
 
@@ -201,6 +219,7 @@ impl Stream {
             malformed,
             cyclic,
             missing_data,
+            greedy_reassembly,
         }
     }
 
@@ -241,6 +260,7 @@ pub(crate) struct StreamSegmentResult {
     pub(crate) malformed: bool,
     pub(crate) cyclic: bool,
     pub(crate) missing_data: bool,
+    pub(crate) greedy_reassembly: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
