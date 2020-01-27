@@ -32,6 +32,7 @@ module Util
   , inc
   , dec
   , Size
+  , toNumber
   ) where
 
 import Prelude
@@ -196,9 +197,14 @@ css = HP.attr (HC.AttrName "style")
 newtype Size
   = Size BigInt
 
+toNumber :: Size -> Number
+toNumber (Size b) = BigInt.toNumber b
+
 derive instance sizeOrd :: Ord Size
 
 derive instance sizeEq :: Eq Size
+
+derive newtype instance sizeSemiring :: Semiring Size
 
 instance sizeDecodeJson :: DecodeJson Size where
   decodeJson json = do
@@ -206,7 +212,7 @@ instance sizeDecodeJson :: DecodeJson Size where
     maybe (Left $ "Can't convert " <> show n <> " to bigint") (Right <<< Size) $ fromNumber n
 
 instance sizeEncodeJson :: EncodeJson Size where
-  encodeJson (Size bigint) = encodeJson $ toNumber bigint
+  encodeJson (Size bigint) = encodeJson $ BigInt.toNumber bigint
 
 instance sizeShow :: Show Size where
   show (Size bigint) = toString bigint
@@ -220,7 +226,7 @@ instance idDecodeJson :: DecodeJson Id where
     maybe (Left $ "Can't convert " <> show n <> " to bigint") (Right <<< Id) $ fromNumber n
 
 instance idEncodeJson :: EncodeJson Id where
-  encodeJson (Id bigint) = encodeJson $ toNumber bigint
+  encodeJson (Id bigint) = encodeJson $ BigInt.toNumber bigint
 
 instance idShow :: Show Id where
   show (Id bigint) = toString bigint

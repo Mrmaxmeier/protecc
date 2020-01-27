@@ -158,6 +158,7 @@ component =
       let
         code = fromMaybe "" code'
       _ <- H.query _editor unit $ H.tell $ Editor.SetError ""
+      _ <- H.query _editor unit $ H.tell $ Editor.LocalSaveValueTo "latest-execution"
       state <- H.get
       id <- Socket.request { starlarkScan: { code: code, boundLow: tryFromString state.lower, boundHigh: tryFromString state.upper, reverse: state.pastToFuture, windowSize: state.pageSize } }
       H.modify_ $ _ { query = Just ({ progress: Nothing, results: [], program: code, pastToFuture: state.pastToFuture, pageSize: state.pageSize, lastRequest: id, paused: false, runState: Running, maxPages: maxPageFetch, page: 0 } :: QueryState) }

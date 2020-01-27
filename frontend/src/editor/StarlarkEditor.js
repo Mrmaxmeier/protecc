@@ -287,45 +287,111 @@ monaco.languages.setLanguageConfiguration('starlark', {
 })
 
 
-exports.setError = (error) => {
+exports.setError = (editor) => (error) => {
     if (error == undefined || error == "")
         return () => {
-            monaco.languages.registerCodeLensProvider('starlark', {
-                provideCodeLenses: function (model, token) {
-                    return {
-                        lenses: [
-                        ],
-                        dispose: () => { }
-                    };
-                },
-                resolveCodeLens: function (model, codeLens, token) {
-                    return codeLens;
-                }
-            });
+            editor.removeOverlayWidget({ getId: function () { return "error" } })
         }
     return () => {
-        monaco.languages.registerCodeLensProvider('starlark', {
-            provideCodeLenses: function (model, token) {
+        editor.addOverlayWidget({
+            getDomNode: function () {
+                let div = document.createElement('div')
+                div.classList = "ui compact black message"
+                let i = document.createElement('i')
+                i.classList = "close icon"
+                i.onclick = () => editor.removeOverlayWidget({ getId: function () { return "error" } })
+                let header = document.createElement('div')
+                header.classList = "header"
+                header.appendChild(document.createTextNode("Error"))
+                let content = document.createElement('p')
+                content.appendChild(document.createTextNode(error))
+                div.appendChild(header)
+                div.appendChild(content)
+                div.appendChild(i)
+                return div
+            },
+            getId: function () { return "error" },
+            getPosition: function () {
                 return {
-                    lenses: [
-                        {
-                            range: {
-                                startLineNumber: 1,
-                                startColumn: 1,
-                                endLineNumber: 2,
-                                endColumn: 1
-                            },
-                            command: {
-                                title: "ERROR: " + error
+                    preference: 1
+                }
+            }
+        })
+    }
+}
+
+exports.showTextInput = (editor) => {
+    return (text) => {
+        return (id) => {
+            return (onSubmit) => {
+                return () => {
+                    let div = document.createElement("div")
+                    div.innerHTML =
+                        `
+<div class="monaco-quick-open-widget" style="color: rgb(204, 204, 204); background-color: rgb(30, 30, 30); box-shadow: rgb(0, 0, 0) 0px 5px 8px; width: 600px; margin-left: -300px;">
+    <div class="quick-open-input" style="width: 588px;">
+        <div class="monaco-inputbox idle" style="background-color: rgb(60, 60, 60); color: rgb(204, 204, 204);">
+            <div class="wrapper">
+                <input class="input empty" autocorrect="off" autocapitalize="off" spellcheck="false" type="text" wrap="off" role="combobox" style="background-color: rgb(60, 60, 60); color: rgb(204, 204, 204);">
+            </div>
+        </div>
+    </div>
+    <div class="quick-open-tree" style="height: 22px;">
+        <div class="monaco-tree no-focused-item monaco-tree-instance-4 focused" tabindex="0" role="tree">
+                <div class="monaco-tree-wrapper" style="overflow: hidden;">
+                    <div class="monaco-tree-rows show-twisties" style="top: 0px;">
+                        <div class="monaco-tree-row" draggable="false" role="treeitem" style="height: 22px; padding-left: 11px;">
+                            <div class="content actions">
+                                <div class="sub-content">
+                                    <div class="quick-open-entry">
+                                        <div class="quick-open-row"><span class=""></span>
+                                            <div class="monaco-icon-label">
+                                                <div class="monaco-icon-label-container"><span class="monaco-icon-name-container"><a class="label-name"><span class="monaco-highlighted-label"><span>` + text + `</span></span>
+                                                    </a>
+                                                    </span><span class="monaco-icon-description-container"></span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="shadow"></div>
+                <div class="shadow"></div>
+                <div class="shadow top-left-corner"></div>
+            </div>
+        </div>
+    </div>
+</div>
+`
+                    let widget = {
+                        getDomNode: function () { return div },
+                        getId: function () { return id },
+                        getPosition: function () {
+                            return {
+                                preference: 2
                             }
                         }
-                    ]
-                };
-            },
-            resolveCodeLens: function (model, codeLens, token) {
-                return codeLens;
+                    };
+                    let input = div.querySelector("input")
+                    input.onkeydown = (e) => {
+                        if (e.key == "Enter") {
+                            editor.removeOverlayWidget(widget);
+                            onSubmit(input.value)();
+                        }
+                    }
+                    div.onkeydown = (e) => {
+                        if (e.key == "Escape") {
+                            editor.removeOverlayWidget(widget);
+                            onSubmit("")()
+                        }
+                    }
+                    editor.addOverlayWidget(widget)
+                    input.focus()
+                }
             }
-        });
+        }
     }
 }
 
@@ -345,6 +411,7 @@ exports.init = function (element) {
             theme: 'starlark-dark',
             language: 'starlark'
         });
+        document.editor = editor;
         editor.focus();
         return editor;
     }
@@ -356,4 +423,36 @@ exports.content = function (editor) {
     }
 }
 
+exports.createContextKey = (editor) => (name) => (defaultVal) => () => {
+    return editor.createContextKey(name, defaultVal)
+}
 
+exports.setContextKey = (contextKey) => (value) => () => {
+    return contextKey.set(value);
+}
+
+
+
+
+
+exports.saveToLocalStorage = (name) => {
+    return (value) => {
+        return () => {
+            let savesString = window.localStorage.getItem('saves')
+            if (savesString == undefined || savesString == "") {
+                savesString = "{}"
+            }
+            let saves = JSON.parse(savesString);
+            saves[name] = value;
+            window.localStorage.setItem("saves", JSON.stringify(saves))
+        }
+    }
+}
+
+exports.loadFromLocalStorage = () => {
+    let savesString = window.localStorage.getItem('saves')
+    if (savesString == undefined || savesString == "") {
+        savesString = "{}"
+    }
+    return JSON.parse(savesString);
+}

@@ -38,7 +38,7 @@ import SocketIO as SIO
 import Stream (Addr)
 import Stream as Stream
 import Tags as Tags
-import Util (Id, css, logj, logo, logs, mwhen)
+import Util (Id, Size, css, logj, logo, logs, mwhen)
 import Web.Event.Event (preventDefault, stopPropagation)
 import Web.Event.Internal.Types (Event)
 import Web.HTML (window) as DOM
@@ -97,8 +97,8 @@ type Stream
     , client :: Addr
     , server :: Addr
     , tags :: Array Id
-    , clientDataLen :: Number
-    , serverDataLen :: Number
+    , clientDataLen :: Size
+    , serverDataLen :: Size
     }
 
 type Index

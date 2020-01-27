@@ -36,7 +36,7 @@ import SemanticUI as S
 import Socket (RequestId)
 import Socket as Socket
 import Tags as Tags
-import Util (Id, logo, mwhen, prettyShow)
+import Util (Id, Size, logo, mwhen, prettyShow)
 
 newtype Addr
   = Addr (Tuple String Int)
@@ -84,8 +84,8 @@ type StreamDetails
     , tags :: Array Id
     , features :: Object Number
     , segments :: Array SegmentWithData
-    , clientDataLen :: Number
-    , serverDataLen :: Number
+    , clientDataLen :: Size
+    , serverDataLen :: Size
     }
 
 type SegmentWithData
