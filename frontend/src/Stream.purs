@@ -13,7 +13,7 @@ import Data.Either (Either(..))
 import Data.Int.Bits (and, shl, (.&.))
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.String (joinWith, toCodePointArray)
-import Data.String.Base64 (decode, encodeUrl)
+import Data.String.Base64 (decode, encode, encodeUrl)
 import Data.String.CodeUnits (length)
 import Data.Symbol (SProxy(..))
 import Data.Tuple (Tuple(..), fst, snd)
@@ -36,7 +36,7 @@ import SemanticUI as S
 import Socket (RequestId)
 import Socket as Socket
 import Tags as Tags
-import Util (Id, mwhen, prettyShow)
+import Util (Id, logo, mwhen, prettyShow)
 
 newtype Addr
   = Addr (Tuple String Int)
@@ -161,7 +161,7 @@ component =
 
   dataFiltered :: (SegmentWithData -> Boolean) -> StreamDetails -> String
   dataFiltered f stream =
-    encodeUrl
+    encode
       $ joinWith ""
       $ map
           ( \s -> case decode s.data of
@@ -243,6 +243,7 @@ component =
       cancelDetails
       subscribeDetails state.id
     StreamUpdate stream -> do
+      logo $ dataFiltered (const true) stream.streamDetails
       H.modify_ $ _ { stream = Just stream.streamDetails }
     InputChanged input -> do
       cancelDetails
