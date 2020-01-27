@@ -63,7 +63,7 @@ component config =
           ]
           [ config.renderHeader state.selection
           , HH.i [ classes [ S.dropdown, S.icon ] ] []
-          , sdiv [ S.menu, S.scrolling ]
+          , sdiv [ S.menu ]
               $ map (\row -> div [ classes [ S.item ], onClick $ Just <<< (const $ Clicked row), HC.style $ CSS.minWidth config.minWidth ] [ config.renderInList row ])
                   state.rows
           ]

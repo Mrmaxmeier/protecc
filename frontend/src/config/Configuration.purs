@@ -2,7 +2,11 @@ module Configuration (init, set, subscribe, component) where
 
 import ConfigurationTypes
 import Prelude
+import Data.Argonaut.Core (Json)
+import Data.Array (any, filter, sortBy)
 import Data.Array.NonEmpty (NonEmptyArray, cons', head, singleton, toArray)
+import Data.BigInt (BigInt)
+import Data.Foldable (foldl)
 import Data.Identity (Identity(..))
 import Data.Int (fromString)
 import Data.Map (Map)
@@ -13,7 +17,7 @@ import Data.Tuple (Tuple(..))
 import Dropdown as Dropdown
 import Effect (Effect)
 import Effect.Aff (Aff)
-import Foreign.Object (Object, toUnfoldable)
+import Foreign.Object (Object, alter, empty, fold, lookup, toUnfoldable, union, values)
 import Halogen (ClassName(..), HalogenM)
 import Halogen as H
 import Halogen.HTML (text)
@@ -29,7 +33,7 @@ import SemanticUI (loaderDiv, sa, sdiv)
 import SemanticUI as S
 import Socket (RequestId)
 import Socket as Socket
-import Util (logo, logs, mwhen, onEnter)
+import Util (Id, Size, logo, logs, mwhen, onEnter)
 import Web.UIEvent.KeyboardEvent (KeyboardEvent, code)
 
 foreign import listen :: (Configuration -> Effect Unit) -> Effect Unit
@@ -60,10 +64,16 @@ subscribe :: ∀ state a slot m. (Configuration -> a) -> HalogenM state a slot m
 subscribe f = mapAction f $ H.subscribe source
 
 type State
-  = { config :: Maybe Configuration, addTag :: EditTag, editTag :: Maybe EditTag, addService :: EditService, editService :: Maybe EditService }
+  = { config :: Maybe Configuration, addTag :: EditTag, editTag :: Maybe EditTag, editService :: Maybe EditService, tagSizes :: Object Size, serviceSizes :: Object NewService }
+
+type IndexSizes
+  = { services :: Object Size
+    , tags :: Object Size
+    }
 
 data Action
   = Init
+  | SocketConnect
   | ConfigUpdate Configuration
   | AddTagUpdate EditTag
   | SubmitAddTag
@@ -71,10 +81,11 @@ data Action
   | SubmitEditTag
   | EditTagColorChange Dropdown.ColorMessage
   | AddTagColorChange Dropdown.ColorMessage
-  | AddServiceUpdate EditService
-  | SubmitAddService
+  | AddServiceUpdate String NewService
+  | SubmitAddService String
   | EditServiceUpdate EditService
   | SubmitEditService
+  | IndexSizesUpdate { indexSizes :: IndexSizes }
 
 type Slot
   = ( addColor :: H.Slot Identity Dropdown.ColorMessage Unit
@@ -84,6 +95,13 @@ type Slot
 _addColor = SProxy :: SProxy "addColor"
 
 _editColor = SProxy :: SProxy "editColor"
+
+type NewService
+  = { name :: String
+    , slug :: String
+    , port :: Int
+    , streams :: Size
+    }
 
 type EditTag
   = { name :: String
@@ -107,11 +125,16 @@ component =
     }
   where
   initialState :: i -> State
-  initialState input = { config: Nothing, addTag: { slug: "", name: "", color: head Dropdown.colors, owner: "webui" }, editTag: Nothing, addService: { port: 0, slug: "", name: "" }, editService: Nothing }
+  initialState input = { config: Nothing, addTag: { slug: "", name: "", color: head Dropdown.colors, owner: "webui" }, editTag: Nothing, editService: Nothing, tagSizes: empty, serviceSizes: empty }
 
   handleAction :: Action -> H.HalogenM State Action Slot o Aff Unit
   handleAction = case _ of
-    Init -> void $ subscribe ConfigUpdate
+    Init -> do
+      _ <- subscribe ConfigUpdate
+      void $ Socket.subscribeConnect SocketConnect
+    SocketConnect -> do
+      id <- Socket.request { watch: "indexSizes" }
+      void $ Socket.subscribeResponses IndexSizesUpdate id
     ConfigUpdate config -> do
       H.modify_ $ _ { config = Just config }
     AddTagUpdate add -> H.modify_ $ _ { addTag = add }
@@ -127,15 +150,50 @@ component =
       Dropdown.Selected c -> H.modify_ $ \state -> state { editTag = map (_ { color = c }) state.editTag }
     AddTagColorChange msg -> case msg of
       Dropdown.Selected c -> H.modify_ $ _ { addTag { color = c } }
-    AddServiceUpdate service -> H.modify_ $ _ { addService = service }
-    SubmitAddService -> do
+    AddServiceUpdate port service -> do
+      H.modify_
+        $ \state ->
+            state
+              { serviceSizes =
+                alter
+                  ( case _ of
+                      Nothing -> Nothing
+                      Just _ -> Just service
+                  )
+                  port
+                  state.serviceSizes
+              }
+    SubmitAddService port -> do
       state <- H.get
-      void $ Socket.request { updateConfiguration: { setService: state.addService } }
+      let
+        service = lookup port state.serviceSizes
+      maybe (pure unit) (\service -> void $ Socket.request { updateConfiguration: { setService: { slug: service.slug, name: service.name, port: service.port } } }) service
     EditServiceUpdate service -> H.modify_ $ _ { editService = Just service }
     SubmitEditService -> do
       state <- H.get
       _ <- Socket.request { updateConfiguration: { setService: state.editService } }
       H.modify_ $ _ { editService = Nothing }
+    IndexSizesUpdate update ->
+      void
+        $ H.modify_
+            ( \state ->
+                state
+                  { tagSizes = union update.indexSizes.tags state.tagSizes
+                  , serviceSizes =
+                    fold
+                      ( \b identifier a ->
+                          alter
+                            ( case _ of
+                                Nothing -> Just { name: "", slug: "", port: fromMaybe 0 $ fromString identifier, streams: a }
+                                Just r -> Just $ r { streams = a }
+                            )
+                            identifier
+                            b
+                      )
+                      state.serviceSizes
+                      update.indexSizes.services
+                  }
+            )
 
   render :: State -> H.ComponentHTML Action Slot Aff
   render state = sdiv [ S.ui, S.container ] content
@@ -145,7 +203,7 @@ component =
       Just config ->
         [ HH.h1_ [ text "Tags" ]
         , HH.table [ classes [ S.center, S.ui, S.basic, S.compact, S.collapsing, S.celled, S.table ] ]
-            [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Slug" ], HH.th_ [ text "Name" ], HH.th_ [ text "Owner" ], HH.th_ [ text "Color" ], HH.th_ [] ] ]
+            [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Slug" ], HH.th_ [ text "Name" ], HH.th_ [ text "Owner" ], HH.th_ [ text "Color" ], HH.th_ [ text "Streams" ], HH.th_ [] ] ]
             , HK.tbody_
                 $ ( map
                       ( \tag ->
@@ -182,6 +240,7 @@ component =
                                               ]
                                           ]
                                       , HH.slot _editColor editTag.slug Dropdown.colorDropdown { selection: editTag.color, rows: toArray Dropdown.colors } $ Just <<< EditTagColorChange
+                                      , HH.td_ [ text $ maybe "-" show $ lookup (show tag.id) state.tagSizes ]
                                       , HH.td_
                                           [ HH.form
                                               [ classes [ S.ui, S.form ]
@@ -196,6 +255,7 @@ component =
                                     , HH.td_ [ text $ tag.name ]
                                     , HH.td_ [ text $ tag.owner ]
                                     , HH.td_ [ sdiv [ S.ui, S.label, ClassName tag.color ] [ text $ (Dropdown.valueToColor tag.color).name ] ]
+                                    , HH.td_ [ text $ maybe "-" show $ lookup (show tag.id) state.tagSizes ]
                                     , HH.td_ [ HH.button [ classes [ S.ui, S.mini, S.button ], onClick $ Just <<< (const $ EditTagUpdate { name: tag.name, slug: tag.slug, color: Dropdown.valueToColor tag.color, owner: tag.owner }) ] [ text $ "Edit" ] ]
                                     ]
                       )
@@ -231,6 +291,7 @@ component =
                                   ]
                               ]
                           , HH.slot _addColor unit Dropdown.colorDropdown { selection: state.addTag.color, rows: toArray Dropdown.colors } $ Just <<< AddTagColorChange
+                          , HH.td_ [ text "-" ]
                           , HH.td_
                               [ HH.form
                                   [ classes [ S.ui, S.form ]
@@ -243,7 +304,7 @@ component =
             ]
         , HH.h1_ [ text "Services" ]
         , HH.table [ classes [ S.center, S.ui, S.basic, S.compact, S.collapsing, S.celled, S.table ] ]
-            [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Slug" ], HH.th_ [ text "Port" ], HH.th_ [ text "Name" ], HH.th_ [] ] ]
+            [ HH.thead_ [ HH.tr_ [ HH.th_ [ text "Slug" ], HH.th_ [ text "Port" ], HH.th_ [ text "Name" ], HH.th_ [ text "Streams" ], HH.th_ [] ] ]
             , HK.tbody_
                 $ ( map
                       ( \service ->
@@ -264,8 +325,8 @@ component =
                                               [ classes [ S.ui, S.form ]
                                               , onSubmit $ Just <<< (const SubmitEditService)
                                               ]
-                                              [ sdiv [ S.field ]
-                                                  [ HH.input [ type_ InputNumber, onValueChange $ Just <<< EditServiceUpdate <<< (state.addService { port = _ }) <<< fromMaybe 0 <<< fromString, value $ show $ state.addService.port ] ]
+                                              [ sdiv [ S.field, S.disabled ]
+                                                  [ HH.input [ disabled true, type_ InputNumber, onValueChange $ Just <<< EditServiceUpdate <<< (editService { port = _ }) <<< fromMaybe 0 <<< fromString, value $ show $ editService.port ] ]
                                               ]
                                           ]
                                       , HH.td_
@@ -277,6 +338,7 @@ component =
                                                   [ HH.input [ type_ InputText, onValueChange $ Just <<< EditServiceUpdate <<< (editService { name = _ }), value editService.name ] ]
                                               ]
                                           ]
+                                      , HH.td_ [ text $ maybe "-" (\o -> show o.streams) $ lookup (show service.port) state.serviceSizes ]
                                       , HH.td_
                                           [ HH.form
                                               [ classes [ S.ui, S.form ], onSubmit $ Just <<< (const SubmitEditService)
@@ -289,48 +351,53 @@ component =
                                     [ HH.td_ [ text $ service.slug ]
                                     , HH.td_ [ text $ show service.port ]
                                     , HH.td_ [ text $ service.name ]
+                                    , HH.td_ [ text $ maybe "-" (\o -> show o.streams) $ lookup (show service.port) state.serviceSizes ]
                                     , HH.td_ [ HH.button [ classes [ S.ui, S.mini, S.button ], onClick $ Just <<< (const $ EditServiceUpdate $ toServiceMessage service) ] [ text $ "Edit" ] ]
                                     ]
                       )
                       config.services
                   )
-                <> [ Tuple "add"
-                      $ HH.tr_
-                          [ HH.td_
-                              [ HH.form
-                                  [ classes [ S.ui, S.form ]
-                                  , onSubmit $ Just <<< (const SubmitAddService)
+                <> map
+                    ( \service ->
+                        Tuple ("new" <> show service.port)
+                          $ HH.tr_
+                              [ HH.td_
+                                  [ HH.form
+                                      [ classes [ S.ui, S.form ]
+                                      , onSubmit $ Just <<< (const $ SubmitAddService $ show service.port)
+                                      ]
+                                      [ sdiv [ S.field ]
+                                          [ HH.input [ type_ InputText, onValueChange $ Just <<< AddServiceUpdate (show service.port) <<< (service { slug = _ }), value service.slug ] ]
+                                      ]
                                   ]
-                                  [ sdiv [ S.field ]
-                                      [ HH.input [ type_ InputText, onValueChange $ Just <<< AddServiceUpdate <<< (state.addService { slug = _ }), value state.addService.slug ] ]
+                              , HH.td_
+                                  [ HH.form
+                                      [ classes [ S.ui, S.form ]
+                                      , onSubmit $ Just <<< (const $ SubmitAddService $ show service.port)
+                                      ]
+                                      [ sdiv [ S.disabled, S.field ]
+                                          [ HH.input [ disabled true, type_ InputNumber, onValueChange $ Just <<< AddServiceUpdate (show service.port) <<< (service { port = _ }) <<< fromMaybe 0 <<< fromString, value $ show $ service.port ] ]
+                                      ]
+                                  ]
+                              , HH.td_
+                                  [ HH.form
+                                      [ classes [ S.ui, S.form ]
+                                      , onSubmit $ Just <<< (const $ SubmitAddService $ show service.port)
+                                      ]
+                                      [ sdiv [ S.field ]
+                                          [ HH.input [ type_ InputText, onValueChange $ Just <<< AddServiceUpdate (show service.port) <<< (service { name = _ }), value service.name ] ]
+                                      ]
+                                  ]
+                              , HH.td_ [ text $ show service.streams ]
+                              , HH.td_
+                                  [ HH.form
+                                      [ classes [ S.ui, S.form ]
+                                      , onSubmit $ Just <<< (const $ SubmitAddService $ show service.port)
+                                      ]
+                                      [ HH.button [ classes [ S.ui, S.mini, S.button, S.green ], onClick $ Just <<< (const $ SubmitAddService $ show service.port) ] [ text $ "Add" ] ]
                                   ]
                               ]
-                          , HH.td_
-                              [ HH.form
-                                  [ classes [ S.ui, S.form ]
-                                  , onSubmit $ Just <<< (const SubmitAddService)
-                                  ]
-                                  [ sdiv [ S.field ]
-                                      [ HH.input [ type_ InputNumber, onValueChange $ Just <<< AddServiceUpdate <<< (state.addService { port = _ }) <<< fromMaybe 0 <<< fromString, value $ show $ state.addService.port ] ]
-                                  ]
-                              ]
-                          , HH.td_
-                              [ HH.form
-                                  [ classes [ S.ui, S.form ]
-                                  , onSubmit $ Just <<< (const SubmitAddService)
-                                  ]
-                                  [ sdiv [ S.field ]
-                                      [ HH.input [ type_ InputText, onValueChange $ Just <<< AddServiceUpdate <<< (state.addService { name = _ }), value state.addService.name ] ]
-                                  ]
-                              ]
-                          , HH.td_
-                              [ HH.form
-                                  [ classes [ S.ui, S.form ]
-                                  , onSubmit $ Just <<< (const SubmitAddService)
-                                  ]
-                                  [ HH.button [ classes [ S.ui, S.mini, S.button, S.green ], onClick $ Just <<< (const SubmitAddService) ] [ text $ "Add" ] ]
-                              ]
-                          ]
-                  ]
+                    )
+                    (sortBy (\a b -> compare b.streams a.streams) $ filter (\s -> not $ any (\s2 -> s.port == s2.port) config.services) $ values state.serviceSizes)
             ]
         ]

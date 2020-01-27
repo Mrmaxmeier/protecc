@@ -345,6 +345,7 @@ exports.init = function (element) {
             theme: 'starlark-dark',
             language: 'starlark'
         });
+        editor.focus();
         return editor;
     }
 }

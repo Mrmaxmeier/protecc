@@ -202,7 +202,6 @@ component =
       case state.query of
         Just query
           | id == query.lastRequest && query.runState == Running -> do
-            logo v
             let
               progress =
                 maybe

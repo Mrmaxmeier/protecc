@@ -94,7 +94,6 @@ component editable =
       void $ Socket.request { removeTag: Tuple state.input.stream tag }
     AddTag -> do
       state <- H.get
-      logo state.selectedId
       case state.selectedId of
         Nothing -> pure unit
         Just id -> void $ Socket.request { addTag: Tuple state.input.stream id }

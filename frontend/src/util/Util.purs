@@ -31,6 +31,7 @@ module Util
   , dropUntil
   , inc
   , dec
+  , Size
   ) where
 
 import Prelude
@@ -191,6 +192,24 @@ mwhen :: ∀ m h. Monoid m => HeytingAlgebra h => Eq h => h -> m -> m
 mwhen cond elems = if cond == tt then elems else mempty
 
 css = HP.attr (HC.AttrName "style")
+
+newtype Size
+  = Size BigInt
+
+derive instance sizeOrd :: Ord Size
+
+derive instance sizeEq :: Eq Size
+
+instance sizeDecodeJson :: DecodeJson Size where
+  decodeJson json = do
+    n <- decodeJson json
+    maybe (Left $ "Can't convert " <> show n <> " to bigint") (Right <<< Size) $ fromNumber n
+
+instance sizeEncodeJson :: EncodeJson Size where
+  encodeJson (Size bigint) = encodeJson $ toNumber bigint
+
+instance sizeShow :: Show Size where
+  show (Size bigint) = toString bigint
 
 newtype Id
   = Id BigInt

@@ -243,7 +243,6 @@ component =
       cancelDetails
       subscribeDetails state.id
     StreamUpdate stream -> do
-      logo $ dataFiltered (const true) stream.streamDetails
       H.modify_ $ _ { stream = Just stream.streamDetails }
     InputChanged input -> do
       cancelDetails

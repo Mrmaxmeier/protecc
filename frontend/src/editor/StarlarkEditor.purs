@@ -7,7 +7,7 @@ import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Console (error)
-import Halogen (ClassName(..))
+import Halogen (ClassName(..), SubscriptionId)
 import Halogen as H
 import Halogen.HTML (a, div, div_, text)
 import Halogen.HTML as HH
@@ -89,6 +89,9 @@ source f =
 actionSource :: Editor -> { id :: String, label :: String, keybindings :: Array Int, contextMenuOrder :: Number } -> EventSource Aff Unit
 actionSource editor action = source $ \callback -> addAction editor { id: action.id, label: action.label, keybindings: action.keybindings, contextMenuOrder: action.contextMenuOrder, run: callback unit }
 
+subscribeAction :: ∀ s. Action -> Editor -> { id :: String, label :: String, keybindings :: Array Int, contextMenuOrder :: Number } -> H.HalogenM State Action s Message Aff SubscriptionId
+subscribeAction action editor = mapAction (const action) <<< H.subscribe <<< actionSource editor
+
 component :: ∀ i. H.Component HH.HTML Query i Message Aff
 component =
   H.mkComponent
@@ -117,7 +120,7 @@ component =
         Just element -> do
           editor <- H.liftEffect $ init element
           H.liftEffect $ setContent editor defaultContent
-          _ <- mapAction (const TriggerExecute) $ H.subscribe $ actionSource editor { id: "execute", label: "Execute Query", keybindings: [ 1027 ], contextMenuOrder: 0.0 }
+          _ <- subscribeAction TriggerExecute editor { id: "execute", label: "Execute Query", keybindings: [ 1027 ], contextMenuOrder: 0.0 }
           H.modify_ $ _ { editor = Just editor }
     ConfigUpdate config -> do
       H.modify_ $ _ { config = Just config }
