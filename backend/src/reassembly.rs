@@ -62,10 +62,11 @@ impl Stream {
 
     fn ack(&mut self, ack_number: u32) {
         self.highest_ack = Some(max(self.highest_ack.unwrap_or(0), ack_number));
-        self.is_closed = self.is_closed || self
-            .unacked
-            .iter()
-            .any(|p| p.tcp_header.sequence_no < ack_number && p.tcp_header.flag_fin);
+        self.is_closed = self.is_closed
+            || self
+                .unacked
+                .iter()
+                .any(|p| p.tcp_header.sequence_no < ack_number && p.tcp_header.flag_fin);
         self.packets.extend(
             self.unacked
                 .drain_filter(|p| p.tcp_header.sequence_no < ack_number),

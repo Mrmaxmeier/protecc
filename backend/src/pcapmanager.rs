@@ -1,35 +1,29 @@
-use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
-use std::ops::RangeInclusive;
+// use std::ops::RangeInclusive;
 use std::path::PathBuf;
 
-use futures::StreamExt;
-use inotify::{Event, Inotify, WatchMask};
+use notify::event::{AccessKind, AccessMode, Event, EventKind};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 
+/*
 use crate::database::StreamID;
-
 struct PcapRange {
     path: String,
     range: RangeInclusive<StreamID>,
 }
+*/
 
 pub(crate) struct PcapManager {
-    imported: Vec<PcapRange>,
+    // imported: Vec<PcapRange>,
 }
 
 impl PcapManager {
     pub(crate) fn start(pcap_folder: &str) -> mpsc::UnboundedReceiver<PathBuf> {
-        let mut inotify = Inotify::init().expect("Failed to initialize inotify");
-
         let (tx, rx) = mpsc::unbounded_channel();
 
         let path = PathBuf::from(pcap_folder);
-
-        inotify
-            .add_watch(path.clone(), WatchMask::CLOSE_WRITE)
-            .expect("couldn't watch pcap folder");
 
         let mut existing_pcaps = path
             .read_dir()
@@ -48,28 +42,32 @@ impl PcapManager {
             tx.send(file_path).unwrap();
         }
 
-        tokio::spawn(async move {
-            let mut buffer = vec![0; 128];
-            let mut stream = inotify.event_stream(&mut buffer).unwrap();
-            while let Some(event_or_error) = stream.next().await {
-                println!("inotify: {:?}", event_or_error);
-                let event: Event<OsString> = event_or_error.unwrap();
-                if let Some(name) = event.name {
-                    let file_path = path.join(name);
-                    if file_path.extension().and_then(|x| x.to_str()) == Some("zst") {
-                        tx.send(file_path)
-                            .expect("pcapmanager rx dropped before send");
-                    } else {
-                        Self::compress_pcap(&file_path)
+        let mut watcher: RecommendedWatcher =
+            Watcher::new_immediate(move |event: notify::Result<Event>| {
+                let event = event.unwrap();
+                dbg!(&event);
+                if let EventKind::Access(AccessKind::Close(AccessMode::Write)) = event.kind {
+                    for file_path in event.paths {
+                        if file_path.extension().and_then(|x| x.to_str()) == Some("zst") {
+                            tx.send(file_path)
+                                .expect("pcapmanager rx dropped before send");
+                        } else {
+                            Self::compress_pcap(&file_path)
+                        }
                     }
                 }
-            }
-        });
+            })
+            .expect("failed to initialize notify backend");
+
+        watcher.watch(dbg!(path), RecursiveMode::Recursive).unwrap();
+
+        std::mem::forget(watcher); // keep this alive for the whole session
 
         rx
     }
 
     fn compress_pcap(path: &PathBuf) {
+        tracyrs::zone!("compress_pcap");
         println!("compressing pcap {:?}...", path);
         let src = File::open(path).expect("couldn't open file");
         let path_zst = match path.extension() {

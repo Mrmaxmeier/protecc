@@ -245,7 +245,11 @@ impl Stream {
             id: self.id.clone(),
             client: self.client.clone(),
             server: self.server.clone(),
-            tags: self.tags.clone(),
+            tags: {
+                let mut buf = self.tags.iter().cloned().collect::<Vec<_>>();
+                buf.sort_by_key(|x| x.0);
+                buf
+            },
             client_data_len: self.client_data_len,
             server_data_len: self.server_data_len,
         }
@@ -269,7 +273,7 @@ pub(crate) struct LightweightStream {
     pub(crate) id: StreamID,
     pub(crate) client: (IpAddr, u16),
     pub(crate) server: (IpAddr, u16),
-    pub(crate) tags: HashSet<TagID>,
+    pub(crate) tags: Vec<TagID>,
     pub(crate) client_data_len: u32,
     pub(crate) server_data_len: u32,
 }

@@ -143,48 +143,51 @@ impl QueryFilterCore {
     ) -> Result<StreamDecisions, starlark::eval::EvalException> {
         tracyrs::zone!("get_verdict");
         let mut env = self.env.child("stream");
-        let ctx = StreamDecisionSession {
-            db: self.db.clone(),
-            outcome: RefCell::new(StreamDecisions {
-                index: None,
-                add_tag: None,
-                accept: None,
-            }),
-            stream_id: stream.id,
-            client_payload_id: stream.client_data_id,
-            server_payload_id: stream.server_data_id,
-        };
-        env.set("$ctx", Value::new(ctx)).unwrap();
-        let mut tag_map = HashMap::new();
-        for (k, v) in self.config.tags.iter() {
-            tag_map.insert(v.slug.clone(), stream.tags.contains(k));
-        }
-        let tag = StarlarkTagsStruct::new(tag_map);
-        env.set("tag", Value::new(tag)).unwrap();
+        {
+            tracyrs::zone!("get_verdict", "populate env");
+            let ctx = StreamDecisionSession {
+                db: self.db.clone(),
+                outcome: RefCell::new(StreamDecisions {
+                    index: None,
+                    add_tag: None,
+                    accept: None,
+                }),
+                stream_id: stream.id,
+                client_payload_id: stream.client_data_id,
+                server_payload_id: stream.server_data_id,
+            };
+            env.set("$ctx", Value::new(ctx)).unwrap();
+            let mut tag_map = HashMap::new();
+            for (k, v) in self.config.tags.iter() {
+                tag_map.insert(v.slug.clone(), stream.tags.contains(k));
+            }
+            let tag = StarlarkTagsStruct::new(tag_map);
+            env.set("tag", Value::new(tag)).unwrap();
 
-        env.set(
-            "tag_list",
-            Value::from(stream.tags.iter().map(|t| t.0 as i64).collect::<Vec<_>>()),
-        )
-        .unwrap();
-        env.set("client_data_len", Value::new(stream.client_data_len as i64))
+            env.set(
+                "tag_list",
+                Value::from(stream.tags.iter().map(|t| t.0 as i64).collect::<Vec<_>>()),
+            )
             .unwrap();
-        env.set("server_data_len", Value::new(stream.server_data_len as i64))
+            env.set("client_data_len", Value::new(stream.client_data_len as i64))
+                .unwrap();
+            env.set("server_data_len", Value::new(stream.server_data_len as i64))
+                .unwrap();
+            env.set(
+                "server_data_len",
+                Value::new(stream.client_data_len as i64 + stream.server_data_len as i64),
+            )
             .unwrap();
-        env.set(
-            "server_data_len",
-            Value::new(stream.client_data_len as i64 + stream.server_data_len as i64),
-        )
-        .unwrap();
-        env.set("client_ip", Value::new(format!("{}", stream.client.0)))
-            .unwrap();
-        env.set("server_ip", Value::new(format!("{}", stream.server.0)))
-            .unwrap();
-        env.set("client_port", Value::new(stream.client.1 as i64))
-            .unwrap();
-        env.set("server_port", Value::new(stream.server.1 as i64))
-            .unwrap();
-        env.set("id", Value::new(stream.id.idx() as i64)).unwrap();
+            env.set("client_ip", Value::new(format!("{}", stream.client.0)))
+                .unwrap();
+            env.set("server_ip", Value::new(format!("{}", stream.server.0)))
+                .unwrap();
+            env.set("client_port", Value::new(stream.client.1 as i64))
+                .unwrap();
+            env.set("server_port", Value::new(stream.server.1 as i64))
+                .unwrap();
+            env.set("id", Value::new(stream.id.idx() as i64)).unwrap();
+        }
 
         let res = {
             tracyrs::zone!("get_verdict", "eval_module");
