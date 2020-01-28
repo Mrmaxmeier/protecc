@@ -36,8 +36,6 @@ enum RequestPayload {
     Cancel,
     AddTag(StreamID, TagID),
     RemoveTag(StreamID, TagID),
-    StepCursor(query::Cursor),
-    Query2Cursor(query::Query),
     StarlarkScan(StarlarkScanQuery),
     DoS(DebugDenialOfService),
     WindowUpdate {
@@ -53,8 +51,6 @@ enum RequestPayload {
 pub(crate) enum ResponsePayload {
     Counters(HashMap<String, u64>),
     Configuration(crate::configuration::Configuration),
-    Cursor(query::Cursor),
-    CursorResult(query::Cursor, Vec<Stream>, bool),
     Error(String),
     WindowUpdate(crate::window::WindowUpdate),
     StreamDetails(StreamDetails),
@@ -99,13 +95,21 @@ struct StarlarkScanQuery {
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
+struct ScanResult {
+    stream: crate::stream::LightweightStream,
+    attached: Option<serde_json::Value>,
+    sort_key: Option<i64>,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct StarlarkScanResp {
     error: Option<String>,
     scan_progress: StreamID, // inclusive
     range_exhausted: bool,
     bound_low: StreamID,
     bound_high: StreamID,
-    scan_results: Vec<crate::stream::LightweightStream>, // TODO: attached data
+    scan_results: Vec<ScanResult>,
 }
 
 struct ConnectionHandler {
@@ -215,6 +219,9 @@ impl ConnectionHandler {
                         })
                     }
                     segments.reverse();
+                    if segments.len() > 10_000 {
+                        segments.truncate(10_000); // TODO big streams overwhelm the frontend
+                    }
                     tx.send(RespFrame {
                         id: req_id,
                         payload: ResponsePayload::StreamDetails(StreamDetails {
@@ -313,18 +320,6 @@ impl ConnectionHandler {
         }
     }
 
-    async fn query2cursor(&self, query: &query::Query) -> ResponsePayload {
-        let cursor = query.clone().into_cursor(&*self.db).await;
-        ResponsePayload::Cursor(cursor)
-    }
-
-    async fn step_cursor(&self, cursor: &query::Cursor) -> ResponsePayload {
-        let mut buf = Vec::new();
-        let cursor = cursor.execute(&*self.db, &mut buf).await;
-        let has_next = cursor.has_next();
-        ResponsePayload::CursorResult(cursor, buf, has_next)
-    }
-
     async fn starlark_scan(
         &self,
         query: &StarlarkScanQuery,
@@ -352,11 +347,14 @@ impl ConnectionHandler {
                 scan_progress,
                 range_exhausted,
                 scan_results: Vec::new(),
-                error: Some(format!("{:?}", diagnostic)),
+                error: Some(diagnostic.message),
             })
         };
 
         let exception_to_error = |diagnostic: starlark::eval::EvalException| {
+            if let starlark::eval::EvalException::DiagnosedError(diag) = diagnostic {
+                return diag_to_error(diag);
+            }
             ResponsePayload::StarlarkScan(StarlarkScanResp {
                 bound_high,
                 bound_low,
@@ -393,13 +391,19 @@ impl ConnectionHandler {
                         range_exhausted = false;
                     }
 
-                    if filter_core
-                        .get_verdict(&streams[stream_id.idx()])
-                        .map_err(exception_to_error)?
+                    let verdict = filter_core
+                    .get_verdict(&streams[stream_id.idx()])
+                    .map_err(exception_to_error)?;
+                    if verdict
                         .accept
                         == Some(true)
                     {
-                        scan_results_ref.push(streams[stream_id.idx()].as_lightweight());
+                        let stream = streams[stream_id.idx()].as_lightweight();
+                        scan_results_ref.push(ScanResult {
+                            stream,
+                            attached: verdict.attached,
+                            sort_key: verdict.sort_key
+                        });
                         crate::incr_counter!(query_rows_returned);
                     }
                     scan_progress = stream_id;
@@ -470,17 +474,11 @@ impl ConnectionHandler {
             match &req.payload {
                 RequestPayload::DoS(dos) => self_.dos(dos).await,
                 RequestPayload::Watch(kind) => self_.watch(req.id, kind).await,
-                RequestPayload::Query2Cursor(query) => {
-                    self_.send_out(&req, self_.query2cursor(query)).await
-                }
                 RequestPayload::WindowUpdate { id, params } => {
                     let windows = self_.windows.lock().await;
                     if let Some(window) = windows.get(id) {
                         window.update(params.clone()).await;
                     }
-                }
-                RequestPayload::StepCursor(cursor) => {
-                    self_.send_out(&req, self_.step_cursor(cursor)).await
                 }
                 RequestPayload::UpdateConfiguration(conf_update) => {
                     let mut handle = self_.db.configuration_handle.clone();

@@ -20,11 +20,13 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct StreamDecisions {
     pub(crate) index: Option<QueryIndex>,
     pub(crate) accept: Option<bool>,
-    pub(crate) add_tag: Option<TagID>,
+    pub(crate) added_tags: Vec<TagID>,
+    pub(crate) attached: Option<serde_json::Value>,
+    pub(crate) sort_key: Option<i64>,
 }
 
 struct StreamDecisionSession {
@@ -98,7 +100,8 @@ pub(crate) fn environment(config: &Configuration) -> (Environment, TypeValues) {
         for (k, v) in config.tags.iter() {
             tags_map.insert(v.slug.clone(), (k.0 as i64).into());
         }
-        env.set("tags", Value::new(CustomKV::new(tags_map))).unwrap();
+        env.set("tags", Value::new(CustomKV::new(tags_map)))
+            .unwrap();
     }
 
     {
@@ -106,7 +109,8 @@ pub(crate) fn environment(config: &Configuration) -> (Environment, TypeValues) {
         for (_, v) in config.services.iter() {
             services_map.insert(v.slug.clone(), (v.port as i64).into());
         }
-        env.set("services", Value::new(CustomKV::new(services_map))).unwrap();
+        env.set("services", Value::new(CustomKV::new(services_map)))
+            .unwrap();
     }
 
     (env, type_values)
@@ -163,11 +167,7 @@ impl QueryFilterCore {
             tracyrs::zone!("get_verdict", "populate env");
             let ctx = StreamDecisionSession {
                 db: self.db.clone(),
-                outcome: RefCell::new(StreamDecisions {
-                    index: None,
-                    add_tag: None,
-                    accept: None,
-                }),
+                outcome: RefCell::new(StreamDecisions::default()),
                 stream_id: stream.id,
                 client_payload_id: stream.client_data_id,
                 server_payload_id: stream.server_data_id,
@@ -179,6 +179,13 @@ impl QueryFilterCore {
             }
             let tag = CustomKV::new(tag_map);
             env.set("tag", Value::new(tag)).unwrap();
+
+            let mut service_map = HashMap::new();
+            for (_, v) in self.config.services.iter() {
+                service_map.insert(v.slug.clone(), (stream.service() == v.port).into());
+            }
+            let service = CustomKV::new(service_map);
+            env.set("service", Value::new(service)).unwrap();
 
             env.set(
                 "tag_list",
@@ -203,7 +210,8 @@ impl QueryFilterCore {
             env.set("server_port", Value::new(stream.server.1 as i64))
                 .unwrap();
             env.set("id", Value::new(stream.id.idx() as i64)).unwrap();
-            env.set("stream_id", Value::new(stream.id.idx() as i64)).unwrap();
+            env.set("stream_id", Value::new(stream.id.idx() as i64))
+                .unwrap();
         }
 
         let res = {
@@ -281,6 +289,45 @@ fn data_matches(env: &Environment, regex: &str) -> bool {
     false
 }
 
+fn data_capture(env: &Environment, regex: &str) -> Option<Vec<String>> {
+    // TODO: refactor
+    let val = env.get("$ctx").unwrap();
+    let holder = val.value_holder();
+    let session = holder
+        .as_any_ref()
+        .downcast_ref::<StreamDecisionSession>()
+        .expect("session downcast failed");
+
+    let regex = Regex::new(regex).unwrap(); // TODO: cache
+
+    if let Some(client_data) = session.db.datablob(session.client_payload_id) {
+        // TODO: cache
+        if let Some(captures) = regex.captures(&client_data) {
+            let mut res = Vec::new();
+            for i in 0..captures.len() {
+                res.push(String::from_utf8_lossy(&captures[i]).to_string());
+            }
+            return Some(res);
+        }
+    }
+
+    if let Some(server_data) = session.db.datablob(session.server_payload_id) {
+        // TODO: cache
+        if let Some(captures) = regex.captures(&server_data) {
+            let mut res = Vec::new();
+            for i in 0..captures.len() {
+                res.push(String::from_utf8_lossy(&captures[i]).to_string());
+            }
+            return Some(res);
+        }
+    }
+    None
+}
+
+fn starlark_to_json(val: &starlark::values::Value) -> Result<serde_json::Value, ()> {
+    todo!()
+}
+
 starlark_module! { decision_functions =>
     index(renv env, service = NoneType::None, tag = NoneType::None) {
         let index = match (service.to_int(), tag.to_int()) {
@@ -293,11 +340,33 @@ starlark_module! { decision_functions =>
             o.index = Some(index);
         })
     }
+
     filter(renv env, value: bool) {
         modify_decisions(env, |o| o.accept = Some(value))
     }
+
+    emit(renv env, value) {
+        modify_decisions(env, |o| o.attached = Some(starlark_to_json(&value).unwrap())) // TODO: exception
+    }
+
+    sort_key(renv env, value: i64) {
+        modify_decisions(env, |o| o.sort_key = Some(value))
+    }
+
+    add_tag(renv env, tag: i64) {
+        modify_decisions(env, |o| o.added_tags.push(TagID(tag as u32)))
+    }
+
     data_matches_(renv env, regex: String) {
         Ok(data_matches(env, &regex).into())
+
+    }
+
+    data_capture_(renv env, regex: String) {
+        Ok(match data_capture(env, &regex) {
+            Some(result) => result.into(),
+            None => NoneType::None.into()
+        })
     }
 }
 

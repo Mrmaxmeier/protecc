@@ -76,7 +76,7 @@ struct PipelineNode {
     last_acked: u64,
     kind: PipelineKind,
     state: Option<NodeStatus>,
-    filter: crate::query::QueryFilter,
+    filter: Option<String>,
 }
 
 impl PipelineNode {
@@ -87,7 +87,7 @@ impl PipelineNode {
 pub(crate) enum PipelineKind {
     Mapper,
     Reducer,
-    Tagger, // can also add features vectors?
+    Tagger, // can also add feature vectors?
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -95,7 +95,7 @@ pub(crate) struct PipelineRegistration {
     name: String,
     kind: PipelineKind,
     ignore_payloads: Option<bool>,
-    filter: crate::query::QueryFilter,
+    filter: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

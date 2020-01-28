@@ -46,6 +46,7 @@ impl PcapManager {
             Watcher::new_immediate(move |event: notify::Result<Event>| {
                 let event = event.unwrap();
                 dbg!(&event);
+                // TODO: windows doesn't emit AccessKind::Close :/
                 if let EventKind::Access(AccessKind::Close(AccessMode::Write)) = event.kind {
                     for file_path in event.paths {
                         if file_path.extension().and_then(|x| x.to_str()) == Some("zst") {
