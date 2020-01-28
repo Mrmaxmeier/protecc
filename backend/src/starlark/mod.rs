@@ -325,7 +325,23 @@ fn data_capture(env: &Environment, regex: &str) -> Option<Vec<String>> {
 }
 
 fn starlark_to_json(val: &starlark::values::Value) -> Result<serde_json::Value, ()> {
-    todo!()
+    if let Ok(v) = val.to_int() {
+        Ok(v.into())
+    } else if let Ok(v) = val.to_vec() {
+        let mut res = Vec::with_capacity(v.len());
+        for elem in v {
+            res.push(starlark_to_json(&elem)?);
+        }
+        Ok(res.into())
+    } else if val.get_type() == "NoneType" {
+        Ok(serde_json::Value::Null)
+    } else if val.get_type() == "bool" {
+        Ok(val.to_bool().into())
+    } else if val.get_type() == "dict" {
+        todo!()
+    } else {
+        Err(())
+    }
 }
 
 starlark_module! { decision_functions =>
@@ -346,7 +362,8 @@ starlark_module! { decision_functions =>
     }
 
     emit(renv env, value) {
-        modify_decisions(env, |o| o.attached = Some(starlark_to_json(&value).unwrap())) // TODO: exception
+        let _ = modify_decisions(env, |o| o.attached = Some(starlark_to_json(&value).unwrap())); // TODO: exception
+        Ok(value)
     }
 
     sort_key(renv env, value: i64) {
