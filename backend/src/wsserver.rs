@@ -396,7 +396,7 @@ impl ConnectionHandler {
                     .map_err(exception_to_error)?;
                     if verdict
                         .accept
-                        == Some(true)
+                        != Some(false)
                     {
                         let stream = streams[stream_id.idx()].as_lightweight();
                         scan_results_ref.push(ScanResult {
