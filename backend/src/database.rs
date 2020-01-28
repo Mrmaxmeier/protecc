@@ -135,7 +135,7 @@ impl Database {
     pub(crate) fn new() -> Arc<Self> {
         tracyrs::zone!("Database::new");
         let payload_db = sled::Config::default()
-            .cache_capacity(64 << 20) // 64 mb but memory usage grows a lot higher?
+            .cache_capacity(256 << 20) // 256 mb but memory usage grows a lot higher?
             .flush_every_ms(Some(10000))
             .use_compression(true)
             .compression_factor(3)

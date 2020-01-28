@@ -400,8 +400,10 @@ impl ConnectionHandler {
                         == Some(true)
                     {
                         scan_results_ref.push(streams[stream_id.idx()].as_lightweight());
+                        crate::incr_counter!(query_rows_returned);
                     }
                     scan_progress = stream_id;
+                    crate::incr_counter!(query_rows_scanned);
                     if scan_results_ref.len() >= query.window_size {
                         range_exhausted = false;
                         break;

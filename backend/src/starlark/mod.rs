@@ -47,19 +47,18 @@ impl TypedValue for StreamDecisionSession {
     const TYPE: &'static str = "internal interpreter dispatch struct";
 }
 
-pub struct StarlarkTagsStruct {
-    tags: HashMap<String, Value>,
+pub struct CustomKV {
+    fields: HashMap<String, Value>,
 }
 
-impl StarlarkTagsStruct {
-    pub(crate) fn new(tags: HashMap<String, bool>) -> StarlarkTagsStruct {
-        let tags = tags.into_iter().map(|(k, v)| (k, v.into())).collect();
-        StarlarkTagsStruct { tags }
+impl CustomKV {
+    pub(crate) fn new(fields: HashMap<String, Value>) -> CustomKV {
+        CustomKV { fields }
     }
 }
 
-impl TypedValue for StarlarkTagsStruct {
-    type Holder = Immutable<StarlarkTagsStruct>;
+impl TypedValue for CustomKV {
+    type Holder = Immutable<CustomKV>;
 
     fn values_for_descendant_check_and_freeze<'a>(
         &'a self,
@@ -67,10 +66,10 @@ impl TypedValue for StarlarkTagsStruct {
         Box::new(std::iter::empty())
     }
 
-    const TYPE: &'static str = "tag struct";
+    const TYPE: &'static str = "stream meta struct";
 
     fn get_attr(&self, attribute: &str) -> Result<Value, ValueError> {
-        match self.tags.get(attribute) {
+        match self.fields.get(attribute) {
             Some(v) => Ok(v.clone()),
             None => Err(ValueError::OperationNotSupported {
                 op: UnsupportedOperation::GetAttr(attribute.to_owned()),
@@ -81,18 +80,35 @@ impl TypedValue for StarlarkTagsStruct {
     }
 
     fn has_attr(&self, attribute: &str) -> Result<bool, ValueError> {
-        Ok(self.tags.contains_key(attribute))
+        Ok(self.fields.contains_key(attribute))
     }
 
     /*
     fn dir_attr(&self) -> Result<Vec<RcString>, ValueError> {
-        Ok(self.tags.keys().cloned().collect())
+        Ok(self.fields.keys().cloned().collect())
     }
     */
 }
 
-pub(crate) fn environment() -> (Environment, TypeValues) {
+pub(crate) fn environment(config: &Configuration) -> (Environment, TypeValues) {
     let (env, type_values) = global_environment();
+
+    {
+        let mut tags_map = HashMap::new();
+        for (k, v) in config.tags.iter() {
+            tags_map.insert(v.slug.clone(), (k.0 as i64).into());
+        }
+        env.set("tags", Value::new(CustomKV::new(tags_map))).unwrap();
+    }
+
+    {
+        let mut services_map = HashMap::new();
+        for (_, v) in config.services.iter() {
+            services_map.insert(v.slug.clone(), (v.port as i64).into());
+        }
+        env.set("services", Value::new(CustomKV::new(services_map))).unwrap();
+    }
+
     (env, type_values)
 }
 
@@ -113,7 +129,7 @@ impl QueryFilterCore {
     ) -> Result<Self, Diagnostic> {
         let code_map = Arc::new(Mutex::new(CodeMap::new()));
 
-        let (mut env, mut type_values) = environment();
+        let (mut env, mut type_values) = environment(&config);
         decision_functions(&mut env, &mut type_values);
 
         let dialect = starlark::syntax::dialect::Dialect::Bzl;
@@ -159,9 +175,9 @@ impl QueryFilterCore {
             env.set("$ctx", Value::new(ctx)).unwrap();
             let mut tag_map = HashMap::new();
             for (k, v) in self.config.tags.iter() {
-                tag_map.insert(v.slug.clone(), stream.tags.contains(k));
+                tag_map.insert(v.slug.clone(), stream.tags.contains(k).into());
             }
-            let tag = StarlarkTagsStruct::new(tag_map);
+            let tag = CustomKV::new(tag_map);
             env.set("tag", Value::new(tag)).unwrap();
 
             env.set(
@@ -169,12 +185,12 @@ impl QueryFilterCore {
                 Value::from(stream.tags.iter().map(|t| t.0 as i64).collect::<Vec<_>>()),
             )
             .unwrap();
-            env.set("client_data_len", Value::new(stream.client_data_len as i64))
+            env.set("client_len", Value::new(stream.client_data_len as i64))
                 .unwrap();
-            env.set("server_data_len", Value::new(stream.server_data_len as i64))
+            env.set("server_len", Value::new(stream.server_data_len as i64))
                 .unwrap();
             env.set(
-                "server_data_len",
+                "data_len",
                 Value::new(stream.client_data_len as i64 + stream.server_data_len as i64),
             )
             .unwrap();
@@ -187,6 +203,7 @@ impl QueryFilterCore {
             env.set("server_port", Value::new(stream.server.1 as i64))
                 .unwrap();
             env.set("id", Value::new(stream.id.idx() as i64)).unwrap();
+            env.set("stream_id", Value::new(stream.id.idx() as i64)).unwrap();
         }
 
         let res = {
@@ -237,7 +254,7 @@ fn modify_decisions<F: Fn(&mut StreamDecisions)>(env: &Environment, f: F) -> Val
     Ok(Value::new(NoneType::None))
 }
 
-fn payload_matches(env: &Environment, regex: &str) -> bool {
+fn data_matches(env: &Environment, regex: &str) -> bool {
     // TODO: refactor
     let val = env.get("$ctx").unwrap();
     let holder = val.value_holder();
@@ -279,8 +296,8 @@ starlark_module! { decision_functions =>
     filter(renv env, value: bool) {
         modify_decisions(env, |o| o.accept = Some(value))
     }
-    payload_matches_(renv env, regex: String) {
-        Ok(payload_matches(env, &regex).into())
+    data_matches_(renv env, regex: String) {
+        Ok(data_matches(env, &regex).into())
     }
 }
 
