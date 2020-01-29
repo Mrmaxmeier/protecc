@@ -39,7 +39,17 @@ impl PcapManager {
         );
 
         for file_path in existing_pcaps.into_iter() {
-            tx.send(file_path).unwrap();
+            if let Some(file_name) = file_path.file_name() {
+                if !file_name.to_string_lossy().contains(".pcap") {
+                    continue;
+                }
+            }
+            if file_path.extension().and_then(|x| x.to_str()) == Some("zst") {
+                tx.send(file_path)
+                    .expect("pcapmanager rx dropped before send");
+            } else {
+                Self::compress_pcap(&file_path)
+            }
         }
 
         let mut watcher: RecommendedWatcher =
@@ -49,6 +59,11 @@ impl PcapManager {
                 // TODO: windows doesn't emit AccessKind::Close :/
                 if let EventKind::Access(AccessKind::Close(AccessMode::Write)) = event.kind {
                     for file_path in event.paths {
+                        if let Some(file_name) = file_path.file_name() {
+                            if !file_name.to_string_lossy().contains(".pcap") {
+                                continue;
+                            }
+                        }
                         if file_path.extension().and_then(|x| x.to_str()) == Some("zst") {
                             tx.send(file_path)
                                 .expect("pcapmanager rx dropped before send");

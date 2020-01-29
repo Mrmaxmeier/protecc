@@ -164,7 +164,7 @@ impl Reassembler {
     pub(crate) async fn advance_state(&mut self, p: Packet) {
         // tracyrs::zone!("Reassembler::advance_state");
         let timestamp_secs = packet_time_secs(&p);
-        assert!(timestamp_secs >= self.latest_timestamp);
+        debug_assert!(timestamp_secs >= self.latest_timestamp);
         self.latest_timestamp = timestamp_secs;
 
         let id = StreamId::new(
