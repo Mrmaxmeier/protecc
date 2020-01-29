@@ -389,3 +389,15 @@ play = ClassName "play"
 
 orange :: ClassName
 orange = ClassName "orange"
+
+small :: ClassName
+small = ClassName "small"
+
+olive :: ClassName
+olive = ClassName "olive"
+
+teal :: ClassName
+teal = ClassName "teal"
+
+fixed :: ClassName
+fixed = ClassName "fixed"

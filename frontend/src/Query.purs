@@ -5,11 +5,12 @@ import CSS as CSS
 import CSS.TextAlign (center, textAlign)
 import Data.Argonaut.Core (Json, stringify)
 import Data.Argonaut.Encode (encodeJson)
-import Data.Array (drop, length, take)
+import Data.Array (drop, filter, foldr, insertBy, length, take)
 import Data.BigInt (toNumber, toString)
 import Data.Int (ceil)
 import Data.Int as Int
 import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
+import Data.Ordering (invert)
 import Data.Symbol (SProxy(..))
 import Data.Tuple (Tuple(..))
 import Dropdown (Message(..))
@@ -40,7 +41,9 @@ import SocketIO as SIO
 import StarlarkEditor (Editor)
 import StarlarkEditor as Editor
 import Streams as Streams
-import Util (Id, Rec, WMaybe, dec, diff, fromString, inc, logo, logs, mwhen, prettifyJson, prettyShow, rec, tryFromString, unrec, wmaybe)
+import Util (Id, Rec, Size, WMaybe, css, dec, diff, fromString, inc, logo, logs, mwhen, prettifyJson, prettyShow, rec, tryFromString, unrec, wmaybe)
+import Web.Event.Event (stopPropagation)
+import Web.UIEvent.MouseEvent (MouseEvent, toEvent)
 
 maxPageFetch :: Int
 maxPageFetch = 10
@@ -65,9 +68,15 @@ data Action
   | ContinueFetching
   | Init
   | EditorProxy Editor.Message
+  | CloseDetails
+  | OpenDetails Result
+  | PreventDefault MouseEvent
 
 type Result
-  = Streams.Stream
+  = { stream :: Streams.Stream
+    , attached :: Maybe Json
+    , sortKey :: Maybe Size
+    }
 
 data QueryRunState
   = Running
@@ -110,6 +119,7 @@ type State
     , lower :: String
     , pageSize :: Int
     , pastToFuture :: Boolean
+    , resultDetails :: Maybe Result
     }
 
 component :: ∀ q i o. H.Component HH.HTML q i o Aff
@@ -121,7 +131,7 @@ component =
     }
   where
   initialState :: i -> State
-  initialState _ = { query: Nothing, upper: "", lower: "", pageSize: 20, pastToFuture: false, error: Nothing }
+  initialState _ = { query: Nothing, upper: "", lower: "", pageSize: 20, pastToFuture: false, error: Nothing, resultDetails: Nothing }
 
   handleAction :: Action -> H.HalogenM State Action Slot o Aff Unit
   handleAction = case _ of
@@ -129,6 +139,7 @@ component =
       _ <- Socket.subscribeConnect SocketConnect
       _ <- Keyevent.subscribe 39 NextPage
       _ <- Keyevent.subscribe 37 PrevPage
+      _ <- Keyevent.subscribe 27 CloseDetails
       pure unit
     SocketConnect -> do
       pure unit
@@ -200,6 +211,7 @@ component =
         state.query
     QueryResponse id { starlarkScan: v } -> do
       state <- H.get
+      logo v
       case state.query of
         Just query
           | id == query.lastRequest && query.runState == Running -> do
@@ -214,7 +226,9 @@ component =
                 Nothing -> if v.rangeExhausted then Done else Running
                 Just error -> Errored error
 
-              query' = query { progress = Just progress, results = query.results <> v.scanResults, runState = runState }
+              newResults = (foldr (insertBy $ (\a b -> invert $ compare a.sortKey b.sortKey)) query.results $ filter (\r -> isJust r.sortKey) v.scanResults) <> filter (\r -> isNothing r.sortKey) v.scanResults
+
+              query' = query { progress = Just progress, results = newResults, runState = runState }
             state <- H.modify_ $ _ { query = Just $ query' }
             case v.error of
               Nothing -> pure unit
@@ -231,6 +245,9 @@ component =
               handleAction ContinueFetching
         _ -> do
           error "Received message that does not belong to the current query"
+    CloseDetails -> H.modify_ $ _ { resultDetails = Nothing }
+    OpenDetails result -> H.modify_ $ _ { resultDetails = Just result }
+    PreventDefault event -> H.liftEffect $ stopPropagation $ toEvent event
 
   renderProgressBar :: QueryState -> Array (H.ComponentHTML Action Slot Aff)
   renderProgressBar query =
@@ -283,11 +300,13 @@ component =
   stringCell :: String -> H.ComponentHTML Action Slot Aff
   stringCell s = HH.td_ [ HH.text s ]
 
-  renderRow :: Streams.Stream -> Array (H.ComponentHTML Action Slot Aff)
-  renderRow stream =
-    [ HH.td_ [ HH.a [ href $ "#stream/" <> show stream.id ] [ text $ show stream.id ] ]
-    , showCell stream.client
-    , showCell stream.server
+  renderRow :: Result -> Array (H.ComponentHTML Action Slot Aff)
+  renderRow result =
+    [ HH.td_ [ HH.a [ href $ "#stream/" <> show result.stream.id ] [ text $ show result.stream.id ] ]
+    , showCell result.stream.client
+    , showCell result.stream.server
+    , stringCell $ maybe "-" show result.sortKey
+    , HH.td_ [ HH.pre [ classes [ S.scroll ], HC.style $ CSS.width $ CSS.pct 100.0 ] [ HH.text $ maybe "-" stringify result.attached ] ]
     ]
 
   pageN :: QueryState -> Int
@@ -296,17 +315,19 @@ component =
   renderTable :: QueryState -> Array (H.ComponentHTML Action Slot Aff)
   renderTable query =
     [ sdiv [ S.ui, S.basic, S.segment ]
-        [ HH.table [ classes [ S.ui, S.table ] ]
+        [ HH.table [ classes [ S.fixed, S.ui, S.table ] ]
             [ HH.thead_
                 [ HH.tr_
-                    [ HH.th_ [ text "Id" ]
-                    , HH.th_ [ text "Client" ]
-                    , HH.th_ [ text "Server" ]
+                    [ HH.th [ classes [ S.two, S.wide ] ] [ text "Id" ]
+                    , HH.th [ classes [ S.three, S.wide ] ] [ text "Client" ]
+                    , HH.th [ classes [ S.three, S.wide ] ] [ text "Server" ]
+                    , HH.th [ classes [ S.two, S.wide ] ] [ text "Sort Key" ]
+                    , HH.th [ classes [ S.six, S.wide ] ] [ text "Data" ]
                     ]
                 ]
             , HK.tbody_
                 $ ( \r ->
-                      Tuple (show r.id) $ HH.tr_ $ renderRow r
+                      Tuple (show r.stream.id) $ HH.tr [ onClick $ Just <<< (const $ OpenDetails r) ] $ renderRow r
                   )
                 <$> (take query.pageSize $ drop (query.pageSize * query.page) query.results)
             ]
@@ -346,3 +367,17 @@ component =
             ]
         ]
       <> maybe [] renderTable state.query
+      <> maybe
+          []
+          ( \result ->
+              [ div [ classes [ S.ui, S.dimmer, S.modals, S.page, S.visible, S.active ], css "display: flex !important", onClick $ Just <<< const CloseDetails ]
+                  [ div [ classes [ S.ui, S.active, S.modal, S.large, S.visible, S.transition ], onClick $ Just <<< PreventDefault ]
+                      [ sdiv [ S.header ] [ text $ "Stream ", HH.a [ href $ "#stream/" <> show result.stream.id ] [ text $ show result.stream.id ] ]
+                      , sdiv [ S.scrolling, S.content ]
+                          [ HH.pre [ classes [ S.scroll ] ] [ text $ maybe "No data attached" (prettifyJson <<< stringify) result.attached ]
+                          ]
+                      ]
+                  ]
+              ]
+          )
+          state.resultDetails

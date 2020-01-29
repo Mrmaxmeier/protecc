@@ -179,18 +179,22 @@ monaco.languages.registerCompletionItemProvider('starlark', {
     provideCompletionItems: () => {
         var suggestions = [
             builtinVal('id', 'int', 'The id of the stream'),
-            builtinVal('client_addr', 'string', 'The ip address of the client'),
-            builtinVal('server_addr', 'string', 'The ip address of the server'),
+            builtinVal('client_ip', 'string', 'The ip address of the client'),
+            builtinVal('server_ip', 'string', 'The ip address of the server'),
             builtinVal('client_port', 'int', 'The port of the client'),
             builtinVal('server_port', 'int', 'The port of the server'),
             builtinVal('client_len', 'int', 'The length of the data the client sent'),
             builtinVal('server_len', 'int', 'The length of the data the server sent'),
-            builtinVal('length', 'int', 'The total length of the data of this stream'),
+            builtinVal('data_len', 'int', 'The total length of the data of this stream'),
             builtinVal('tag_list', 'list int', 'A list of all tags that are attached to this stream'),
             builtinFun('index', '[service, tag]', 'void', 'Put this somewhere where it will get called on every execution of your program. Snacc uses this to determine the index on which the query should run'),
-            builtinFun('addTag', 'tag: int', 'void', 'Adds a tag to the stream in the result of this query. This will only get reported back as a result of the query, unless you explicitly register this query as a tagger. This will cause the query to accept the stream.'),
+            builtinFun('add_tag', 'tag: int', 'void', 'Adds a tag to the stream in the result of this query. This will only get reported back as a result of the query, unless you explicitly register this query as a tagger. This will cause the query to accept the stream.'),
             builtinFun('emit', 'x', 'void', 'Adds a result to this stream, it will get reported back to you in json format. This will cause the query to accept the stream.'),
+            builtinFun('sort_key', 'x', 'void', 'Sets the sort key for this stream. The streams will be displayed sorted by this key, however they will still get processed in the same order'),
             builtinFun('accept', '', 'void', 'This will accept the stream.'),
+            builtinFun('data_matches', 'regex: string', 'bool', 'Checks whether the stream data matches the specified regex.'),
+            builtinFun('client_data_matches', 'regex: string', 'bool', 'Checks whether the data sent by the client matches the specified regex.'),
+            builtinFun('server_data_matches', 'regex: string', 'bool', 'Checks whether the data sent by the server matches the specified regex.'),
 
             builtinFun('any', 'x: iterable', 'bool', 'any(x) returns True if any element of the iterable sequence x is true. If the iterable is empty, it returns False'),
             builtinFun('all', 'x: iterable', 'bool', 'all(x) returns False if any element of the iterable sequence x is false. If the iterable is empty, it returns True'),
@@ -302,7 +306,7 @@ exports.setError = (editor) => (error) => {
                 i.onclick = () => editor.removeOverlayWidget({ getId: function () { return "error" } })
                 let header = document.createElement('div')
                 header.classList = "header"
-                header.appendChild(document.createTextNode("Error"))
+                header.appendChild(document.createTextNode("Execution Failed"))
                 let content = document.createElement('p')
                 content.appendChild(document.createTextNode(error))
                 div.appendChild(header)
