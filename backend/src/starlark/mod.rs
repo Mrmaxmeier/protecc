@@ -337,6 +337,8 @@ fn starlark_to_json(val: &starlark::values::Value) -> Result<serde_json::Value, 
         Ok(serde_json::Value::Null)
     } else if val.get_type() == "bool" {
         Ok(val.to_bool().into())
+    } else if val.get_type() == "string" {
+        Ok(val.to_str().into())
     } else if val.get_type() == "dict" {
         todo!()
     } else {
