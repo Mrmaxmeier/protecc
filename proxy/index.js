@@ -1,10 +1,14 @@
 
 var express = require('express');
 var app = express();
+const basicAuth = require('express-basic-auth')
 var http = require('http').createServer(app);
 var io = require('socket.io')(http);
 const WebSocket = require('ws');
 
+app.use(basicAuth({
+    users: { 'ALLES': 'ALLES' }
+}))
 
 app.use(express.static('../frontend/dist'))
 
