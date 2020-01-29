@@ -84,22 +84,22 @@ data Action
 
 defaultContent :: String
 defaultContent =
-  """# index(tag=tags.xxx, service=services.xxx) / index(tag=tags.xxx) / index(service=services.xxx)
+  """index(service=services.some_service)
 
-# The last expression of the query gets used as a filter, unless you call emit or addTag, then the query will accept the stream
-# If the last expression is not a boolean, the result will get reported back to you as json
-id % 500 == 0
+def q():
+    if id % 1000 == 0:
+        emit(client_port)
+    return id % 500 == 0
 
-# snacc supports queries written in starlark, a non-turing complete python dialect
-# all provided values and most builtin functions are available and documented via autocomplete (ctrl + space)
-# press ctrl+space while the autocomplete window is open to see further documentation
-# starlark contains most terminating python features, such as list and dictionary comprehensions as well as for loops
-# and non-recursive function definitions
-# more infos here: https://github.com/bazelbuild/starlark/blob/master/spec.md
-# press F1 to see all available commands, these are all custom ones:
+sort_key(data_len)
+q()
+# press ctrl + space for autocompletion, all relevant builtins are listed there
+# press ctrl + space again while autocompletion is open for more information on builtins
+# press F1 to see all available commands, these are all the custom ones:
 # Execute Query (Shift + Enter)
 # Save to local storage (Ctrl + S)
-# Load local: <save name>"""
+# Load local: <save name>
+# Reload local storage (in case you want to load a script you saved in another tab)"""
 
 source :: ∀ a. ((a -> Effect Unit) -> Effect Unit) -> EventSource Aff a
 source f =
