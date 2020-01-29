@@ -23,10 +23,17 @@ function sleep(ms) {
 
 io.on('connection', function (socket) {
     console.log('client connected');
-    //const ws = new WebSocket('ws://192.168.1.194:10000/');
-    //const ws = new WebSocket('ws://192.168.1.108:10000/');
-    const ws = new WebSocket('ws://localhost:10000/');
-    //const ws = new WebSocket('ws://172.24.182.130:10000/');
+
+    let ws = undefined;
+    try {
+        //const ws = new WebSocket('ws://192.168.1.194:10000/');
+        //const ws = new WebSocket('ws://192.168.1.108:10000/');
+        ws = new WebSocket('ws://localhost:10000/');
+        //const ws = new WebSocket('ws://172.24.182.130:10000/');
+    } catch (e) {
+        console.error("couldn't connect to server!")
+        return
+    }
 
     ws.on("message", async function (s) {
         //console.log('server -> client: ' + s);
@@ -34,6 +41,11 @@ io.on('connection', function (socket) {
             await sleep(500)
         socket.emit('msg', s);
     });
+
+    ws.on("error", function (error) {
+        console.error(error);
+        socket.disconnect()
+    })
 
     ws.on("open", function () {
         socket.on('msg', async function (s) {
@@ -46,11 +58,13 @@ io.on('connection', function (socket) {
             console.log("client disconnected");
             ws.close();
         });
+        socket.on('error', function () {
+            console.log("error")
+        })
     });
 
     ws.on("close", function () {
         console.log("server disconnected");
-        socket.disconnect();
     });
 
 });
