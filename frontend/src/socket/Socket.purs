@@ -33,7 +33,10 @@ import Halogen.Query.EventSource (EventSource, Finalizer(..), effectEventSource,
 import Halogen.Query.HalogenM (SubscriptionId, mapAction)
 import SocketIO as SIO
 import Util (mwhen)
+import Web.HTML (window)
 import Web.HTML.Event.EventTypes (cancel)
+import Web.HTML.Location (host, hostname, port, protocol)
+import Web.HTML.Window (location)
 
 foreign import get :: Effect SIO.Socket
 
@@ -76,7 +79,10 @@ handleStreamMessage s = case decodeString s of
 
 init :: Effect Unit
 init = do
-  socket <- SIO.open "ws://192.168.1.108:4000"
+  location <- window >>= location
+  host <- host location
+  protocol <- protocol location
+  socket <- SIO.open $ (if protocol == "http:" then "ws://" else "wss://") <> host
   SIO.onMessage socket "msg" handleStreamMessage
   set socket
 
