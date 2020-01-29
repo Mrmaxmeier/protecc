@@ -7,7 +7,9 @@ var io = require('socket.io')(http);
 const WebSocket = require('ws');
 
 app.use(basicAuth({
-    users: { 'ALLES': 'ALLES' }
+    users: { 'ALLES': 'ALLES' },
+    challenge: true,
+    realm: 'protecc'
 }))
 
 app.use(express.static('../frontend/dist'))
