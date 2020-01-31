@@ -146,6 +146,7 @@ impl StreamId {
 
 pub(crate) struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
+    // recently_closed: HashMap<StreamId, u64>,
     latest_timestamp: u64,
     database_ingest: Arc<WorkQ<StreamReassembly>>,
     tcp_initiations_by_ip: HashMap<IpAddr, u64>,
@@ -219,21 +220,34 @@ impl Reassembler {
             reassembly.is_done()
         };
         if is_done {
-            incr_counter!(streams_completed);
             let stream = self.reassemblies.remove(&id).unwrap();
-            self.database_ingest.push(stream).await;
+            self.submit_stream(id, stream).await;
         }
+    }
+
+    async fn submit_stream(&mut self, id: StreamId, stream: StreamReassembly) {
+        if stream.server_to_client.packets.is_empty() {
+            incr_counter!(streams_discarded_no_server_packets);
+            return;
+        }
+        if !stream.server_to_client.packets.iter().any(|x|x.tcp_header.flag_psh) && !stream.client_to_server.packets.iter().any(|x|x.tcp_header.flag_psh) {
+            incr_counter!(streams_discarded_no_data);
+            return;
+        }
+        incr_counter!(streams_completed);
+        self.database_ingest.push(stream).await;
+        // self.recently_closed.insert(id, timestamp_secs);
     }
 
     pub(crate) async fn expire(&mut self) {
         //        tracyrs::zone!("Reassembler::expire");
         let reassemblies = std::mem::replace(&mut self.reassemblies, HashMap::new());
-        for (key, stream) in reassemblies.into_iter() {
+        for (id, stream) in reassemblies.into_iter() {
             if stream.latest_timestamp + PACKET_EXPIRE_THRESHOLD_SECS < self.latest_timestamp {
                 incr_counter!(streams_timeout_expired);
-                self.database_ingest.push(stream).await;
+                self.submit_stream(id, stream).await;
             } else {
-                self.reassemblies.insert(key, stream);
+                self.reassemblies.insert(id, stream);
             }
         }
     }

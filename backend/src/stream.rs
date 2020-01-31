@@ -166,9 +166,12 @@ impl Stream {
                 Sender::Client => &mut client_seg_len,
                 Sender::Server => &mut server_seg_len,
             };
-            match sender {
-                Sender::Client => client_pos += packet.data.len(),
-                Sender::Server => server_pos += packet.data.len(),
+
+            if packet.tcp_header.flag_psh {
+                match sender {
+                    Sender::Client => client_pos += packet.data.len(),
+                    Sender::Server => server_pos += packet.data.len(),
+                }
             }
 
             if packet.tcp_header.flag_syn {
@@ -182,9 +185,11 @@ impl Stream {
                 missing_data = true;
             }
 
-            match sender {
-                Sender::Client => client_data.extend_from_slice(&packet.data),
-                Sender::Server => server_data.extend_from_slice(&packet.data),
+            if packet.tcp_header.flag_psh {
+                match sender {
+                    Sender::Client => client_data.extend_from_slice(&packet.data),
+                    Sender::Server => server_data.extend_from_slice(&packet.data),
+                }
             }
 
             let th = &packet.tcp_header;

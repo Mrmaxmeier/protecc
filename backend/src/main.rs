@@ -49,10 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(path) = pcap_process_rx.recv().await {
             println!("importing pcap {:?}", path);
             pcapreader::read_pcap_file(&path, &mut reassembler).await;
-            {
+            /*{
                 tracyrs::message!("sleep between pcap imports");
                 tokio::time::delay_for(std::time::Duration::from_millis(250)).await;
-            }
+            }*/
             reassembler.expire().await;
         }
     });

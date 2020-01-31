@@ -340,7 +340,12 @@ fn starlark_to_json(val: &starlark::values::Value) -> Result<serde_json::Value, 
     } else if val.get_type() == "string" {
         Ok(val.to_str().into())
     } else if val.get_type() == "dict" {
-        todo!()
+        let mut map = serde_json::map::Map::new();
+        for key in val.dir_attr().map_err(|_| ())? {
+            let val = val.get_attr(&key).map_err(|_| ())?;
+            map.insert(key.to_string(), starlark_to_json(&val)?);
+        }
+        Ok(map.into())
     } else {
         Err(())
     }
