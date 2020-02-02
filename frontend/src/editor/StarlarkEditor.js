@@ -383,12 +383,18 @@ exports.showTextInput = (editor) => {
                         if (e.key == "Enter") {
                             editor.removeOverlayWidget(widget);
                             onSubmit(input.value)();
+                            e.preventDefault()
+                            e.stopPropagation()
+                            editor.focus()
                         }
                     }
                     div.onkeydown = (e) => {
                         if (e.key == "Escape") {
                             editor.removeOverlayWidget(widget);
                             onSubmit("")()
+                            e.preventDefault()
+                            e.stopPropagation()
+                            editor.focus()
                         }
                     }
                     editor.addOverlayWidget(widget)
@@ -459,4 +465,11 @@ exports.loadFromLocalStorage = () => {
         savesString = "{}"
     }
     return JSON.parse(savesString);
+}
+
+
+exports.onEdit = (f) => (editor) => () => {
+    editor.onDidChangeModelContent((e) => {
+        f(editor.getValue())()
+    })
 }

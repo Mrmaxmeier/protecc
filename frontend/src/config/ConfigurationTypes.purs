@@ -19,15 +19,16 @@ type ServiceMessage
   = { slug :: String, port :: Int, name :: String }
 
 type Configuration
-  = { tags :: Array Tag, services :: Array Service }
+  = { tags :: Array Tag, services :: Array Service, scripts :: Object String }
 
 type ConfigurationMessage
-  = { tags :: Object { slug :: String, name :: String, color :: String, owner :: String }, services :: Object { slug :: String, port :: Int, name :: String } }
+  = { tags :: Object { slug :: String, name :: String, color :: String, owner :: String }, services :: Object { slug :: String, port :: Int, name :: String }, scripts :: Object String }
 
 fromMessage :: ConfigurationMessage -> Configuration
 fromMessage msg =
   { tags: map (\(Tuple id tag) -> { id: fromString id, slug: tag.slug, name: tag.name, color: tag.color, owner: tag.owner }) $ toUnfoldable msg.tags
   , services: map (\(Tuple id service) -> { id: fromString id, slug: service.slug, name: service.name, port: service.port }) $ toUnfoldable msg.services
+  , scripts: msg.scripts
   }
 
 toTagMessage :: Tag -> TagMessage

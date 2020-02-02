@@ -401,3 +401,15 @@ teal = ClassName "teal"
 
 fixed :: ClassName
 fixed = ClassName "fixed"
+
+trash :: ClassName
+trash = ClassName "trash"
+
+less :: ClassName
+less = ClassName "less"
+
+top :: ClassName
+top = ClassName "top"
+
+black :: ClassName
+black = ClassName "black"

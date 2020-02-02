@@ -1,12 +1,14 @@
 module StarlarkEditor where
 
 import Prelude
+import CSS as CSS
 import Configuration as Config
 import ConfigurationTypes (Configuration, Service, Tag)
 import Control.Monad.Writer (tell)
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, isNothing, maybe)
 import Data.String (length)
 import Data.Traversable (sequence)
+import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Console (error)
@@ -23,6 +25,7 @@ import Halogen.Query.EventSource (EventSource(..), effectEventSource, emit)
 import Halogen.Query.HalogenM (mapAction)
 import SemanticUI (sa, sdiv)
 import SemanticUI as S
+import Socket as Socket
 import Util (logo, logs)
 import Web.HTML (HTMLElement)
 
@@ -52,6 +55,8 @@ foreign import createContextKey :: ∀ a. Editor -> String -> a -> Effect (Conte
 
 foreign import setContextKey :: ∀ a. ContextKey a -> a -> Effect Unit
 
+foreign import onEdit :: (String -> Effect Unit) -> Editor -> Effect Unit
+
 type EditorAction
   = { id :: String
     , label :: String
@@ -62,25 +67,28 @@ type EditorAction
     }
 
 type State
-  = { config :: Maybe Configuration, editor :: Maybe Editor }
+  = { config :: Maybe Configuration, editor :: Maybe Editor, loadedFile :: Maybe File, editorContent :: String }
+
+type File
+  = { name :: String, content :: String }
 
 data Query a
   = GetValue (String -> a)
   | SetError (String) a
-  | LocalSaveValueTo String a
 
 data Message
   = Execute
 
 data Action
   = Init
-  | Fin
   | ConfigUpdate Configuration
   | TriggerExecute
-  | LocalSave
-  | LocalSaveTo String
-  | ReloadLocalStorage
-  | Load String
+  | Save
+  | Delete
+  | SaveAsAction
+  | SaveAs String
+  | Load File
+  | OnEdit String
 
 defaultContent :: String
 defaultContent =
@@ -119,22 +127,42 @@ subscribeAction action editor = mapAction (const action) <<< H.subscribe <<< act
 subscribeTextInput :: ∀ s. (String -> Action) -> Editor -> String -> String -> H.HalogenM State Action s Message Aff SubscriptionId
 subscribeTextInput action editor text = mapAction action <<< H.subscribe <<< textInputSource editor text
 
+onEditSource :: Editor -> EventSource Aff String
+onEditSource editor = source $ \callback -> onEdit callback editor
+
+subscribeOnEdit :: ∀ s. (String -> Action) -> Editor -> H.HalogenM State Action s Message Aff SubscriptionId
+subscribeOnEdit action = mapAction action <<< H.subscribe <<< onEditSource
+
 component :: ∀ i. H.Component HH.HTML Query i Message Aff
 component =
   H.mkComponent
     { initialState
     , render
-    , eval: H.mkEval $ H.defaultEval { initialize = Just Init, handleAction = handleAction, handleQuery = handleQuery, finalize = Just Fin }
+    , eval: H.mkEval $ H.defaultEval { initialize = Just Init, handleAction = handleAction, handleQuery = handleQuery }
     }
   where
   initialState :: i -> State
-  initialState _ = { config: Nothing, editor: Nothing }
+  initialState _ = { config: Nothing, editor: Nothing, loadedFile: Nothing, editorContent: defaultContent }
 
   elem :: H.RefLabel
   elem = H.RefLabel "element"
 
   render :: ∀ s. State -> H.ComponentHTML Action s Aff
-  render state = div [ HP.ref elem, classes [ ClassName "editor" ] ] []
+  render state =
+    div_
+      [ div
+          [ classes [ S.ui, S.black, S.label ]
+          , HC.style
+              $ do
+                  CSS.borderRadius (CSS.rem 0.21428571) (CSS.rem 0.21428571) (CSS.rem 0.0) (CSS.rem 0.0)
+                  CSS.width $ CSS.pct 100.0
+          ]
+          [ (if isNothing state.loadedFile || Just state.editorContent == map _.content state.loadedFile then text else pendingChanges) $ fromMaybe "Local Scratch Buffer" (map _.name state.loadedFile)
+          ]
+      , div [ HP.ref elem, classes [ ClassName "editor" ] ] []
+      ]
+    where
+    pendingChanges c = HH.i_ [ text $ c <> "*" ]
 
   handleAction :: ∀ s. Action -> H.HalogenM State Action s Message Aff Unit
   handleAction = case _ of
@@ -147,50 +175,65 @@ component =
         Just element -> do
           editor <- H.liftEffect $ init element
           saves <- H.liftEffect loadFromLocalStorage
-          H.liftEffect $ setContent editor $ fromMaybe defaultContent $ lookup "last-closed" saves
+          H.liftEffect $ setContent editor $ fromMaybe defaultContent $ lookup "scratch" saves
           _ <- subscribeAction TriggerExecute editor { id: "execute", label: "Execute Query", keybindings: [ 1027 ], contextMenuOrder: 0.0, precondition: "" }
-          _ <- subscribeAction LocalSave editor { id: "save-local", label: "Save to local storage", keybindings: [ 2097 ], contextMenuOrder: 0.0, precondition: "" }
-          _ <- subscribeAction ReloadLocalStorage editor { id: "reload-local", label: "Reload local storage", keybindings: [], contextMenuOrder: 0.0, precondition: "" }
+          _ <- subscribeAction Save editor { id: "save", label: "Save", keybindings: [ 2097 ], contextMenuOrder: 0.0, precondition: "" }
+          _ <- subscribeAction SaveAsAction editor { id: "saveAs", label: "Save as...", keybindings: [], contextMenuOrder: 0.0, precondition: "" }
+          _ <- subscribeOnEdit OnEdit editor
           H.modify_ $ _ { editor = Just editor }
-          handleAction ReloadLocalStorage
-    Fin -> handleAction $ LocalSaveTo "last-closed"
     ConfigUpdate config -> do
       H.modify_ $ _ { config = Just config }
       H.liftEffect $ updateLanguage config.tags config.services
-    TriggerExecute -> do
-      H.raise Execute
-    LocalSave -> do
       state <- H.get
       maybe (pure unit)
         ( \editor ->
-            void $ subscribeTextInput LocalSaveTo editor "Enter Local Save Name" "local-save"
+            void $ sequence $ mapWithKey (\name value -> subscribeAction (Load { name: name, content: value }) editor { id: "load-" <> name, label: "Load: " <> name, keybindings: [], contextMenuOrder: 0.0, precondition: "" }) config.scripts
         )
         state.editor
-    LocalSaveTo name ->
+    TriggerExecute -> do
+      H.raise Execute
+    SaveAsAction -> do
+      state <- H.get
+      maybe (pure unit)
+        ( \editor ->
+            void $ subscribeTextInput SaveAs editor "Enter script name" "saveAs"
+        )
+        state.editor
+    SaveAs name ->
       when (length name > 0) do
         state <- H.get
         maybe (pure unit)
           ( \editor -> do
               value <- H.liftEffect $ content editor
-              H.liftEffect $ saveToLocalStorage name value
-              handleAction ReloadLocalStorage
+              void $ Socket.request { updateConfiguration: { setScript: Tuple name value } }
+              H.modify_ $ _ { loadedFile = Just { name: name, content: value } }
           )
           state.editor
-    ReloadLocalStorage -> do
+    Delete -> do
       state <- H.get
       maybe (pure unit)
-        ( \editor -> do
-            saves <- H.liftEffect loadFromLocalStorage
-            void $ sequence $ mapWithKey (\name value -> subscribeAction (Load value) editor { id: "load-local-" <> name, label: "Load local: " <> name, keybindings: [], contextMenuOrder: 0.0, precondition: "" }) saves
+        ( \file ->
+            void $ Socket.request { updateConfiguration: { removeScript: file } }
         )
-        state.editor
-    Load s -> do
+        state.loadedFile
+    Save -> do
+      state <- H.get
+      maybe (handleAction SaveAsAction)
+        ( \file -> do
+            handleAction $ SaveAs file.name
+        )
+        state.loadedFile
+    Load file -> do
       state <- H.get
       maybe (pure unit)
         ( \editor ->
-            H.liftEffect $ setContent editor s
+            H.liftEffect $ setContent editor file.content
         )
         state.editor
+      H.modify_ $ _ { loadedFile = Just file }
+    OnEdit value -> do
+      H.liftEffect $ saveToLocalStorage "scratch" value
+      H.modify_ $ _ { editorContent = value }
 
   handleQuery :: ∀ a s. Query a -> H.HalogenM State Action s Message Aff (Maybe a)
   handleQuery = case _ of
@@ -207,7 +250,4 @@ component =
         ( \editor -> H.liftEffect $ setError editor s
         )
         state.editor
-      pure $ Just a
-    LocalSaveValueTo s a -> do
-      handleAction $ LocalSaveTo s
       pure $ Just a

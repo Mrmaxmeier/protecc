@@ -5,7 +5,7 @@ import CSS as CSS
 import CSS.TextAlign (center, textAlign)
 import Data.Argonaut.Core (Json, stringify)
 import Data.Argonaut.Encode (encodeJson)
-import Data.Array (drop, filter, foldr, insertBy, length, take)
+import Data.Array (drop, filter, foldr, insertBy, length, nubBy, take)
 import Data.BigInt (toNumber, toString)
 import Data.Int (ceil)
 import Data.Int as Int
@@ -19,20 +19,20 @@ import Effect.Class.Console (error)
 import Effect.Console (log)
 import Halogen (liftEffect, query)
 import Halogen as H
-import Halogen.HTML (div, div_, text)
+import Halogen.HTML (button, div, div_, text)
 import Halogen.HTML as HH
 import Halogen.HTML.CSS as HC
 import Halogen.HTML.Elements.Keyed as HK
 import Halogen.HTML.Events (onClick, onValueChange)
 import Halogen.HTML.Events as HE
-import Halogen.HTML.Properties (InputType(..), checked, classes, disabled, href, name, placeholder, tabIndex, type_, value)
+import Halogen.HTML.Properties (InputType(..), checked, classes, disabled, href, name, placeholder, tabIndex, title, type_, value)
 import Halogen.HTML.Properties as HP
 import Halogen.Query.HalogenM (mapAction)
 import Keyevent as Keyevent
 import Math (abs)
 import Numeral (formatBytes, formatPercent)
 import Numeral as Numeral
-import SemanticUI (sdiv, sicon)
+import SemanticUI (sbutton, sdiv, sicon)
 import SemanticUI as S
 import Socket (RequestId, errorId)
 import Socket as Socket
@@ -65,6 +65,8 @@ data Action
   | Execute
   | ToggleDirection
   | TogglePause
+  | ToggleDiscard
+  | ToggleDeduplicate
   | ContinueFetching
   | Init
   | EditorProxy Editor.Message
@@ -107,6 +109,8 @@ type QueryState
     , maxPages :: Int
     , runState :: QueryRunState
     , page :: Int
+    , discardResults :: Boolean
+    , deduplicateByData :: Boolean
     }
 
 type Error
@@ -120,6 +124,8 @@ type State
     , pageSize :: Int
     , pastToFuture :: Boolean
     , resultDetails :: Maybe Result
+    , discardResults :: Boolean
+    , deduplicateByData :: Boolean
     }
 
 component :: ∀ q i o. H.Component HH.HTML q i o Aff
@@ -131,7 +137,7 @@ component =
     }
   where
   initialState :: i -> State
-  initialState _ = { query: Nothing, upper: "", lower: "", pageSize: 20, pastToFuture: false, error: Nothing, resultDetails: Nothing }
+  initialState _ = { query: Nothing, upper: "", lower: "", pageSize: 20, pastToFuture: false, error: Nothing, resultDetails: Nothing, discardResults: false, deduplicateByData: false }
 
   handleAction :: Action -> H.HalogenM State Action Slot o Aff Unit
   handleAction = case _ of
@@ -169,10 +175,28 @@ component =
       let
         code = fromMaybe "" code'
       _ <- H.query _editor unit $ H.tell $ Editor.SetError ""
-      _ <- H.query _editor unit $ H.tell $ Editor.LocalSaveValueTo "latest-execution"
       state <- H.get
       id <- Socket.request { starlarkScan: { code: code, boundLow: tryFromString state.lower, boundHigh: tryFromString state.upper, reverse: state.pastToFuture, windowSize: state.pageSize } }
-      H.modify_ $ _ { query = Just ({ progress: Nothing, results: [], program: code, pastToFuture: state.pastToFuture, pageSize: state.pageSize, lastRequest: id, paused: false, runState: Running, maxPages: maxPageFetch, page: 0 } :: QueryState) }
+      H.modify_
+        $ _
+            { query =
+              Just
+                ( { progress: Nothing
+                  , results: []
+                  , program: code
+                  , pastToFuture: state.pastToFuture
+                  , pageSize: state.pageSize
+                  , lastRequest: id
+                  , paused: false
+                  , runState: Running
+                  , maxPages: maxPageFetch
+                  , page: 0
+                  , discardResults: state.discardResults
+                  , deduplicateByData: state.deduplicateByData
+                  } ::
+                    QueryState
+                )
+            }
       void $ Socket.subscribeResponse (QueryResponse id) id
     ToggleDirection -> H.modify_ $ \state -> state { pastToFuture = not state.pastToFuture }
     TogglePause -> do
@@ -226,7 +250,11 @@ component =
                 Nothing -> if v.rangeExhausted then Done else Running
                 Just error -> Errored error
 
-              newResults = (foldr (insertBy $ (\a b -> invert $ compare a.sortKey b.sortKey)) query.results $ filter (\r -> isJust r.sortKey) v.scanResults) <> filter (\r -> isNothing r.sortKey) v.scanResults
+              newResults =
+                (if query.discardResults then take $ query.pageSize * (maxPageFetch - 1) else identity)
+                  $ (if query.deduplicateByData then nubBy (\a b -> compare (show $ map stringify a.attached) (show $ map stringify b.attached)) else identity)
+                  $ (foldr (insertBy $ (\a b -> invert $ compare a.sortKey b.sortKey)) query.results $ filter (\r -> isJust r.sortKey) v.scanResults)
+                  <> filter (\r -> isNothing r.sortKey) v.scanResults
 
               query' = query { progress = Just progress, results = newResults, runState = runState }
             state <- H.modify_ $ _ { query = Just $ query' }
@@ -248,6 +276,8 @@ component =
     CloseDetails -> H.modify_ $ _ { resultDetails = Nothing }
     OpenDetails result -> H.modify_ $ _ { resultDetails = Just result }
     PreventDefault event -> H.liftEffect $ stopPropagation $ toEvent event
+    ToggleDeduplicate -> H.modify_ $ \state -> state { deduplicateByData = not state.deduplicateByData }
+    ToggleDiscard -> H.modify_ $ \state -> state { discardResults = not state.discardResults }
 
   renderProgressBar :: QueryState -> Array (H.ComponentHTML Action Slot Aff)
   renderProgressBar query =
@@ -347,24 +377,30 @@ component =
       $ [ HH.slot _editor unit Editor.component unit $ Just <<< EditorProxy
         , sdiv [ S.ui, S.divider ] []
         , HH.form [ classes [ S.ui, S.form ] ]
-            [ sdiv [ S.inline, S.fields ]
-                $ [ div [ HC.style $ CSS.marginRight $ CSS.em 0.5 ] [ text "Range:" ]
-                  , div [ classes [ S.field ], HC.style $ CSS.paddingRight $ CSS.px 0.0 ] [ HH.input [ type_ InputText, placeholder "Latest", HC.style $ CSS.width $ CSS.em 6.0, value state.lower, onValueChange $ Just <<< UpperChange ] ]
-                  , div
-                      [ classes [ S.ui, S.icon, S.button ]
-                      , HC.style do
-                          CSS.marginRight $ CSS.px 5.0
-                          CSS.marginLeft $ CSS.px 5.0
-                      , onClick $ Just <<< (const ToggleDirection)
-                      ]
-                      [ sicon $ [ S.long, S.alternate, S.arrow ] <> if state.pastToFuture then [ S.left ] else [ S.right ] ]
-                  , sdiv [ S.field ] [ HH.input [ type_ InputText, placeholder "Earliest", HC.style $ CSS.width $ CSS.em 6.0, value state.lower, onValueChange $ Just <<< LowerChange ] ]
-                  , div [ HC.style $ CSS.marginRight $ CSS.em 0.5 ] [ text "Page\xa0size:" ]
-                  , sdiv [ S.field ] [ HH.input [ type_ InputText, HC.style $ CSS.width $ CSS.em 6.0, value $ show state.pageSize, onValueChange $ map PageSizeChange <<< Int.fromString ] ]
-                  , div [ classes [ S.ui, S.button, S.green ], HC.style $ CSS.marginRight $ CSS.em 3.0, onClick $ Just <<< (const Execute) ] [ text "Execute" ]
-                  ]
-                <> maybe [] renderProgressBar state.query
-            ]
+            $ [ sdiv [ S.inline, S.fields ]
+                  $ [ div [ HC.style $ CSS.marginRight $ CSS.em 0.5 ] [ text "Range:" ]
+                    , div [ classes [ S.field ], HC.style $ CSS.paddingRight $ CSS.px 0.0 ] [ HH.input [ type_ InputText, placeholder "Latest", HC.style $ CSS.width $ CSS.em 6.0, value state.lower, onValueChange $ Just <<< UpperChange ] ]
+                    , div
+                        [ classes [ S.ui, S.icon, S.button ]
+                        , HC.style do
+                            CSS.marginRight $ CSS.px 5.0
+                            CSS.marginLeft $ CSS.px 5.0
+                        , onClick $ Just <<< (const ToggleDirection)
+                        ]
+                        [ sicon $ [ S.long, S.alternate, S.arrow ] <> if state.pastToFuture then [ S.left ] else [ S.right ] ]
+                    , sdiv [ S.field ] [ HH.input [ type_ InputText, placeholder "Earliest", HC.style $ CSS.width $ CSS.em 6.0, value state.lower, onValueChange $ Just <<< LowerChange ] ]
+                    , div [ HC.style $ CSS.marginRight $ CSS.em 0.5 ] [ text "Page\xa0size:" ]
+                    , sdiv [ S.field ] [ HH.input [ type_ InputText, HC.style $ CSS.width $ CSS.em 6.0, value $ show state.pageSize, onValueChange $ map PageSizeChange <<< Int.fromString ] ]
+                    , sdiv [ S.field ]
+                        [ sdiv [ S.ui, S.icon, S.buttons ]
+                            [ button [ classes $ [ S.ui, S.button ] <> mwhen state.discardResults [ S.green ], title "Delete any data that exceeds 9 pages", onClick $ Just <<< (const ToggleDiscard) ] [ sicon [ S.alternate, S.trash ] ]
+                            , button [ classes $ [ S.ui, S.button ] <> mwhen state.deduplicateByData [ S.green ], title "Deduplicate results by emitted data", onClick $ Just <<< (const ToggleDeduplicate) ] [ sicon [ S.less ] ]
+                            ]
+                        ]
+                    , div [ classes [ S.ui, S.button, S.green ], HC.style $ CSS.marginRight $ CSS.em 3.0, onClick $ Just <<< (const Execute) ] [ text "Execute" ]
+                    ]
+                  <> maybe [] renderProgressBar state.query
+              ]
         ]
       <> maybe [] renderTable state.query
       <> maybe

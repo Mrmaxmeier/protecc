@@ -67,7 +67,7 @@ component editable =
                     let
                       tag = fromMaybe { name: "Tag not Found!", color: "red", slug: show $ id, owner: "nobody", id: fromString "0" } $ (\c -> head $ filter (\tag -> tag.id == id) c.tags) =<< state.config
                     in
-                      Tuple tag.slug $ sdiv ([ S.ui, S.label ] <> [ ClassName tag.color ]) $ [ text tag.name ] <> mwhen editable [ HH.i [ classes [ S.delete, S.icon ], onClick $ Just <<< (const $ RemoveTag tag.id) ] [] ]
+                      Tuple tag.slug $ sdiv ([ S.ui, S.label ] <> [ ClassName tag.color ]) $ [ text tag.name ] <> mwhen (editable && tag.owner == "webui") [ HH.i [ classes [ S.delete, S.icon ], onClick $ Just <<< (const $ RemoveTag tag.id) ] [] ]
                 )
                 state.input.tags
         ]
@@ -78,7 +78,7 @@ component editable =
               ]
           ]
     where
-    unselectedTags = maybe [] (\conf -> filter (\tag -> all (\id -> id /= tag.id) state.input.tags) conf.tags) state.config
+    unselectedTags = maybe [] (\conf -> filter (\tag -> tag.owner == "webui" && all (\id -> id /= tag.id) state.input.tags) conf.tags) state.config
 
     selectedTag = (\id -> head $ filter (\tag -> tag.id == id) unselectedTags) =<< state.selectedId
 

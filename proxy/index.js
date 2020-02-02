@@ -26,10 +26,10 @@ io.on('connection', function (socket) {
 
     let ws = undefined;
     try {
-        //const ws = new WebSocket('ws://192.168.1.194:10000/');
-        //const ws = new WebSocket('ws://192.168.1.108:10000/');
-        ws = new WebSocket('ws://localhost:10000/');
-        //const ws = new WebSocket('ws://172.24.182.130:10000/');
+        // ws = new WebSocket('ws://192.168.1.194:10000/');
+        // ws = new WebSocket('ws://192.168.1.108:10000/');
+        // ws = new WebSocket('ws://localhost:10000/');
+        ws = new WebSocket('ws://172.24.161.112:10000/');
     } catch (e) {
         console.error("couldn't connect to server!")
         return
