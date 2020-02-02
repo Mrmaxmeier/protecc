@@ -179,6 +179,7 @@ component =
           _ <- subscribeAction TriggerExecute editor { id: "execute", label: "Execute Query", keybindings: [ 1027 ], contextMenuOrder: 0.0, precondition: "" }
           _ <- subscribeAction Save editor { id: "save", label: "Save", keybindings: [ 2097 ], contextMenuOrder: 0.0, precondition: "" }
           _ <- subscribeAction SaveAsAction editor { id: "saveAs", label: "Save as...", keybindings: [], contextMenuOrder: 0.0, precondition: "" }
+          _ <- subscribeAction Delete editor { id: "delete", label: "Delete on Server", keybindings: [], contextMenuOrder: 0.0, precondition: "" }
           _ <- subscribeOnEdit OnEdit editor
           H.modify_ $ _ { editor = Just editor }
     ConfigUpdate config -> do
@@ -212,8 +213,9 @@ component =
     Delete -> do
       state <- H.get
       maybe (pure unit)
-        ( \file ->
+        ( \file -> do
             void $ Socket.request { updateConfiguration: { removeScript: file } }
+            H.modify_ $ _ { loadedFile = Nothing }
         )
         state.loadedFile
     Save -> do

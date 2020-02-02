@@ -42,7 +42,7 @@ import StarlarkEditor (Editor)
 import StarlarkEditor as Editor
 import Streams as Streams
 import Util (Id, Rec, Size, WMaybe, css, dec, diff, fromString, inc, logo, logs, mwhen, prettifyJson, prettyShow, rec, tryFromString, unrec, wmaybe)
-import Web.Event.Event (stopPropagation)
+import Web.Event.Event (preventDefault, stopPropagation)
 import Web.UIEvent.MouseEvent (MouseEvent, toEvent)
 
 maxPageFetch :: Int
@@ -63,10 +63,10 @@ data Action
   | NextPage
   | PrevPage
   | Execute
-  | ToggleDirection
-  | TogglePause
-  | ToggleDiscard
-  | ToggleDeduplicate
+  | ToggleDirection MouseEvent
+  | TogglePause MouseEvent
+  | ToggleDiscard MouseEvent
+  | ToggleDeduplicate MouseEvent
   | ContinueFetching
   | Init
   | EditorProxy Editor.Message
@@ -78,6 +78,7 @@ type Result
   = { stream :: Streams.Stream
     , attached :: Maybe Json
     , sortKey :: Maybe Size
+    , tags :: Array Id
     }
 
 data QueryRunState
@@ -198,8 +199,11 @@ component =
                 )
             }
       void $ Socket.subscribeResponse (QueryResponse id) id
-    ToggleDirection -> H.modify_ $ \state -> state { pastToFuture = not state.pastToFuture }
-    TogglePause -> do
+    ToggleDirection e -> do
+      H.modify_ $ \state -> state { pastToFuture = not state.pastToFuture }
+      H.liftEffect $ stopPropagation $ toEvent e
+      H.liftEffect $ preventDefault $ toEvent e
+    TogglePause e -> do
       state <- H.get
       maybe
         (error "Trying to toggle pause, but no query is currently being executed")
@@ -210,6 +214,8 @@ component =
               H.modify_ $ _ { query = Just query { paused = true } }
         )
         state.query
+      H.liftEffect $ stopPropagation $ toEvent e
+      H.liftEffect $ preventDefault $ toEvent e
     ContinueFetching -> do
       state <- H.get
       maybe
@@ -276,8 +282,14 @@ component =
     CloseDetails -> H.modify_ $ _ { resultDetails = Nothing }
     OpenDetails result -> H.modify_ $ _ { resultDetails = Just result }
     PreventDefault event -> H.liftEffect $ stopPropagation $ toEvent event
-    ToggleDeduplicate -> H.modify_ $ \state -> state { deduplicateByData = not state.deduplicateByData }
-    ToggleDiscard -> H.modify_ $ \state -> state { discardResults = not state.discardResults }
+    ToggleDeduplicate e -> do
+      H.modify_ $ \state -> state { deduplicateByData = not state.deduplicateByData }
+      H.liftEffect $ stopPropagation $ toEvent e
+      H.liftEffect $ preventDefault $ toEvent e
+    ToggleDiscard e -> do
+      H.modify_ $ \state -> state { discardResults = not state.discardResults }
+      H.liftEffect $ stopPropagation $ toEvent e
+      H.liftEffect $ preventDefault $ toEvent e
 
   renderProgressBar :: QueryState -> Array (H.ComponentHTML Action Slot Aff)
   renderProgressBar query =
@@ -301,7 +313,7 @@ component =
                 [ text progressText ]
             ]
         ]
-    , HH.button [ classes $ [ S.ui, S.mini, S.icon, S.button ] <> mwhen isDone [ S.disabled ], disabled isDone, onClick $ Just <<< (const TogglePause) ] [ sicon if query.paused then [ S.play ] else [ S.pause ] ]
+    , HH.button [ classes $ [ S.ui, S.mini, S.icon, S.button ] <> mwhen isDone [ S.disabled ], disabled isDone, onClick $ Just <<< TogglePause ] [ sicon if query.paused then [ S.play ] else [ S.pause ] ]
     ]
     where
     progressText = case query.progress of
@@ -385,7 +397,7 @@ component =
                         , HC.style do
                             CSS.marginRight $ CSS.px 5.0
                             CSS.marginLeft $ CSS.px 5.0
-                        , onClick $ Just <<< (const ToggleDirection)
+                        , onClick $ Just <<< ToggleDirection
                         ]
                         [ sicon $ [ S.long, S.alternate, S.arrow ] <> if state.pastToFuture then [ S.left ] else [ S.right ] ]
                     , sdiv [ S.field ] [ HH.input [ type_ InputText, placeholder "Earliest", HC.style $ CSS.width $ CSS.em 6.0, value state.lower, onValueChange $ Just <<< LowerChange ] ]
@@ -393,8 +405,8 @@ component =
                     , sdiv [ S.field ] [ HH.input [ type_ InputText, HC.style $ CSS.width $ CSS.em 6.0, value $ show state.pageSize, onValueChange $ map PageSizeChange <<< Int.fromString ] ]
                     , sdiv [ S.field ]
                         [ sdiv [ S.ui, S.icon, S.buttons ]
-                            [ button [ classes $ [ S.ui, S.button ] <> mwhen state.discardResults [ S.green ], title "Delete any data that exceeds 9 pages", onClick $ Just <<< (const ToggleDiscard) ] [ sicon [ S.alternate, S.trash ] ]
-                            , button [ classes $ [ S.ui, S.button ] <> mwhen state.deduplicateByData [ S.green ], title "Deduplicate results by emitted data", onClick $ Just <<< (const ToggleDeduplicate) ] [ sicon [ S.less ] ]
+                            [ button [ classes $ [ S.ui, S.button ] <> mwhen state.discardResults [ S.green ], title "Delete any data that exceeds 9 pages", onClick $ Just <<< ToggleDiscard ] [ sicon [ S.alternate, S.trash ] ]
+                            , button [ classes $ [ S.ui, S.button ] <> mwhen state.deduplicateByData [ S.green ], title "Deduplicate results by emitted data", onClick $ Just <<< ToggleDeduplicate ] [ sicon [ S.less ] ]
                             ]
                         ]
                     , div [ classes [ S.ui, S.button, S.green ], HC.style $ CSS.marginRight $ CSS.em 3.0, onClick $ Just <<< (const Execute) ] [ text "Execute" ]
