@@ -239,6 +239,9 @@ impl QueryFilterCore {
         if res.get_type() == "bool" {
             assert!(_ctx.accept.is_none());
             _ctx.accept = Some(res.to_bool());
+        } else if res.get_type() == "NoneType" {
+            assert!(_ctx.accept.is_none());
+            _ctx.accept = Some(false);
         }
         Ok(_ctx)
     }

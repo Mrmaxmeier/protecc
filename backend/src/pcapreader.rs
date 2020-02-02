@@ -85,8 +85,11 @@ fn handle_tcp(data: &[u8], addrs: (IpAddr, IpAddr)) -> Option<Packet> {
     }
 }
 
-pub(crate) async fn read_pcap_file(path: &Path, reassembler: &mut Reassembler) {
-    //    tracyrs::zone!("pcap_read_file");
+pub(crate) async fn read_pcap_file(
+    path: &Path,
+    reassembler: &mut Reassembler,
+) -> Result<(), Box<pcap_parser::PcapError>> {
+    let _guard = tracyrs::FrameGuard::new();
     let start = std::time::Instant::now();
 
     let file = File::open(path).expect("unable to open pcap file");
@@ -107,10 +110,10 @@ pub(crate) async fn read_pcap_file(path: &Path, reassembler: &mut Reassembler) {
     };
 
     let mut reader = if filename.ends_with(".pcapng") {
-        Box::new(PcapNGReader::new(1 << 20, reader).expect("PcapNGReader"))
+        Box::new(PcapNGReader::new(1 << 20, reader)?)
             as Box<dyn PcapReaderIterator<Box<dyn Read + Send>> + Send>
     } else {
-        Box::new(LegacyPcapReader::new(1 << 20, reader).expect("LegacyPcapReader"))
+        Box::new(LegacyPcapReader::new(1 << 20, reader)?)
             as Box<dyn PcapReaderIterator<Box<dyn Read + Send>> + Send>
     };
     let mut if_linktypes = Vec::new();
@@ -216,7 +219,7 @@ pub(crate) async fn read_pcap_file(path: &Path, reassembler: &mut Reassembler) {
             Err(PcapError::Eof) => break,
             Err(PcapError::Incomplete) => {
                 tracyrs::zone!("read_pcap_file", "reader.refill");
-                reader.refill().expect("failed to refill pcap");
+                reader.refill()?;
             }
             Err(e) => panic!("error while reading: {:?}", e),
         }
@@ -225,4 +228,6 @@ pub(crate) async fn read_pcap_file(path: &Path, reassembler: &mut Reassembler) {
     crate::counters::update_counters(|c| {
         c.pcap_processing_milliseconds += start.elapsed().as_millis() as u64
     });
+
+    Ok(())
 }
