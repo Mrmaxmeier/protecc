@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -11,9 +12,7 @@ use crate::reassembly::{Packet, StreamReassembly};
 /*
 TODO(perf/footprint):
 - replace Vec with smallvec
-- replace hashset with same-alloc set (tinyset)
 - replace (sender, usize) with u32 & 0x7fffffff
-- replace hashmap with smallvec?
 
 MAYBE(footprint):
 - global cache of ipaddrs
@@ -297,20 +296,20 @@ pub(crate) struct LightweightStream {
     pub(crate) server_data_len: u32,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct StreamWithData<'a> {
-    pub(crate) stream: &'a Stream,
-    pub(crate) client_payload: &'a [u8],
-    pub(crate) server_payload: &'a [u8],
+#[derive(Clone)]
+pub(crate) struct StreamWithData {
+    pub(crate) stream: Arc<Stream>,
+    pub(crate) client_payload: Arc<Vec<u8>>,
+    pub(crate) server_payload: Arc<Vec<u8>>,
 }
 
-pub(crate) enum StreamDataWrapper<'a> {
-    Stream(&'a Stream),
-    StreamWithDataRef(&'a Stream, Vec<u8>, Vec<u8>),
-    StreamWithData(StreamWithData<'a>),
+pub(crate) enum StreamDataWrapper {
+    Stream(Arc<Stream>),
+    StreamWithDataRef(Arc<Stream>, Arc<Vec<u8>>, Arc<Vec<u8>>),
+    StreamWithData(StreamWithData),
 }
 
-impl<'a> StreamDataWrapper<'a> {
+impl StreamDataWrapper {
     pub(crate) fn as_stream(&self) -> &Stream {
         match self {
             StreamDataWrapper::StreamWithData(swd) => &swd.stream,
@@ -321,18 +320,22 @@ impl<'a> StreamDataWrapper<'a> {
 
     pub(crate) fn as_stream_with_data(&mut self, db: &Database) -> StreamWithData {
         match self {
-            StreamDataWrapper::StreamWithData(swd) => *swd,
+            StreamDataWrapper::StreamWithData(swd) => swd.clone(),
             StreamDataWrapper::StreamWithDataRef(stream, client_payload, server_payload) => {
                 StreamWithData {
-                    stream,
-                    client_payload,
-                    server_payload,
+                    stream: stream.clone(),
+                    client_payload: client_payload.clone(),
+                    server_payload: server_payload.clone(),
                 }
             }
             StreamDataWrapper::Stream(stream) => {
                 let client_data = db.datablob(stream.client_data_id).unwrap().to_vec(); // TODO
                 let server_data = db.datablob(stream.client_data_id).unwrap().to_vec();
-                *self = StreamDataWrapper::StreamWithDataRef(stream, client_data, server_data);
+                *self = StreamDataWrapper::StreamWithDataRef(
+                    stream.clone(),
+                    Arc::new(client_data),
+                    Arc::new(server_data),
+                );
                 self.as_stream_with_data(db)
             }
         }

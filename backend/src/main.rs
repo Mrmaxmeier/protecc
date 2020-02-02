@@ -24,6 +24,7 @@ pub(crate) mod wsserver;
 use reassembly::Reassembler;
 
 use std::env::args;
+use std::path::Path;
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -31,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pcap_folder = args().skip(1).next().unwrap_or("pcaps/".into());
     let mut pcap_process_rx = crate::pcapmanager::PcapManager::start(&pcap_folder);
 
-    let database = database::Database::new();
+    let database = database::Database::new(Path::new(&pcap_folder));
     let mut reassembler = Reassembler::new(database.clone());
 
     let fut = tokio::spawn(async move {

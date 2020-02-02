@@ -1,6 +1,7 @@
 use crate::database::TagID;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use tokio::sync::{mpsc, watch};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -79,18 +80,18 @@ impl ConfigurationHandle {
             color: color.into(),
         };
         let tag_id = tag.as_id();
+        let mut rx = self.rx.clone();
         self.tx
             .send(ConfigurationUpdate::RegisterTag(tag))
             .await
             .unwrap();
-
         // return iff config reflects registered tag
-        while let Some(config) = self.rx.recv().await {
+        while let Some(config) = rx.recv().await {
             if let Some(_) = config.tags.get(&tag_id) {
                 return tag_id;
             }
         }
-        panic!()
+        unreachable!()
     }
 }
 
@@ -102,21 +103,32 @@ pub(crate) struct Configuration {
 }
 
 impl Configuration {
-    pub(crate) fn spawn() -> ConfigurationHandle {
-        let (tx_, rx) = watch::channel(Configuration::default());
+    pub(crate) fn spawn(pcaps_folder: &Path) -> ConfigurationHandle {
+        let mut path = pcaps_folder.to_path_buf();
+        path.push("config.json");
+        let config = Self::load_from_folder(&path).unwrap_or_default();
+        let (tx_, rx) = watch::channel(config.clone());
         let (tx, rx_) = mpsc::channel(1);
-        tokio::spawn(Self::arbitrate(rx_, tx_));
+        tokio::spawn(Self::arbitrate(rx_, tx_, path, config));
         ConfigurationHandle { rx, tx }
+    }
+
+    fn load_from_folder(path: &Path) -> Result<Configuration, std::io::Error> {
+        std::fs::File::open(path)
+            .map(|file| serde_json::from_reader(file).expect("couldn't deserialize config json"))
     }
 
     pub(crate) async fn arbitrate(
         mut rx: mpsc::Receiver<ConfigurationUpdate>,
         tx: watch::Sender<Configuration>,
+        path: PathBuf,
+        mut config: Configuration,
     ) {
-        let mut config = Configuration::default();
         while let Some(msg) = rx.recv().await {
             config.update(msg);
             tx.broadcast(config.clone()).unwrap();
+            let file = std::fs::File::create(path.clone()).unwrap();
+            serde_json::to_writer_pretty(file, &config).expect("failed to persist config to disk");
         }
     }
 

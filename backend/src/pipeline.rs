@@ -1,11 +1,11 @@
-#![allow(unused, dead_code, unused_variables)] // TODO
 use crate::database::{Database, StreamID, TagID};
-use crate::stream::{Stream, StreamDataWrapper, StreamWithData};
+use crate::stream::{Stream, StreamWithData};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::watch;
 
+#[derive(Serialize, Deserialize, Debug)]
 enum PipelineResponse {
     Neutral, // assumed for all packets iff connection to node dies
     TagWith(TagID),
@@ -20,31 +20,31 @@ struct NodeStatus {
 }
 
 #[derive(Debug, Clone, Default)]
-struct ExecutionPlan {
+pub(crate) struct ExecutionPlan {
     map_stage: Vec<Arc<PipelineNode>>,    // wait for these acks
     tag_stage: Vec<Arc<PipelineNode>>,    // wait for these acks
     reduce_stage: Vec<Arc<PipelineNode>>, // wait for these acks
 }
 
 impl ExecutionPlan {
-    pub(crate) async fn submit<'a>(&self, stream: StreamWithData<'a>, db: &'a Database) {
-        /*
-        // db is unused actually
+    pub(crate) async fn process(&self, swd: StreamWithData, db: Arc<Database>) {
+        let stream_id = swd.stream.id.clone();
         if !self.map_stage.is_empty() {
-            let map_results = Vec::new();
+            let mut map_results = Vec::new();
             for node in &self.map_stage {
+                /*
                 if node
                     .filter
                     .matches(&mut StreamDataWrapper::StreamWithData(stream), db)
                 {
-                    node.submit(stream).await;
-                    map_results.push(node.await_resp(stream));
-                }
+                */
+                node.submit(swd.clone()).await;
+                map_results.push(node.await_resp(stream_id));
+                //}
             }
             // TODO: FuturesUnordered
-            for res in futures::future::join_all(map_results) {}
+            for res in &futures::future::join_all(map_results).await {}
         }
-        */
     }
 }
 
@@ -52,7 +52,7 @@ pub(crate) struct PipelineManager {
     nodes: Vec<Arc<PipelineNode>>,
     execution_plan: ExecutionPlan,
     last_streamid: Option<StreamID>,
-    execution_plan_rx: watch::Receiver<ExecutionPlan>,
+    pub(crate) execution_plan_rx: watch::Receiver<ExecutionPlan>,
     selfdestruct_rx: watch::Receiver<bool>,
 }
 
@@ -80,7 +80,10 @@ struct PipelineNode {
 }
 
 impl PipelineNode {
-    pub(crate) async fn submit<'a>(self: Arc<Self>, stream: StreamWithData<'a>) {}
+    pub(crate) async fn submit<'a>(&self, stream: StreamWithData) {}
+    pub(crate) async fn await_resp<'a>(&self, stream_id: StreamID) -> PipelineResponse {
+        PipelineResponse::Neutral
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

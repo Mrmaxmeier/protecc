@@ -14,7 +14,7 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::database::{Database, StreamID, TagID};
 use crate::incr_counter;
 use crate::query;
-use crate::stream::{SegmentWithData, Stream, StreamDetails};
+use crate::stream::{SegmentWithData, StreamDetails};
 use crate::window::WindowHandle;
 
 #[derive(Serialize, Debug)]

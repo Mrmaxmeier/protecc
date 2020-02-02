@@ -67,7 +67,7 @@ impl QueryFilter {
             let swd = swd.as_stream_with_data(db);
             let re = regex::bytes::Regex::new(&regex).unwrap(); // TODO: caching, error handling?
 
-            if !(re.is_match(swd.client_payload) || re.is_match(swd.server_payload)) {
+            if !(re.is_match(&*swd.client_payload) || re.is_match(&*swd.server_payload)) {
                 return false;
             }
         }
@@ -226,12 +226,12 @@ impl Cursor {
         let mut processed_cnt = 0;
         for stream in streams {
             incr_counter!(query_rows_scanned);
-            if self
-                .query
-                .filter
-                .as_ref()
-                .map(|f| f.matches(&mut StreamDataWrapper::Stream(stream), db))
-                != Some(false)
+            if self.query.filter.as_ref().map(|f| {
+                f.matches(
+                    &mut StreamDataWrapper::Stream(std::sync::Arc::new(stream.clone())),
+                    db,
+                )
+            }) != Some(false)
             {
                 incr_counter!(query_rows_returned);
                 buffer.push(stream.clone());

@@ -7,6 +7,7 @@ use crate::stream::Stream;
 use crate::workq::WorkQ;
 use std::collections::{BTreeSet, BinaryHeap, HashMap};
 use std::ops::RangeBounds;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{broadcast, watch, RwLock};
 
@@ -132,7 +133,7 @@ pub(crate) struct Database {
 }
 
 impl Database {
-    pub(crate) fn new() -> Arc<Self> {
+    pub(crate) fn new(pcap_folder: &Path) -> Arc<Self> {
         tracyrs::zone!("Database::new");
         let payload_db = sled::Config::default()
             .cache_capacity(256 << 20) // 256 mb but memory usage grows a lot higher?
@@ -145,7 +146,7 @@ impl Database {
         let streams_queue = WorkQ::new(256, Some(b"StreamsWQ\0"));
         let (stream_notification_tx, stream_notification_rx) = watch::channel(StreamID(0));
         let (stream_update_tx, _) = broadcast::channel(128);
-        let configuration_handle = crate::configuration::Configuration::spawn();
+        let configuration_handle = crate::configuration::Configuration::spawn(pcap_folder);
         let db = Arc::new(Database {
             streams: RwLock::new(Vec::new()),
             tag_index: RwLock::new(TagIndex::new()),
@@ -244,6 +245,7 @@ impl Database {
             let reconstruct_wq = reconstruct_wq.clone();
             let finished_streamid_wq = finished_streamid_wq.clone();
             let db = self.clone();
+            let pipeline_rx = self.pipeline.read().await.execution_plan_rx.clone();
             tokio::spawn(async move {
                 let mut buffer = Vec::new();
                 loop {
@@ -273,8 +275,10 @@ impl Database {
                         let (client_data_id, server_data_id) = tokio::task::block_in_place(|| {
                             (db.store_data(&client_data), db.store_data(&server_data))
                         });
+
                         let service;
                         let tags;
+                        let stream_copy;
 
                         {
                             let mut streams = db.streams.write().await;
@@ -299,6 +303,8 @@ impl Database {
                             stream.client_data_len = client_data.len() as u32;
                             stream.server_data_len = server_data.len() as u32;
 
+                            stream_copy = (*stream).clone();
+
                             service = stream.service();
                             tags = stream.tags.iter().cloned().collect::<Vec<TagID>>();
 
@@ -307,6 +313,15 @@ impl Database {
                             });
                         }
                         db.push_index(stream_id, service, &tags).await;
+
+                        let stream_with_data = crate::stream::StreamWithData {
+                            client_payload: Arc::new(client_data),
+                            server_payload: Arc::new(server_data),
+                            stream: Arc::new(stream_copy),
+                        };
+
+                        let execution_plan = { pipeline_rx.borrow().clone() };
+                        execution_plan.process(stream_with_data, db.clone()).await;
 
                         finished_streamid_wq.push(stream_id).await;
                     }
