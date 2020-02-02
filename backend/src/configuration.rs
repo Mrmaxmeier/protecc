@@ -42,14 +42,6 @@ impl Tag {
     pub fn as_id(&self) -> TagID {
         TagID::from_slug(self.slug.as_bytes())
     }
-    pub fn from_slug_and_owner(slug: String, owner: String) -> Self {
-        Tag {
-            name: slug.clone(),
-            color: String::from("grey"),
-            slug,
-            owner,
-        }
-    }
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -57,6 +49,8 @@ pub(crate) enum ConfigurationUpdate {
     SetService(Service),
     RegisterTag(Tag),
     SetTag(Tag),
+    SetScript(String, String),
+    RemoveScript(String),
 }
 
 #[derive(Clone, Debug)]
@@ -100,6 +94,7 @@ impl ConfigurationHandle {
 pub(crate) struct Configuration {
     pub(crate) tags: HashMap<TagID, Tag>,
     pub(crate) services: HashMap<ServiceID, Service>,
+    pub(crate) scripts: HashMap<String, String>,
 }
 
 impl Configuration {
@@ -142,6 +137,12 @@ impl Configuration {
             }
             ConfigurationUpdate::RegisterTag(tag) => {
                 self.tags.entry(tag.as_id()).or_insert_with(|| tag);
+            }
+            ConfigurationUpdate::SetScript(name, data) => {
+                self.scripts.insert(name, data);
+            }
+            ConfigurationUpdate::RemoveScript(name) => {
+                self.scripts.remove(&name);
             }
         }
     }
