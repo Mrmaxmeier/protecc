@@ -216,7 +216,7 @@ pub(crate) async fn read_pcap_file(path: &Path, reassembler: &mut Reassembler) {
             Err(PcapError::Eof) => break,
             Err(PcapError::Incomplete) => {
                 tracyrs::zone!("read_pcap_file", "reader.refill");
-                reader.refill().unwrap();
+                reader.refill().expect("failed to refill pcap");
             }
             Err(e) => panic!("error while reading: {:?}", e),
         }

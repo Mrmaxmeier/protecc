@@ -356,8 +356,8 @@ starlark_module! { decision_functions =>
         let index = match (service.to_int(), tag.to_int()) {
             (Err(_), Err(_)) => QueryIndex::All,
             (Ok(service), Err(_)) => QueryIndex::Service(service as u16),
-            (Err(_), Ok(tag)) => QueryIndex::Tagged(TagID(tag as u32)),
-            (Ok(service), Ok(tag)) => QueryIndex::ServiceTagged(service as u16, TagID(tag as u32)),
+            (Err(_), Ok(tag)) => QueryIndex::Tagged(TagID(tag as u16)),
+            (Ok(service), Ok(tag)) => QueryIndex::ServiceTagged(service as u16, TagID(tag as u16)),
         };
         modify_decisions(env, |o| {
             o.index = Some(index);
@@ -378,7 +378,7 @@ starlark_module! { decision_functions =>
     }
 
     add_tag(renv env, tag: i64) {
-        modify_decisions(env, |o| o.added_tags.push(TagID(tag as u32)))
+        modify_decisions(env, |o| o.added_tags.push(TagID(tag as u16)))
     }
 
     data_matches_(renv env, regex: String) {

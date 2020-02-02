@@ -228,7 +228,7 @@ impl ConnectionHandler {
                             id: stream.id,
                             client: stream.client,
                             server: stream.server,
-                            features: stream.features,
+                            // features: stream.features,
                             tags: stream.tags,
                             client_data_len: stream.client_data_len,
                             server_data_len: stream.server_data_len,
@@ -392,17 +392,14 @@ impl ConnectionHandler {
                     }
 
                     let verdict = filter_core
-                    .get_verdict(&streams[stream_id.idx()])
-                    .map_err(exception_to_error)?;
-                    if verdict
-                        .accept
-                        != Some(false)
-                    {
+                        .get_verdict(&streams[stream_id.idx()])
+                        .map_err(exception_to_error)?;
+                    if verdict.accept != Some(false) {
                         let stream = streams[stream_id.idx()].as_lightweight();
                         scan_results_ref.push(ScanResult {
                             stream,
                             attached: verdict.attached,
-                            sort_key: verdict.sort_key
+                            sort_key: verdict.sort_key,
                         });
                         crate::incr_counter!(query_rows_returned);
                     }

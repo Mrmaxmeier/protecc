@@ -3,6 +3,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 
 use crate::database::{Database, Segment, Sender, StreamID, StreamPayloadID, TagID};
 use crate::reassembly::{Packet, StreamReassembly};
@@ -27,8 +28,8 @@ pub(crate) struct Stream {
     pub(crate) id: StreamID,
     pub(crate) client: (IpAddr, u16),
     pub(crate) server: (IpAddr, u16),
-    pub(crate) tags: HashSet<TagID>,
-    pub(crate) features: HashMap<TagID, f64>,
+    pub(crate) tags: SmallVec<[TagID; 4]>, // 8b size + 8b tags
+    // pub(crate) features: HashMap<TagID, f64>,
     pub(crate) segments: Vec<Segment>,
     pub(crate) client_data_len: u32,
     pub(crate) client_data_id: StreamPayloadID,
@@ -47,8 +48,8 @@ impl Stream {
             server_data_len: 0,
             client_data_id: StreamPayloadID(0),
             server_data_id: StreamPayloadID(0),
-            tags: HashSet::new(),
-            features: HashMap::new(),
+            tags: SmallVec::new(),
+            // features: HashMap::new(),
         }
     }
 
@@ -240,8 +241,8 @@ impl Stream {
             server_data_len: 0,
             client_data_id: data_id,
             server_data_id: data_id,
-            tags: HashSet::new(),
-            features: HashMap::new(),
+            tags: SmallVec::new(),
+            // features: HashMap::new(),
         }
     }
 
@@ -250,14 +251,27 @@ impl Stream {
             id: self.id.clone(),
             client: self.client.clone(),
             server: self.server.clone(),
-            tags: {
-                let mut buf = self.tags.iter().cloned().collect::<Vec<_>>();
-                buf.sort_by_key(|x| x.0);
-                buf
-            },
+            tags: self.tags.to_vec(),
             client_data_len: self.client_data_len,
             server_data_len: self.server_data_len,
         }
+    }
+
+    pub(crate) fn add_tag(&mut self, tag: TagID) -> bool {
+        if self.tags.contains(&tag) {
+            return false;
+        }
+        self.tags.push(tag);
+        self.tags.sort();
+        true
+    }
+
+    pub(crate) fn remove_tag(&mut self, tag: TagID) -> bool {
+        if self.tags.contains(&tag) {
+            self.tags.retain(|t| *t != tag);
+            return true;
+        }
+        false
     }
 }
 
@@ -331,8 +345,8 @@ pub(crate) struct StreamDetails {
     pub(crate) id: StreamID,
     pub(crate) client: (IpAddr, u16),
     pub(crate) server: (IpAddr, u16),
-    pub(crate) tags: HashSet<TagID>,
-    pub(crate) features: HashMap<TagID, f64>,
+    pub(crate) tags: SmallVec<[TagID; 4]>,
+    //  pub(crate) features: HashMap<TagID, f64>,
     pub(crate) segments: Vec<SegmentWithData>,
     pub(crate) client_data_len: u32,
     pub(crate) server_data_len: u32,

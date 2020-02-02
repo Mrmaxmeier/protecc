@@ -82,7 +82,7 @@ type StreamDetails
     , client :: Addr
     , server :: Addr
     , tags :: Array Id
-    , features :: Object Number
+    -- , features :: Object Number
     , segments :: Array SegmentWithData
     , clientDataLen :: Size
     , serverDataLen :: Size

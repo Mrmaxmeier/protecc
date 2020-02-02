@@ -73,14 +73,14 @@ impl<'de> Deserialize<'de> for StreamPayloadID {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub(crate) struct TagID(pub(crate) u32);
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+pub(crate) struct TagID(pub(crate) u16);
 impl TagID {
     pub fn from_slug(slug: &[u8]) -> Self {
         use std::hash::Hasher;
         let mut hasher = metrohash::MetroHash64::with_seed(0x1337_1337_1337_1337);
         hasher.write(slug);
-        TagID(hasher.finish() as u32)
+        TagID(hasher.finish() as u16)
     }
 }
 
@@ -281,16 +281,16 @@ impl Database {
                             let stream = &mut streams[stream_id.idx()];
 
                             if malformed {
-                                stream.tags.insert(malformed_stream_tag_id);
+                                stream.add_tag(malformed_stream_tag_id);
                             }
                             if cyclic {
-                                stream.tags.insert(cyclic_ack_id);
+                                stream.add_tag(cyclic_ack_id);
                             }
                             if missing_data {
-                                stream.tags.insert(missing_data_id);
+                                stream.add_tag(missing_data_id);
                             }
                             if greedy_reassembly {
-                                stream.tags.insert(greedy_reassembly_id);
+                                stream.add_tag(greedy_reassembly_id);
                             }
 
                             stream.segments = segments;
@@ -377,7 +377,7 @@ impl Database {
     pub(crate) async fn add_tag(&self, stream_id: StreamID, tag_id: TagID) {
         let service = {
             let stream = &mut self.streams.write().await[stream_id.idx()];
-            if !stream.tags.insert(tag_id) {
+            if !stream.add_tag(tag_id) {
                 return;
             }
             stream.server.1
@@ -392,7 +392,7 @@ impl Database {
     pub(crate) async fn remove_tag(&self, stream_id: StreamID, tag_id: TagID) {
         let service = {
             let stream = &mut self.streams.write().await[stream_id.idx()];
-            if !stream.tags.remove(&tag_id) {
+            if !stream.remove_tag(tag_id) {
                 return;
             }
             stream.server.1
