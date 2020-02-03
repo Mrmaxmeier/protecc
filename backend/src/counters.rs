@@ -38,7 +38,6 @@ pub(crate) struct Counters {
     pub(crate) pcap_blocks: u64,
     pub(crate) pcaps_imported: u64,
     pub(crate) db_services: u64,
-    pub(crate) db_streams_rss: u64,
     pub(crate) query_rows_scanned: u64,
     pub(crate) query_rows_returned: u64,
     pub(crate) window_sent: u64,

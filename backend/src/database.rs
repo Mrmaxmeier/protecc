@@ -307,10 +307,6 @@ impl Database {
 
                             service = stream.service();
                             tags = stream.tags.iter().cloned().collect::<Vec<TagID>>();
-
-                            crate::counters::update_counters(|c| {
-                                c.db_streams_rss += std::mem::size_of::<Stream>() as u64
-                            });
                         }
                         db.push_index(stream_id, service, &tags).await;
 
@@ -320,8 +316,8 @@ impl Database {
                             stream: Arc::new(stream_copy),
                         };
 
-                        let execution_plan = { pipeline_rx.borrow().clone() };
-                        execution_plan.process(stream_with_data, db.clone()).await;
+                        let execution_plan = { pipeline_rx.borrow().clone() }; // TODO: recv instead
+                        execution_plan.process(stream_with_data).await;
 
                         finished_streamid_wq.push(stream_id).await;
                     }

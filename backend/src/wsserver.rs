@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -97,6 +98,7 @@ struct StarlarkScanQuery {
 #[serde(rename_all = "camelCase")]
 struct ScanResult {
     stream: crate::stream::LightweightStream,
+    added_tags: SmallVec<[TagID; 4]>,
     attached: Option<serde_json::Value>,
     sort_key: Option<i64>,
 }
@@ -284,10 +286,18 @@ impl ConnectionHandler {
                 tx.send(fetch_index_sizes().await).await.unwrap();
                 let mut chan = tokio::time::throttle(
                     std::time::Duration::SECOND,
-                    self.db.stream_update_tx.subscribe(),
+                    self.db.stream_notification_rx.clone(),
                 );
-                while let Some(_) = chan.next().await {
-                    tx.send(fetch_index_sizes().await).await.unwrap();
+                let mut update_tx = self.db.stream_update_tx.subscribe();
+                loop {
+                    tokio::select! {
+                        _ = chan.next() => {
+                            tx.send(fetch_index_sizes().await).await.unwrap();
+                        }
+                        _ = update_tx.recv() => {
+                            tx.send(fetch_index_sizes().await).await.unwrap();
+                        }
+                    }
                 }
             }
         }
@@ -398,6 +408,7 @@ impl ConnectionHandler {
                         let stream = streams[stream_id.idx()].as_lightweight();
                         scan_results_ref.push(ScanResult {
                             stream,
+                            added_tags: verdict.added_tags,
                             attached: verdict.attached,
                             sort_key: verdict.sort_key,
                         });

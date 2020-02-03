@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             {
                 tracyrs::message!("sleep between pcap imports");
-                tokio::time::delay_for(std::time::Duration::from_millis(250)).await;
+                tokio::time::delay_for(std::time::Duration::from_millis(50)).await;
             }
             reassembler.expire().await;
         }

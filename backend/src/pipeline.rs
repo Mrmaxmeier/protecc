@@ -19,7 +19,7 @@ struct NodeStatus {
     state: Option<Value>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub(crate) struct ExecutionPlan {
     map_stage: Vec<Arc<PipelineNode>>,    // wait for these acks
     tag_stage: Vec<Arc<PipelineNode>>,    // wait for these acks
@@ -27,7 +27,7 @@ pub(crate) struct ExecutionPlan {
 }
 
 impl ExecutionPlan {
-    pub(crate) async fn process(&self, swd: StreamWithData, db: Arc<Database>) {
+    pub(crate) async fn process(&self, swd: StreamWithData) {
         let stream_id = swd.stream.id.clone();
         if !self.map_stage.is_empty() {
             let mut map_results = Vec::new();
@@ -38,11 +38,11 @@ impl ExecutionPlan {
                     .matches(&mut StreamDataWrapper::StreamWithData(stream), db)
                 {
                 */
-                node.submit(swd.clone()).await;
-                map_results.push(node.await_resp(stream_id));
+                node.handle.submit(swd.clone()).await;
+                map_results.push(node.handle.await_resp(stream_id));
                 //}
             }
-            // TODO: FuturesUnordered
+            // TODO: FuturesUnordered?
             for res in &futures::future::join_all(map_results).await {}
         }
     }
@@ -70,19 +70,20 @@ impl PipelineManager {
     }
 }
 
-#[derive(Debug)]
 struct PipelineNode {
     name: String,
     last_acked: u64,
     kind: PipelineKind,
     state: Option<NodeStatus>,
     filter: Option<String>,
+    handle: Box<dyn PipelineNodeI + Sync + Send>,
 }
 
-impl PipelineNode {
-    pub(crate) async fn submit<'a>(&self, stream: StreamWithData) {}
-    pub(crate) async fn await_resp<'a>(&self, stream_id: StreamID) -> PipelineResponse {
-        PipelineResponse::Neutral
+#[async_trait::async_trait]
+trait PipelineNodeI {
+    async fn submit<'a>(&self, stream: StreamWithData) {}
+    async fn await_resp<'a>(&self, stream_id: StreamID) -> PipelineResponse {
+        PipelineResponse::Neutral // TODO
     }
 }
 

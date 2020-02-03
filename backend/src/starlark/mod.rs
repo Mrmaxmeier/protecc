@@ -3,6 +3,7 @@ use crate::database::{Database, StreamID, StreamPayloadID, TagID};
 use crate::query::QueryIndex;
 use crate::stream::Stream;
 use regex::bytes::Regex;
+use smallvec::SmallVec;
 use starlark::codemap::CodeMap;
 use starlark::codemap_diagnostic::Diagnostic;
 use starlark::environment::{Environment, TypeValues};
@@ -15,7 +16,6 @@ use starlark::{
     starlark_fun, starlark_module, starlark_parse_param_type, starlark_signature,
     starlark_signature_extraction, starlark_signatures,
 };
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 pub(crate) struct StreamDecisions {
     pub(crate) index: Option<QueryIndex>,
     pub(crate) accept: Option<bool>,
-    pub(crate) added_tags: Vec<TagID>,
+    pub(crate) added_tags: SmallVec<[TagID; 4]>,
     pub(crate) attached: Option<serde_json::Value>,
     pub(crate) sort_key: Option<i64>,
 }

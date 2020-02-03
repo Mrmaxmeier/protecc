@@ -34,6 +34,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-trait"
+version = "0.1.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8df72488e87761e772f14ae0c2480396810e51b2c2ade912f97f0f7e5b95e3c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1395,6 +1406,7 @@ dependencies = [
 name = "snacc"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64",
  "derive_more",
  "futures",
