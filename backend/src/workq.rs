@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 
 /// Futures-aware mpmc channel with tracy instrumentation.
+#[derive(Debug)]
 pub(crate) struct WorkQ<T> {
     data: Mutex<VecDeque<T>>,
     free: Semaphore,

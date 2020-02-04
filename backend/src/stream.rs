@@ -340,7 +340,7 @@ pub(crate) struct LightweightStream {
     pub(crate) server_data_len: u32,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct StreamWithData {
     pub(crate) stream: Arc<Stream>,
     pub(crate) client_payload: Arc<Vec<u8>>,

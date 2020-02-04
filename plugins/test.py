@@ -5,10 +5,11 @@ import websockets
 import json
 
 connect_message = {
-    "registerActor": {
+    "registerPipelineNode": {
         "name": "Sample Tagger",
         "kind": "Tagger",
-        "filter": {"service": 8080},
+        "metadata_only": False,
+        "filter": None,
     }
 }
 
@@ -16,12 +17,13 @@ async def main():
     uri = "ws://localhost:10000"
     async with websockets.connect(uri) as websocket:
         await websocket.send(json.dumps(dict(id=0, payload=connect_message)))
+        print("registered!")
         while True:
             resp = json.loads(await websocket.recv())["payload"]
             print(resp)
-            resp = resp["newStream"]
+            resp = resp["pipelineStream"]
             await websocket.send(json.dumps(dict(id=0, payload={
-                "ackStream": resp["streamId"]
+                "pipelineResponse": [resp["id"], "neutral"]
             })))
 
 

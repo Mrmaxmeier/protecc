@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, watch, Mutex};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub(crate) enum NodeResponse {
     Neutral, // assumed for all streams if connection to node dies
     ReplacePayloads {
@@ -18,7 +19,7 @@ pub(crate) enum NodeResponse {
 }
 
 // TODO: support multiple nodes per nodeid
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub(crate) struct ExecutionPlan {
     map_stage: Vec<Arc<PipelineNode>>,    // wait for these acks
     tag_stage: Vec<Arc<PipelineNode>>,    // wait for these acks
@@ -26,22 +27,34 @@ pub(crate) struct ExecutionPlan {
 }
 
 impl ExecutionPlan {
+    async fn process_stage(
+        &self,
+        stage: &[Arc<PipelineNode>],
+        swd: &StreamWithData,
+    ) -> SmallVec<[NodeResponse; 4]> {
+        let mut response_futures = Vec::with_capacity(stage.len());
+        for node in stage {
+            /*
+            if node
+                .filter
+                .matches(&mut StreamDataWrapper::StreamWithData(stream), db)
+            {
+            */
+            response_futures.push(node.submit(swd.clone()));
+            //}
+        }
+        // TODO: FuturesUnordered?
+        let mut res = SmallVec::new();
+        for action in &futures::future::join_all(response_futures).await {
+            res.push(action.clone());
+        }
+        res
+    }
+
     pub(crate) async fn process(&self, swd: StreamWithData) {
         if !self.map_stage.is_empty() {
-            let mut map_results = Vec::with_capacity(self.map_stage.len());
-            for node in &self.map_stage {
-                /*
-                if node
-                    .filter
-                    .matches(&mut StreamDataWrapper::StreamWithData(stream), db)
-                {
-                */
-                map_results.push(node.submit(swd.clone()));
-                //}
-            }
-            // TODO: FuturesUnordered?
             let mut changed = false;
-            for action in &futures::future::join_all(map_results).await {
+            for action in self.process_stage(&self.map_stage, &swd).await {
                 if let NodeResponse::ReplacePayloads { new_segments } = action {
                     if changed {
                         debug_assert!(false, "single stream by multiple mappers");
@@ -53,6 +66,21 @@ impl ExecutionPlan {
                     debug_assert!(false, "mapper sent invalid response? {:?}", action);
                 }
             }
+        }
+
+        if !self.tag_stage.is_empty() {
+            for action in self.process_stage(&self.tag_stage, &swd).await {}
+        }
+        if !self.reduce_stage.is_empty() {
+            for action in self.process_stage(&self.reduce_stage, &swd).await {}
+        }
+    }
+
+    fn add_node(&mut self, node: Arc<PipelineNode>) {
+        match node.kind {
+            NodeKind::Mapper => self.map_stage.push(node),
+            NodeKind::Tagger => self.tag_stage.push(node),
+            NodeKind::Reducer => self.reduce_stage.push(node),
         }
     }
 }
@@ -73,7 +101,12 @@ impl PipelineManager {
         }
     }
 
-    pub(crate) async fn register_node(&mut self, node: Arc<PipelineNode>) {}
+    pub(crate) async fn register_node(&mut self, node: Arc<PipelineNode>) {
+        self.execution_plan.add_node(node);
+        self.execution_plan_tx
+            .broadcast(self.execution_plan.clone())
+            .unwrap();
+    }
 
     pub(crate) async fn register_ws(
         db: Arc<crate::database::Database>,
@@ -92,7 +125,7 @@ impl PipelineManager {
             submit_q.clone(),
             results_chan.clone(),
         ));
-        db.pipeline.write().await.register_node(node.clone());
+        db.pipeline.write().await.register_node(node.clone()).await;
 
         (submit_q, results_chan, NodeGuard(db, node))
     }
@@ -117,6 +150,7 @@ enum NodeStatus {
     Errored(String), // permanently stopped
 }
 
+#[derive(Debug)]
 pub(crate) struct PipelineNode {
     name: String,
     status: Mutex<NodeStatus>,

@@ -225,12 +225,22 @@ impl Reassembler {
         }
     }
 
-    async fn submit_stream(&mut self, id: StreamId, stream: StreamReassembly) {
+    async fn submit_stream(&mut self, _id: StreamId, stream: StreamReassembly) {
         if stream.server_to_client.packets.is_empty() {
             incr_counter!(streams_discarded_no_server_packets);
             return;
         }
-        if !stream.server_to_client.packets.iter().any(|x|x.tcp_header.flag_psh) && !stream.client_to_server.packets.iter().any(|x|x.tcp_header.flag_psh) {
+        let any_server_psh = stream
+            .server_to_client
+            .packets
+            .iter()
+            .any(|x| x.tcp_header.flag_psh);
+        let any_client_psh = stream
+            .client_to_server
+            .packets
+            .iter()
+            .any(|x| x.tcp_header.flag_psh);
+        if !any_server_psh && !any_client_psh {
             incr_counter!(streams_discarded_no_data);
             return;
         }
