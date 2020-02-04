@@ -1,6 +1,6 @@
 use crate::database::{Database, StreamID};
-use crate::query::QueryIndex;
 use crate::stream::LightweightStream;
+use crate::stream::QueryIndex;
 use futures::{FutureExt, SinkExt};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;

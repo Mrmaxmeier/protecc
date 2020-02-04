@@ -1,8 +1,8 @@
 use crate::configuration::ConfigurationHandle;
 use crate::incr_counter;
 use crate::pipeline::PipelineManager;
-use crate::query::QueryIndex;
 use crate::reassembly::StreamReassembly;
+use crate::stream::QueryIndex;
 use crate::stream::Stream;
 use crate::workq::WorkQ;
 use std::collections::{BTreeSet, BinaryHeap, HashMap};

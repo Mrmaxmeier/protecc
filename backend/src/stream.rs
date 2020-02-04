@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-use crate::database::{Database, Segment, Sender, StreamID, StreamPayloadID, TagID};
+use crate::database::{Segment, Sender, StreamID, StreamPayloadID, TagID};
 use crate::reassembly::{Packet, StreamReassembly};
 
 /*
@@ -256,6 +256,50 @@ impl Stream {
         }
     }
 
+    pub(crate) fn as_stream_details(
+        &self,
+        mut client_payload: &[u8],
+        mut server_payload: &[u8],
+    ) -> StreamDetails {
+        let mut segments = Vec::new();
+        for segment in self.segments.iter().rev() {
+            let data = match segment.sender {
+                Sender::Client => {
+                    let (a, b) = client_payload.split_at(segment.start);
+                    client_payload = a;
+                    b
+                }
+                Sender::Server => {
+                    let (a, b) = server_payload.split_at(segment.start);
+                    server_payload = a;
+                    b
+                }
+            };
+            segments.push(SegmentWithData {
+                data: data.to_vec(),
+                seq: segment.seq,
+                ack: segment.ack,
+                flags: segment.flags,
+                timestamp: segment.timestamp,
+                sender: segment.sender.clone(),
+            })
+        }
+        segments.reverse();
+        if segments.len() > 10_000 {
+            segments.truncate(10_000); // TODO big streams overwhelm the frontend
+        }
+        StreamDetails {
+            id: self.id,
+            client: self.client,
+            server: self.server,
+            // features: self.features,
+            tags: self.tags.clone(),
+            client_data_len: self.client_data_len,
+            server_data_len: self.server_data_len,
+            segments,
+        }
+    }
+
     pub(crate) fn add_tag(&mut self, tag: TagID) -> bool {
         if self.tags.contains(&tag) {
             return false;
@@ -303,6 +347,7 @@ pub(crate) struct StreamWithData {
     pub(crate) server_payload: Arc<Vec<u8>>,
 }
 
+/*
 pub(crate) enum StreamDataWrapper {
     Stream(Arc<Stream>),
     StreamWithDataRef(Arc<Stream>, Arc<Vec<u8>>, Arc<Vec<u8>>),
@@ -341,6 +386,7 @@ impl StreamDataWrapper {
         }
     }
 }
+*/
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -355,10 +401,13 @@ pub(crate) struct StreamDetails {
     pub(crate) server_data_len: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SegmentWithData {
     pub(crate) sender: crate::database::Sender,
-    #[serde(serialize_with = "crate::serde_aux::buffer_b64")]
+    #[serde(
+        serialize_with = "crate::serde_aux::buffer_b64",
+        deserialize_with = "crate::serde_aux::b64_buffer"
+    )]
     pub(crate) data: Vec<u8>,
     pub(crate) timestamp: u64,
     pub(crate) flags: u8,
@@ -585,4 +634,13 @@ fn make_sequence_numbers_relative(
     } else {
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum QueryIndex {
+    All,
+    Service(u16),
+    Tagged(TagID),
+    ServiceTagged(u16, TagID),
 }

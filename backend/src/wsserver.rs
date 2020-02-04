@@ -9,12 +9,12 @@ use futures::future::FutureExt;
 use futures::sink::SinkExt;
 use futures::StreamExt;
 use tokio::net::TcpStream;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{broadcast, oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::database::{Database, StreamID, TagID};
 use crate::incr_counter;
-use crate::query;
+use crate::stream::QueryIndex;
 use crate::stream::{SegmentWithData, StreamDetails};
 use crate::window::WindowHandle;
 
@@ -43,8 +43,12 @@ enum RequestPayload {
         id: u64,
         params: crate::window::WindowParameters,
     },
-    RegisterActor(crate::pipeline::PipelineRegistration),
     UpdateConfiguration(crate::configuration::ConfigurationUpdate),
+    RegisterPipelineNode(crate::pipeline::WSNodeRegistration),
+    PipelineResponse {
+        stream_id: StreamID,
+        response: crate::pipeline::NodeResponse,
+    },
 }
 
 #[derive(Serialize, Debug)]
@@ -60,6 +64,8 @@ pub(crate) enum ResponsePayload {
         services: HashMap<u16, u64>,
         tags: HashMap<TagID, u64>,
     },
+    PipelineStatus(crate::pipeline::PipelineStatus),
+    PipelineStream(crate::stream::StreamDetails),
 }
 
 #[derive(Deserialize, Debug)]
@@ -68,8 +74,9 @@ enum ResponseStreamKind {
     Counters,
     Configuration,
     IndexSizes,
+    PipelineStatus,
     Window {
-        index: query::QueryIndex,
+        index: QueryIndex,
         params: crate::window::WindowParameters,
     },
     StreamDetails(StreamID),
@@ -118,6 +125,8 @@ struct ConnectionHandler {
     db: Arc<Database>,
     cancel_chans: Mutex<HashMap<u64, oneshot::Sender<()>>>,
     windows: Mutex<HashMap<u64, Arc<WindowHandle>>>,
+    pipeline_results_chan:
+        Mutex<Option<broadcast::Sender<(StreamID, crate::pipeline::NodeResponse)>>>,
     stream_tx: mpsc::Sender<RespFrame>,
 }
 
@@ -300,6 +309,62 @@ impl ConnectionHandler {
                     }
                 }
             }
+            ResponseStreamKind::PipelineStatus => {
+                let mut tx = self.stream_tx.clone();
+                {
+                    let status = self.db.pipeline.read().await.status().await;
+                    tx.send(RespFrame {
+                        id: req_id,
+                        payload: ResponsePayload::PipelineStatus(status),
+                    })
+                    .await
+                    .unwrap();
+                }
+                let mut chan = tokio::time::throttle(
+                    std::time::Duration::SECOND * 5,
+                    self.db.stream_notification_rx.clone(),
+                );
+                while let Some(_) = chan.next().await {
+                    let status = self.db.pipeline.read().await.status().await;
+                    tx.send(RespFrame {
+                        id: req_id,
+                        payload: ResponsePayload::PipelineStatus(status),
+                    })
+                    .await
+                    .unwrap();
+                }
+            }
+        }
+    }
+
+    async fn handle_pipeline_node(
+        &self,
+        req_id: u64,
+        registration_info: &crate::pipeline::WSNodeRegistration,
+    ) {
+        let (submit_q, _node_guard) = {
+            let (submit_q, results_chan, node_guard) =
+                crate::pipeline::PipelineManager::register_ws(self.db.clone(), registration_info)
+                    .await;
+            *self.pipeline_results_chan.lock().await = Some(results_chan);
+            (submit_q, node_guard)
+        };
+
+        let mut tx = self.stream_tx.clone();
+        let mut buffer = Vec::new();
+        loop {
+            submit_q.pop_batch(&mut buffer).await;
+            for swd in buffer.drain(..) {
+                let stream_details = swd
+                    .stream
+                    .as_stream_details(&*swd.client_payload, &*swd.server_payload);
+                tx.send(RespFrame {
+                    id: req_id,
+                    payload: ResponsePayload::PipelineStream(stream_details),
+                })
+                .await
+                .unwrap();
+            }
         }
     }
 
@@ -376,7 +441,7 @@ impl ConnectionHandler {
         };
 
         let filter_core =
-            crate::starlark::QueryFilterCore::new(&query.code, config.clone(), self.db.clone())
+            crate::scripting::StarlarkEngine::new(&query.code, config.clone(), self.db.clone())
                 .map_err(diag_to_error)?;
         let index = filter_core.get_meta().map_err(exception_to_error)?;
 
@@ -476,6 +541,20 @@ impl ConnectionHandler {
             return;
         }
 
+        if let RequestPayload::PipelineResponse {
+            stream_id,
+            response,
+        } = req.payload
+        {
+            let results_chan = self.pipeline_results_chan.lock().await;
+            results_chan
+                .as_ref()
+                .expect("pipeline response without registration?")
+                .send((stream_id, response))
+                .expect("failed to push result to PipelineNode");
+            return;
+        }
+
         // TODO(refactor)
         let self_ = self.clone();
         self.setup_cancellation(&req, async {
@@ -492,7 +571,9 @@ impl ConnectionHandler {
                     let mut handle = self_.db.configuration_handle.clone();
                     handle.tx.send(conf_update.clone()).await.unwrap();
                 }
-                RequestPayload::RegisterActor(..) => todo!(),
+                RequestPayload::RegisterPipelineNode(registration_info) => {
+                    self_.handle_pipeline_node(req.id, registration_info).await;
+                }
                 RequestPayload::AddTag(stream_id, tag_id) => {
                     self_.db.add_tag(*stream_id, *tag_id).await
                 }
@@ -510,6 +591,7 @@ impl ConnectionHandler {
                         .await
                 }
                 RequestPayload::Cancel => unreachable!(),
+                RequestPayload::PipelineResponse { .. } => unreachable!(),
             };
         })
         .await;
@@ -543,6 +625,7 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
         db: database,
         cancel_chans: Mutex::new(HashMap::new()),
         windows: Mutex::new(HashMap::new()),
+        pipeline_results_chan: Mutex::new(None),
         stream_tx,
     });
 
@@ -571,7 +654,7 @@ pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>
                             tokio::spawn(conn_handler.clone().handle_req(frame));
                         } else {
                             let resp = RespFrame {
-                                id: 0x4141_4141,
+                                id: 0x1337_1337_1337_1337,
                                 payload: ResponsePayload::Error(format!("{:?}", frame)),
                             };
                             write

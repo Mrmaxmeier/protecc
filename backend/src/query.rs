@@ -91,15 +91,6 @@ pub(crate) struct Cursor {
     pub(crate) scan_max: usize,    // for progress indicators
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum QueryIndex {
-    All,
-    Service(u16),
-    Tagged(TagID),
-    ServiceTagged(u16, TagID),
-}
-
 impl Query {
     pub(crate) async fn into_cursor(self, db: &Database) -> Cursor {
         let scan_max = match self.index {

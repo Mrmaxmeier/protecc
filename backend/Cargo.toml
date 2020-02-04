@@ -24,7 +24,6 @@ zstd = "0.5.1"
 num_cpus = "1.12.0"
 notify = "5.0.0-pre.2"
 smallvec = { version = "1.2.0", features = ["serde"] }
-async-trait = "0.1.22"
 
 [features]
 tracy = ["tracyrs/tracy_enable"]

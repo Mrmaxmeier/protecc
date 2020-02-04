@@ -7,6 +7,8 @@ use notify::event::{AccessKind, AccessMode, Event, EventKind};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 
+const ENABLE_COMPRESSION: bool = true;
+
 /*
 use crate::database::StreamID;
 struct PcapRange {
@@ -44,7 +46,7 @@ impl PcapManager {
                     continue;
                 }
             }
-            if file_path.extension().and_then(|x| x.to_str()) == Some("zst") {
+            if ENABLE_COMPRESSION && file_path.extension().and_then(|x| x.to_str()) == Some("zst") {
                 tx.send(file_path)
                     .expect("pcapmanager rx dropped before send");
             } else {
@@ -64,7 +66,9 @@ impl PcapManager {
                                 continue;
                             }
                         }
-                        if file_path.extension().and_then(|x| x.to_str()) == Some("zst") {
+                        if ENABLE_COMPRESSION
+                            && file_path.extension().and_then(|x| x.to_str()) == Some("zst")
+                        {
                             tx.send(file_path)
                                 .expect("pcapmanager rx dropped before send");
                         } else {
