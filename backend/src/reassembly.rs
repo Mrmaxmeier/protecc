@@ -188,10 +188,12 @@ impl Reassembler {
                 if server_syns > client_syns {
                     std::mem::swap(&mut client, &mut server);
                 }
+                /*
                 eprintln!(
                     "Packet that does not belong to a stream: {:?} -> {:?} ({} -> {}). Server port guess: {}",
                     p.src_ip, p.dst_ip, p.tcp_header.source_port, p.tcp_header.dest_port, server.1
                 );
+                */
                 incr_counter!(streams_without_syn);
             } else {
                 *self.tcp_initiations_by_ip.entry(client.0).or_default() += 1;

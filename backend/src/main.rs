@@ -46,13 +46,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    println!("connect ws now :)");
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+
     let fut2 = tokio::spawn(async move {
         while let Some(path) = pcap_process_rx.recv().await {
             println!("importing pcap {:?}", path);
-            println!(
-                "{:?}",
-                pcapreader::read_pcap_file(&path, &mut reassembler).await
-            );
+            if let Err(err) = pcapreader::read_pcap_file(&path, &mut reassembler).await {
+                eprintln!("{:?}", err)
+            }
             {
                 tracyrs::message!("sleep between pcap imports");
                 tokio::time::delay_for(std::time::Duration::from_millis(50)).await;

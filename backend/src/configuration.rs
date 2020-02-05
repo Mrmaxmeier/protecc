@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::sync::{mpsc, watch};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Tag {
     pub(crate) slug: String,
@@ -13,7 +13,7 @@ pub(crate) struct Tag {
     pub(crate) owner: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Service {
     pub(crate) slug: String,
@@ -89,7 +89,7 @@ impl ConfigurationHandle {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Configuration {
     pub(crate) tags: HashMap<TagID, Tag>,
@@ -120,10 +120,14 @@ impl Configuration {
         mut config: Configuration,
     ) {
         while let Some(msg) = rx.recv().await {
+            let prev = config.clone();
             config.update(msg);
             tx.broadcast(config.clone()).unwrap();
-            let file = std::fs::File::create(path.clone()).unwrap();
-            serde_json::to_writer_pretty(file, &config).expect("failed to persist config to disk");
+            if prev != config {
+                let file = std::fs::File::create(path.clone()).unwrap();
+                serde_json::to_writer_pretty(file, &config)
+                    .expect("failed to persist config to disk");
+            }
         }
     }
 

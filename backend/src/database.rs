@@ -96,7 +96,7 @@ impl TagIndex {
             tagged: HashMap::new(),
         }
     }
-    fn push(&mut self, stream_id: StreamID, tags: &[TagID]) {
+    pub(crate) fn push(&mut self, stream_id: StreamID, tags: &[TagID]) {
         for tag in tags {
             self.tagged.entry(*tag).or_default().insert(stream_id);
         }
@@ -308,6 +308,7 @@ impl Database {
                             service = stream.service();
                             tags = stream.tags.iter().cloned().collect::<Vec<TagID>>();
                         }
+
                         db.push_index(stream_id, service, &tags).await;
 
                         let stream_with_data = crate::stream::StreamWithData {
@@ -317,8 +318,7 @@ impl Database {
                         };
 
                         let execution_plan = { pipeline_rx.borrow().clone() }; // TODO: recv instead
-                        execution_plan.process(stream_with_data).await;
-
+                        execution_plan.process(stream_with_data, &*db).await;
                         finished_streamid_wq.push(stream_id).await;
                     }
                 }

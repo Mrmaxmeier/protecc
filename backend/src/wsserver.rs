@@ -37,6 +37,7 @@ enum RequestPayload {
     Cancel,
     AddTag(StreamID, TagID),
     RemoveTag(StreamID, TagID),
+    GetTagID(crate::configuration::Tag),
     StarlarkScan(StarlarkScanQuery),
     DoS(DebugDenialOfService),
     WindowUpdate {
@@ -66,6 +67,7 @@ pub(crate) enum ResponsePayload {
     },
     PipelineStatus(crate::pipeline::PipelineStatus),
     PipelineStream(crate::stream::StreamDetails),
+    TagID(TagID),
 }
 
 #[derive(Deserialize, Debug)]
@@ -501,6 +503,16 @@ impl ConnectionHandler {
         }))
     }
 
+    async fn get_tag_id(&self, tag: &crate::configuration::Tag) -> ResponsePayload {
+        let tag_id = self
+            .db
+            .configuration_handle
+            .clone()
+            .register_tag(&tag.slug, &tag.owner, &tag.name, &tag.color)
+            .await;
+        ResponsePayload::TagID(tag_id)
+    }
+
     async fn await_cancel(self: Arc<Self>, id: u64) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         {
@@ -590,6 +602,7 @@ impl ConnectionHandler {
                         })
                         .await
                 }
+                RequestPayload::GetTagID(tag) => self_.send_out(&req, self_.get_tag_id(tag)).await,
                 RequestPayload::Cancel => unreachable!(),
                 RequestPayload::PipelineResponse { .. } => unreachable!(),
             };

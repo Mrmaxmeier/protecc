@@ -1,4 +1,4 @@
-use crate::database::{StreamID, TagID};
+use crate::database::{Database, StreamID, TagID};
 use crate::stream::{Stream, StreamWithData};
 use crate::workq::WorkQ;
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,9 @@ impl ExecutionPlan {
     ) -> SmallVec<[NodeResponse; 4]> {
         let mut response_futures = Vec::with_capacity(stage.len());
         for node in stage {
+            if *node.status.lock().await != NodeStatus::Running {
+                continue;
+            }
             /*
             if node
                 .filter
@@ -51,25 +54,43 @@ impl ExecutionPlan {
         res
     }
 
-    pub(crate) async fn process(&self, swd: StreamWithData) {
+    pub(crate) async fn process(&self, swd: StreamWithData, db: &Database) {
         if !self.map_stage.is_empty() {
             let mut changed = false;
             for action in self.process_stage(&self.map_stage, &swd).await {
-                if let NodeResponse::ReplacePayloads { new_segments } = action {
-                    if changed {
-                        debug_assert!(false, "single stream by multiple mappers");
+                match action {
+                    NodeResponse::Neutral => {}
+                    NodeResponse::ReplacePayloads { new_segments } => {
+                        if changed {
+                            debug_assert!(false, "single stream by multiple mappers");
+                        }
+                        changed = true;
+                        panic!("TODO: mapper {:?}", (new_segments, changed));
                     }
-                    changed = true;
-                    panic!("TODO: mapper {:?}", (new_segments, changed));
-                } else if let NodeResponse::Neutral = action {
-                } else {
-                    debug_assert!(false, "mapper sent invalid response? {:?}", action);
+                    _ => debug_assert!(false, "mapper sent invalid response? {:?}", action),
                 }
             }
         }
 
         if !self.tag_stage.is_empty() {
-            for action in self.process_stage(&self.tag_stage, &swd).await {}
+            let mut stream_tags = swd.stream.tags.clone();
+            for action in self.process_stage(&self.tag_stage, &swd).await {
+                match action {
+                    NodeResponse::Neutral => {}
+                    NodeResponse::TagWith(tags) => {
+                        for tag in &tags {
+                            if !stream_tags.contains(tag) {
+                                db.tag_index.write().await.push(swd.stream.id, &[*tag]);
+                                stream_tags.push(*tag);
+                            }
+                        }
+                    }
+                    _ => debug_assert!(false, "tagger sent invalid response? {:?}", action),
+                }
+            }
+            if stream_tags.len() != swd.stream.tags.len() {
+                db.streams.write().await[swd.stream.id.idx()].tags = stream_tags;
+            }
         }
         if !self.reduce_stage.is_empty() {
             for action in self.process_stage(&self.reduce_stage, &swd).await {}
@@ -131,7 +152,8 @@ impl PipelineManager {
     }
 
     pub(crate) async fn remove_node(&mut self, node: Arc<PipelineNode>) {
-        todo!()
+        *node.results.lock().await = None;
+        // TODO: remove from execution plan?
     }
 
     pub(crate) async fn status(&self) -> PipelineStatus {
@@ -143,7 +165,7 @@ impl PipelineManager {
     }
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 enum NodeStatus {
     Running,         // processing
     Disabled,        // can be reenabled
@@ -157,7 +179,7 @@ pub(crate) struct PipelineNode {
     kind: NodeKind,
     output: Mutex<Option<Value>>,
     submit_q: Arc<WorkQ<StreamWithData>>,
-    results: broadcast::Sender<(StreamID, NodeResponse)>,
+    results: Mutex<Option<broadcast::Sender<(StreamID, NodeResponse)>>>,
 }
 
 impl PipelineNode {
@@ -171,7 +193,7 @@ impl PipelineNode {
             name,
             kind,
             submit_q,
-            results,
+            results: Mutex::new(Some(results)),
             status: Mutex::new(NodeStatus::Running),
             output: Mutex::new(None),
         }
@@ -179,13 +201,18 @@ impl PipelineNode {
 
     async fn submit(&self, swd: StreamWithData) -> NodeResponse {
         let id = swd.stream.id;
-        let mut rx = self.results.subscribe();
+        let mut rx = {
+            match self.results.lock().await.as_ref() {
+                Some(results_chan) => results_chan.subscribe(),
+                None => return NodeResponse::Neutral,
+            }
+        };
         self.submit_q.push(swd).await;
         loop {
-            let (stream_id, result) = rx
-                .recv()
-                .await
-                .expect("pipeline node results chan dropped?"); // TODO: handle pipeline node remove
+            let (stream_id, result) = match rx.recv().await {
+                Ok(v) => v,
+                Err(_) => return NodeResponse::Neutral,
+            };
             if stream_id == id {
                 return result;
             }
