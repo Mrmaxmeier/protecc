@@ -49,7 +49,9 @@ impl ExecutionPlan {
         // TODO: FuturesUnordered?
         let mut res = SmallVec::new();
         for action in &futures::future::join_all(response_futures).await {
-            res.push(action.clone());
+            if let Some(action) = action {
+                res.push(action.clone());
+            }
         }
         res
     }
@@ -151,7 +153,8 @@ impl PipelineManager {
         (submit_q, results_chan, NodeGuard(db, node))
     }
 
-    pub(crate) async fn remove_node(&mut self, node: Arc<PipelineNode>) {
+    pub(crate) async fn remove_node(&mut self, node: Arc<PipelineNode>, status: NodeStatus) {
+        *node.status.lock().await = status;
         *node.results.lock().await = None;
         // TODO: remove from execution plan?
     }
@@ -166,7 +169,7 @@ impl PipelineManager {
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-enum NodeStatus {
+pub(crate) enum NodeStatus {
     Running,         // processing
     Disabled,        // can be reenabled
     Errored(String), // permanently stopped
@@ -199,22 +202,25 @@ impl PipelineNode {
         }
     }
 
-    async fn submit(&self, swd: StreamWithData) -> NodeResponse {
+    async fn submit(&self, swd: StreamWithData) -> Option<NodeResponse> {
         let id = swd.stream.id;
         let mut rx = {
             match self.results.lock().await.as_ref() {
                 Some(results_chan) => results_chan.subscribe(),
-                None => return NodeResponse::Neutral,
+                None => return None,
             }
         };
         self.submit_q.push(swd).await;
         loop {
             let (stream_id, result) = match rx.recv().await {
                 Ok(v) => v,
-                Err(_) => return NodeResponse::Neutral,
+                Err(_) => {
+                    self.submit_q.try_drain().await; // TODO: is this needed?
+                    return None;
+                }
             };
             if stream_id == id {
-                return result;
+                return Some(result);
             }
         }
     }
@@ -268,7 +274,12 @@ impl Drop for NodeGuard {
         let db = self.0.clone();
         tokio::task::spawn(async move {
             let mut pipeline_manager = db.pipeline.write().await;
-            pipeline_manager.remove_node(node).await;
+            pipeline_manager
+                .remove_node(
+                    node,
+                    NodeStatus::Errored("websocket connection lost".into()),
+                )
+                .await;
         });
     }
 }

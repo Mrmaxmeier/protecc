@@ -93,4 +93,19 @@ impl<T> WorkQ<T> {
         }
         self.free.add_permits(permits);
     }
+
+    pub(crate) async fn try_drain(&self) {
+        let mut permits = 1;
+        while let Ok(permit) = self.ready.try_acquire() {
+            permits += 1;
+            permit.forget();
+        }
+        {
+            let mut data = self.data.lock().await;
+            for _ in 0..permits {
+                data.pop_front().expect("invalid WorkQ state");
+            }
+        }
+        self.free.add_permits(permits);
+    }
 }
