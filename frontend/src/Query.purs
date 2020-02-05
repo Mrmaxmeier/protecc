@@ -78,7 +78,7 @@ type Result
   = { stream :: Streams.Stream
     , attached :: Maybe Json
     , sortKey :: Maybe Size
-    , tags :: Array Id
+    , addedTags :: Array Id
     }
 
 data QueryRunState

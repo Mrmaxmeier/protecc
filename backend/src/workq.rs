@@ -95,7 +95,7 @@ impl<T> WorkQ<T> {
     }
 
     pub(crate) async fn try_drain(&self) {
-        let mut permits = 1;
+        let mut permits = 0;
         while let Ok(permit) = self.ready.try_acquire() {
             permits += 1;
             permit.forget();

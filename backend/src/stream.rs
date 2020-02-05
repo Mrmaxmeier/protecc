@@ -415,6 +415,48 @@ pub(crate) struct SegmentWithData {
     pub(crate) ack: u32,
 }
 
+impl SegmentWithData {
+    pub(crate) fn pack(segments: Vec<SegmentWithData>) -> (Vec<u8>, Vec<u8>, Vec<Segment>) {
+        let mut output = Vec::new();
+        let mut client_data = Vec::new();
+        let mut server_data = Vec::new();
+
+        for segment in segments {
+            let SegmentWithData {
+                mut data,
+                sender,
+                seq,
+                ack,
+                flags,
+                timestamp,
+            } = segment;
+            let start = match sender {
+                Sender::Client => {
+                    let start = client_data.len();
+                    client_data.append(&mut data);
+                    start
+                }
+                Sender::Server => {
+                    let start = server_data.len();
+                    server_data.append(&mut data);
+                    start
+                }
+            };
+
+            output.push(Segment {
+                start,
+                sender,
+                seq,
+                ack,
+                flags,
+                timestamp,
+            })
+        }
+
+        (client_data, server_data, output)
+    }
+}
+
 struct LinearizeBySeq<'a> {
     seqs: &'a [(usize, &'a Packet)],
     left_idx: usize,

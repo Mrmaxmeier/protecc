@@ -1,5 +1,5 @@
 use crate::database::{Database, StreamID, TagID};
-use crate::stream::{Stream, StreamWithData};
+use crate::stream::{SegmentWithData, Stream, StreamWithData};
 use crate::workq::WorkQ;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,8 +13,9 @@ use tokio::sync::{broadcast, watch, Mutex};
 pub(crate) enum NodeResponse {
     Neutral, // assumed for all streams if connection to node dies
     ReplacePayloads {
-        new_segments: Vec<crate::stream::SegmentWithData>,
-    }, // TODO
+        segments: Vec<SegmentWithData>,
+        tags: SmallVec<[TagID; 4]>,
+    },
     TagWith(SmallVec<[TagID; 4]>),
 }
 
@@ -57,17 +58,31 @@ impl ExecutionPlan {
     }
 
     pub(crate) async fn process(&self, swd: StreamWithData, db: &Database) {
+        let mut stream_tags = swd.stream.tags.clone();
+
         if !self.map_stage.is_empty() {
             let mut changed = false;
             for action in self.process_stage(&self.map_stage, &swd).await {
                 match action {
                     NodeResponse::Neutral => {}
-                    NodeResponse::ReplacePayloads { new_segments } => {
+                    NodeResponse::ReplacePayloads { segments, tags } => {
                         if changed {
                             debug_assert!(false, "single stream by multiple mappers");
                         }
                         changed = true;
-                        panic!("TODO: mapper {:?}", (new_segments, changed));
+                        for tag in &tags {
+                            if !stream_tags.contains(tag) {
+                                db.tag_index.write().await.push(swd.stream.id, &[*tag]);
+                                stream_tags.push(*tag);
+                            }
+                        }
+                        let (client_data, server_data, segments) = SegmentWithData::pack(segments);
+                        let stream = &mut db.streams.write().await[swd.stream.id.idx()];
+                        stream.client_data_len = client_data.len() as u32;
+                        stream.client_data_id = db.store_data(&client_data);
+                        stream.server_data_len = server_data.len() as u32;
+                        stream.server_data_id = db.store_data(&server_data);
+                        stream.segments = segments;
                     }
                     _ => debug_assert!(false, "mapper sent invalid response? {:?}", action),
                 }
@@ -75,7 +90,6 @@ impl ExecutionPlan {
         }
 
         if !self.tag_stage.is_empty() {
-            let mut stream_tags = swd.stream.tags.clone();
             for action in self.process_stage(&self.tag_stage, &swd).await {
                 match action {
                     NodeResponse::Neutral => {}
@@ -90,9 +104,10 @@ impl ExecutionPlan {
                     _ => debug_assert!(false, "tagger sent invalid response? {:?}", action),
                 }
             }
-            if stream_tags.len() != swd.stream.tags.len() {
-                db.streams.write().await[swd.stream.id.idx()].tags = stream_tags;
-            }
+        }
+
+        if stream_tags.len() != swd.stream.tags.len() {
+            db.streams.write().await[swd.stream.id.idx()].tags = stream_tags;
         }
         if !self.reduce_stage.is_empty() {
             for action in self.process_stage(&self.reduce_stage, &swd).await {}
@@ -154,6 +169,7 @@ impl PipelineManager {
     }
 
     pub(crate) async fn remove_node(&mut self, node: Arc<PipelineNode>, status: NodeStatus) {
+        println!("removing pipeline node: {:?}", status);
         *node.status.lock().await = status;
         *node.results.lock().await = None;
         // TODO: remove from execution plan?
@@ -229,6 +245,13 @@ impl PipelineNode {
         NodeStatusSummary {
             kind: self.kind.clone(),
             status: self.status.lock().await.clone(),
+            queued_streams: self
+                .results
+                .lock()
+                .await
+                .as_ref()
+                .map(|chan| chan.receiver_count())
+                .unwrap_or(0),
         }
     }
 }
@@ -260,6 +283,7 @@ pub(crate) struct NewStreamNotification {
 pub(crate) struct NodeStatusSummary {
     kind: NodeKind,
     status: NodeStatus,
+    queued_streams: usize,
 }
 #[derive(Serialize, Debug)]
 pub(crate) struct PipelineStatus {

@@ -37,7 +37,7 @@ async def main():
         print("registered!")
         while True:
             resp = json.loads(await websocket.recv())["payload"]
-            # print(resp)
+            print(resp)
             stream = resp["pipelineStream"]
             if random.randrange(DICE_ROLL) == 0:
                 await websocket.send(json.dumps(dict(id=0, payload={
