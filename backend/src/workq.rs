@@ -5,7 +5,7 @@ use tokio::sync::{Mutex, Semaphore};
 
 /// Futures-aware mpmc channel with tracy instrumentation.
 #[derive(Debug)]
-pub(crate) struct WorkQ<T> {
+pub struct WorkQ<T> {
     data: Mutex<VecDeque<T>>,
     free: Semaphore,
     ready: Semaphore,
@@ -16,7 +16,7 @@ pub(crate) struct WorkQ<T> {
 }
 
 impl<T> WorkQ<T> {
-    pub(crate) fn new(size: usize, debug_name: Option<&'static [u8]>) -> Arc<Self> {
+    pub fn new(size: usize, debug_name: Option<&'static [u8]>) -> Arc<Self> {
         Arc::new(WorkQ {
             data: Mutex::new(VecDeque::with_capacity(size)),
             free: Semaphore::new(size),
@@ -28,7 +28,7 @@ impl<T> WorkQ<T> {
         })
     }
 
-    pub(crate) async fn push(&self, elem: T) {
+    pub async fn push(&self, elem: T) {
         if let Ok(permit) = self.free.try_acquire() {
             permit.forget();
         } else {
@@ -47,7 +47,40 @@ impl<T> WorkQ<T> {
         self.ready.add_permits(1);
     }
 
-    pub(crate) async fn pop(&self) -> T {
+    pub async fn push_batch(&self, buffer: &mut Vec<T>) {
+        while !buffer.is_empty() {
+            let mut permits = 0;
+            while permits < buffer.len() {
+                if let Ok(permit) = self.free.try_acquire() {
+                    permit.forget();
+                    permits += 1;
+                } else {
+                    break;
+                }
+            }
+            if permits == 0 {
+                self.blocking_push_count.fetch_add(1, Ordering::Relaxed);
+                tracyrs::message!("blocking WorkQ::push_batch");
+                self.free.acquire().await.forget();
+                tracyrs::message!("~blocking WorkQ::push_batch");
+                permits += 1;
+            }
+            debug_assert!(permits > 0 && permits <= buffer.len());
+            let mut data = self.data.lock().await;
+            for elem in buffer.drain(..permits) {
+                // TODO: this is O(n^2) :(
+                data.push_back(elem);
+            }
+            let new_len = data.len();
+            drop(data);
+            if let Some(debug_name) = self.debug_name {
+                tracyrs::emit_plot(debug_name, new_len as f64);
+            }
+            self.ready.add_permits(permits);
+        }
+    }
+
+    pub async fn pop(&self) -> T {
         self.ready.acquire().await.forget();
         let res;
         {
@@ -61,7 +94,7 @@ impl<T> WorkQ<T> {
         res
     }
 
-    pub(crate) async fn pop_batch(&self, buffer: &mut Vec<T>) {
+    pub async fn pop_batch(&self, buffer: &mut Vec<T>) {
         if let Ok(permit) = self.ready.try_acquire() {
             permit.forget();
         } else {
@@ -94,7 +127,7 @@ impl<T> WorkQ<T> {
         self.free.add_permits(permits);
     }
 
-    pub(crate) async fn try_drain(&self) {
+    pub async fn try_drain(&self) {
         let mut permits = 0;
         while let Ok(permit) = self.ready.try_acquire() {
             permits += 1;

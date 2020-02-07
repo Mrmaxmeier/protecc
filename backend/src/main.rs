@@ -27,12 +27,14 @@ use std::env::args;
 use std::path::Path;
 use tokio::net::TcpListener;
 
+const SLEEP_BETWEEN_PCAPS: u64 = 0;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pcap_folder = args().skip(1).next().unwrap_or("pcaps/".into());
     let mut pcap_process_rx = crate::pcapmanager::PcapManager::start(&pcap_folder);
 
-    let database = database::Database::new(Path::new(&pcap_folder));
+    let database = database::Database::open(Path::new(&pcap_folder));
     let mut reassembler = Reassembler::new(database.clone());
 
     let fut = tokio::spawn(async move {
@@ -55,9 +57,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(err) = pcapreader::read_pcap_file(&path, &mut reassembler).await {
                 eprintln!("{:?}", err)
             }
-            {
+            if SLEEP_BETWEEN_PCAPS != 0 {
                 tracyrs::message!("sleep between pcap imports");
-                tokio::time::delay_for(std::time::Duration::from_millis(50)).await;
+                tokio::time::delay_for(std::time::Duration::from_millis(SLEEP_BETWEEN_PCAPS)).await;
             }
             reassembler.expire().await;
         }

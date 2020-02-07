@@ -133,8 +133,9 @@ pub(crate) struct Database {
 }
 
 impl Database {
-    pub(crate) fn new(pcap_folder: &Path) -> Arc<Self> {
+    pub(crate) fn open(pcap_folder: &Path) -> Arc<Self> {
         tracyrs::zone!("Database::new");
+        println!("opening database: {:?}", pcap_folder);
         let payload_db = sled::Config::default()
             .cache_capacity(256 << 20) // 256 mb but memory usage grows a lot higher?
             .flush_every_ms(Some(10000))
@@ -143,6 +144,7 @@ impl Database {
             .path("stream_payloads.sled")
             .open()
             .unwrap();
+        println!("-> done");
         let streams_queue = WorkQ::new(256, Some(b"StreamsWQ\0"));
         let (stream_notification_tx, stream_notification_rx) = watch::channel(StreamID(0));
         let (stream_update_tx, _) = broadcast::channel(128);
@@ -211,7 +213,6 @@ impl Database {
         rx: Arc<WorkQ<StreamReassembly>>,
         streamid_tx: watch::Sender<StreamID>,
     ) {
-        // tracyrs::zone!("ingest_streams");
         let mut config_handle = self.configuration_handle.clone();
         let malformed_stream_tag_id = config_handle
             .register_tag(
@@ -252,17 +253,9 @@ impl Database {
                     reconstruct_wq.pop_batch(&mut buffer).await;
 
                     for (stream_id, stream) in buffer.drain(..) {
-                        let reconstructed = tokio::task::block_in_place(|| {
-                            /*
-                            if stream_id.idx() == 420 {
-                                for _ in 0.. {
-                                    tracyrs::zone!("DEBUG_BLOCK");
-                                    std::thread::sleep(std::time::Duration::from_millis(420));
-                                }
-                            }
-                            */
-                            Stream::reconstruct_segments(stream)
-                        });
+                        let reconstructed =
+                            tokio::task::block_in_place(|| Stream::reconstruct_segments(stream));
+                        //Stream::reconstruct_segments(stream);
                         let crate::stream::StreamSegmentResult {
                             client_data,
                             server_data,
@@ -332,6 +325,7 @@ impl Database {
             let mut buffer = Vec::new();
             loop {
                 finished_streamid_wq.pop_batch(&mut buffer).await;
+                tracyrs::zone!("streamid_tx ooo pq");
                 for stream_id in buffer.drain(..) {
                     if stream_id.idx() == next {
                         streamid_tx.broadcast(stream_id).unwrap();
@@ -351,17 +345,23 @@ impl Database {
             }
         });
 
+        let mut buffer = Vec::new();
+        let mut push_buffer = Vec::new();
         loop {
-            let stream = rx.pop().await;
-            let stream_id = {
+            rx.pop_batch(&mut buffer).await;
+            {
                 let mut streams = self.streams.write().await;
-                tracyrs::zone!("streams push skeleton");
-                let id = StreamID(streams.len());
-                streams.push(Stream::skeleton_from(&stream, id));
-                id
-            };
-
-            reconstruct_wq.push((stream_id, stream)).await;
+                tracyrs::zone!("streams push skeletons");
+                for stream in buffer.drain(..) {
+                    let stream_id = {
+                        let id = StreamID(streams.len());
+                        streams.push(Stream::skeleton_from(&stream, id));
+                        id
+                    };
+                    push_buffer.push((stream_id, stream));
+                }
+            }
+            reconstruct_wq.push_batch(&mut push_buffer).await;
         }
     }
 
