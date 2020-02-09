@@ -85,7 +85,7 @@ fn handle_tcp(data: &[u8], addrs: (IpAddr, IpAddr)) -> Option<Packet> {
     }
 }
 
-pub(crate) async fn read_pcap_file(
+pub async fn read_pcap_file(
     path: &Path,
     reassembler: &mut Reassembler,
 ) -> Result<(), Box<pcap_parser::PcapError>> {

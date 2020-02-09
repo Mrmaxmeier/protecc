@@ -28,3 +28,13 @@ smallvec = { version = "1.2.0", features = ["serde"] }
 [features]
 tracy = ["tracyrs/tracy_enable"]
 
+
+
+
+[lib]
+name = "snacc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "snacc"
+path = "src/bin.rs"

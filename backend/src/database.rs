@@ -120,7 +120,7 @@ impl Service {
     }
 }
 
-pub(crate) struct Database {
+pub struct Database {
     pub(crate) streams: RwLock<Vec<Stream>>,
     pub(crate) stream_notification_rx: watch::Receiver<StreamID>,
     pub(crate) stream_update_tx: broadcast::Sender<StreamID>,
@@ -133,7 +133,7 @@ pub(crate) struct Database {
 }
 
 impl Database {
-    pub(crate) fn open(pcap_folder: &Path) -> Arc<Self> {
+    pub fn open(pcap_folder: &Path) -> Arc<Self> {
         tracyrs::zone!("Database::new");
         println!("opening database: {:?}", pcap_folder);
         let payload_db = sled::Config::default()

@@ -17,12 +17,12 @@ struct PcapRange {
 }
 */
 
-pub(crate) struct PcapManager {
+pub struct PcapManager {
     // imported: Vec<PcapRange>,
 }
 
 impl PcapManager {
-    pub(crate) fn start(pcap_folder: &str) -> mpsc::UnboundedReceiver<PathBuf> {
+    pub fn start(pcap_folder: &str) -> mpsc::UnboundedReceiver<PathBuf> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         let path = PathBuf::from(pcap_folder);

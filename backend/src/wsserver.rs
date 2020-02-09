@@ -619,7 +619,7 @@ impl ConnectionHandler {
     }
 }
 
-pub(crate) async fn accept_connection(stream: TcpStream, database: Arc<Database>) {
+pub async fn accept_connection(stream: TcpStream, database: Arc<Database>) {
     let addr = stream
         .peer_addr()
         .expect("connected streams should have a peer address");

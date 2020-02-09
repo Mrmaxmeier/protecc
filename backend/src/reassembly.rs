@@ -144,7 +144,7 @@ impl StreamId {
     }
 }
 
-pub(crate) struct Reassembler {
+pub struct Reassembler {
     reassemblies: HashMap<StreamId, StreamReassembly>,
     // recently_closed: HashMap<StreamId, u64>,
     latest_timestamp: u64,
@@ -152,7 +152,7 @@ pub(crate) struct Reassembler {
     tcp_initiations_by_ip: HashMap<IpAddr, u64>,
 }
 impl Reassembler {
-    pub(crate) fn new(database: Arc<Database>) -> Self {
+    pub fn new(database: Arc<Database>) -> Self {
         let database_ingest = database.streams_queue.clone();
         Reassembler {
             reassemblies: HashMap::new(),
@@ -251,7 +251,7 @@ impl Reassembler {
         // self.recently_closed.insert(id, timestamp_secs);
     }
 
-    pub(crate) async fn expire(&mut self) {
+    pub async fn expire(&mut self) {
         //        tracyrs::zone!("Reassembler::expire");
         let reassemblies = std::mem::replace(&mut self.reassemblies, HashMap::new());
         for (id, stream) in reassemblies.into_iter() {
