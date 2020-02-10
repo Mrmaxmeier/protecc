@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::database::{Segment, Sender, StreamID, StreamPayloadID, TagID};
-use crate::reassembly::{Packet, StreamReassembly};
+use crate::reassembly::{SPacket, StreamReassembly};
 
 /*
 TODO(perf/footprint):
@@ -23,7 +23,7 @@ MAYBE(footprint):
 // Note: Stream should be small and cheap to clone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Stream {
+pub struct Stream {
     pub(crate) id: StreamID,
     pub(crate) client: (IpAddr, u16),
     pub(crate) server: (IpAddr, u16),
@@ -52,7 +52,7 @@ impl Stream {
         }
     }
 
-    pub(crate) fn reconstruct_segments(stream: StreamReassembly) -> StreamSegmentResult {
+    pub fn reconstruct_segments(stream: StreamReassembly) -> StreamSegmentResult {
         tracyrs::zone!("reconstruct_segments");
         let StreamReassembly {
             mut client_to_server,
@@ -82,13 +82,13 @@ impl Stream {
 
         packets.sort_by_key(|p| p.1.timestamp);
         packets.sort_by_key(|p| p.1.tcp_header.ack_no);
-        packets.sort_by_key(|p| p.1.tcp_header.sequence_no);
+        packets.sort_by_key(|p| p.1.tcp_header.seq_no);
 
         /*
         for (i, (s, p)) in packets.iter().enumerate() {
             println!(
                 "{}: {:?} {} {} {}",
-                i, s, p.tcp_header.sequence_no, p.tcp_header.ack_no, p.tcp_header.flag_ack
+                i, s, p.tcp_header.seq_no, p.tcp_header.ack_no, p.tcp_header.flag_ack
             );
         }
         */
@@ -123,10 +123,10 @@ impl Stream {
                 // ensure ack after seq
                 {
                     tracyrs::zone!("Stream::from", "linearizeBySeqAck");
-                    client_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
+                    client_packets.sort_by_key(|(_, p)| p.tcp_header.seq_no);
                     server_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
                     topo_edges.extend(LinearizeBySeqAck::new(&client_packets, &server_packets));
-                    server_packets.sort_by_key(|(_, p)| p.tcp_header.sequence_no);
+                    server_packets.sort_by_key(|(_, p)| p.tcp_header.seq_no);
                     client_packets.sort_by_key(|(_, p)| p.tcp_header.ack_no);
                     topo_edges.extend(LinearizeBySeqAck::new(&server_packets, &client_packets));
                 }
@@ -181,7 +181,7 @@ impl Stream {
                 *seg_len += 1;
             }
 
-            if pos + *seg_len < packet.tcp_header.sequence_no as usize {
+            if pos + *seg_len < packet.tcp_header.seq_no as usize {
                 missing_data = true;
             }
 
@@ -192,28 +192,13 @@ impl Stream {
                 }
             }
 
-            let th = &packet.tcp_header;
-            let mut flags = 0;
-            flags |= (th.flag_urg as u8) << 5;
-            flags |= (th.flag_ack as u8) << 4;
-            flags |= (th.flag_psh as u8) << 3;
-            flags |= (th.flag_rst as u8) << 2;
-            flags |= (th.flag_syn as u8) << 1;
-            flags |= (th.flag_fin as u8) << 0;
             segments.push(crate::database::Segment {
                 sender,
                 start: pos,
-                flags,
-                seq: th.sequence_no,
-                ack: th.ack_no,
-                timestamp: packet
-                    .timestamp
-                    .map(|ts| {
-                        ts.duration_since(std::time::SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64
-                    })
-                    .unwrap_or(0),
+                flags: packet.tcp_header.flags_as_u8(),
+                seq: packet.tcp_header.seq_no,
+                ack: packet.tcp_header.ack_no,
+                timestamp: packet.timestamp.unwrap_or(0),
             });
         }
 
@@ -319,7 +304,7 @@ impl Stream {
 }
 
 #[derive(Debug)]
-pub(crate) struct StreamSegmentResult {
+pub struct StreamSegmentResult {
     pub(crate) segments: Vec<Segment>,
     pub(crate) client_data: Vec<u8>,
     pub(crate) server_data: Vec<u8>,
@@ -458,14 +443,14 @@ impl SegmentWithData {
 }
 
 struct LinearizeBySeq<'a> {
-    seqs: &'a [(usize, &'a Packet)],
+    seqs: &'a [(usize, &'a SPacket)],
     left_idx: usize,
     right_idx: usize,
     buffer: VecDeque<(u32, u32)>,
 }
 
 impl<'a> LinearizeBySeq<'a> {
-    fn new(seqs: &'a [(usize, &'a Packet)]) -> Self {
+    fn new(seqs: &'a [(usize, &'a SPacket)]) -> Self {
         LinearizeBySeq {
             buffer: VecDeque::new(),
             left_idx: 0,
@@ -486,13 +471,13 @@ impl<'a> Iterator for LinearizeBySeq<'a> {
             if self.right_idx >= self.seqs.len() {
                 return None;
             }
-            let seq_no = self.seqs[self.right_idx].1.tcp_header.sequence_no;
+            let seq_no = self.seqs[self.right_idx].1.tcp_header.seq_no;
             while self.left_idx < self.seqs.len()
-                && self.seqs[self.left_idx].1.tcp_header.sequence_no < seq_no
+                && self.seqs[self.left_idx].1.tcp_header.seq_no < seq_no
             {
                 let left_id = self.seqs[self.left_idx].0 as u32;
                 for (right_id, right) in &self.seqs[self.right_idx..] {
-                    if right.tcp_header.sequence_no != seq_no {
+                    if right.tcp_header.seq_no != seq_no {
                         break;
                     }
                     self.buffer.push_back((left_id, *right_id as u32));
@@ -504,15 +489,15 @@ impl<'a> Iterator for LinearizeBySeq<'a> {
 }
 
 struct LinearizeBySeqAck<'a> {
-    seqs: &'a [(usize, &'a Packet)],
-    acks: &'a [(usize, &'a Packet)],
+    seqs: &'a [(usize, &'a SPacket)],
+    acks: &'a [(usize, &'a SPacket)],
     left_idx: usize,
     right_idx: usize,
     buffer: VecDeque<(u32, u32)>,
 }
 
 impl<'a> LinearizeBySeqAck<'a> {
-    fn new(seqs: &'a [(usize, &'a Packet)], acks: &'a [(usize, &'a Packet)]) -> Self {
+    fn new(seqs: &'a [(usize, &'a SPacket)], acks: &'a [(usize, &'a SPacket)]) -> Self {
         LinearizeBySeqAck {
             buffer: VecDeque::new(),
             left_idx: 0,
@@ -536,7 +521,7 @@ impl<'a> Iterator for LinearizeBySeqAck<'a> {
             if self.acks[self.right_idx].1.tcp_header.flag_ack {
                 let ack = self.acks[self.right_idx].1.tcp_header.ack_no;
                 while self.left_idx < self.seqs.len()
-                    && self.seqs[self.left_idx].1.tcp_header.sequence_no < ack
+                    && self.seqs[self.left_idx].1.tcp_header.seq_no < ack
                 {
                     let left_id = self.seqs[self.left_idx].0 as u32;
                     for (right_id, right) in &self.acks[self.right_idx..] {
@@ -553,7 +538,7 @@ impl<'a> Iterator for LinearizeBySeqAck<'a> {
     }
 }
 
-struct TopoCmpHelper<'a>(u32, (Sender, &'a Packet));
+struct TopoCmpHelper<'a>(u32, (Sender, &'a SPacket));
 impl<'a> PartialEq for TopoCmpHelper<'a> {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
@@ -573,8 +558,8 @@ impl<'a> Ord for TopoCmpHelper<'a> {
 
 fn topo_sort<'a>(
     edges: &[(u32, u32)],
-    packets: &[(Sender, &'a Packet)],
-) -> Option<Vec<(Sender, &'a Packet)>> {
+    packets: &[(Sender, &'a SPacket)],
+) -> Option<Vec<(Sender, &'a SPacket)>> {
     tracyrs::zone!("topo_sort");
     let mut indeg: HashMap<u32, u32> = HashMap::new();
     let mut adj: HashMap<u32, Vec<u32>> = HashMap::new();
@@ -619,9 +604,9 @@ fn make_sequence_numbers_relative(
     a: &mut crate::reassembly::Stream,
     b: &mut crate::reassembly::Stream,
 ) -> Result<(), ()> {
-    fn seq_start(seqs: &[Packet], acks: &[Packet]) -> Option<u32> {
+    fn seq_start(seqs: &[SPacket], acks: &[SPacket]) -> Option<u32> {
         let mut buckets = [None, None, None];
-        for seqno in seqs.iter().map(|p| p.tcp_header.sequence_no).chain(
+        for seqno in seqs.iter().map(|p| p.tcp_header.seq_no).chain(
             acks.iter()
                 .filter(|p| p.tcp_header.flag_ack)
                 .map(|p| p.tcp_header.ack_no),
@@ -637,11 +622,13 @@ fn make_sequence_numbers_relative(
             [None, Some(y), _] => Some(y),
             [_, None, Some(z)] => Some(z),
             _ => {
+                /*
                 eprintln!(
                     "sequence ids cross both boundaries: {:?} (#packets {})",
                     buckets,
                     seqs.len() + acks.len()
                 );
+                */
                 None
             }
         }
@@ -659,13 +646,13 @@ fn make_sequence_numbers_relative(
     });
 
     for p in &mut a.packets {
-        p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(start_seq_a);
+        p.tcp_header.seq_no = p.tcp_header.seq_no.wrapping_sub(start_seq_a);
         if p.tcp_header.flag_ack {
             p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(start_seq_b);
         }
     }
     for p in &mut b.packets {
-        p.tcp_header.sequence_no = p.tcp_header.sequence_no.wrapping_sub(start_seq_b);
+        p.tcp_header.seq_no = p.tcp_header.seq_no.wrapping_sub(start_seq_b);
         if p.tcp_header.flag_ack {
             p.tcp_header.ack_no = p.tcp_header.ack_no.wrapping_sub(start_seq_a);
         }

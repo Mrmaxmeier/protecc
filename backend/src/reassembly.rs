@@ -1,6 +1,7 @@
 use crate::database::Database;
 use crate::incr_counter;
 use crate::workq::WorkQ;
+use arbitrary::{Arbitrary, Result, Unstructured};
 use pktparse::tcp::TcpHeader;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -27,13 +28,73 @@ pub(crate) struct Packet {
     pub(crate) data: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Arbitrary)]
+pub(crate) struct TinyTcpHeader {
+    pub(crate) seq_no: u32,
+    pub(crate) ack_no: u32,
+
+    pub(crate) flag_urg: bool,
+    pub(crate) flag_ack: bool,
+    pub(crate) flag_psh: bool,
+    pub(crate) flag_rst: bool,
+    pub(crate) flag_syn: bool,
+    pub(crate) flag_fin: bool,
+}
+
+impl TinyTcpHeader {
+    fn from_tcpheader(th: &TcpHeader) -> Self {
+        TinyTcpHeader {
+            flag_urg: th.flag_urg,
+            flag_ack: th.flag_ack,
+            flag_psh: th.flag_psh,
+            flag_rst: th.flag_rst,
+            flag_syn: th.flag_syn,
+            flag_fin: th.flag_fin,
+            ack_no: th.ack_no,
+            seq_no: th.sequence_no,
+        }
+    }
+    pub fn flags_as_u8(&self) -> u8 {
+        let mut flags = 0;
+        flags |= (self.flag_urg as u8) << 5;
+        flags |= (self.flag_ack as u8) << 4;
+        flags |= (self.flag_psh as u8) << 3;
+        flags |= (self.flag_rst as u8) << 2;
+        flags |= (self.flag_syn as u8) << 1;
+        flags |= (self.flag_fin as u8) << 0;
+        flags
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+pub(crate) struct SPacket {
+    pub(crate) timestamp: Option<u64>,
+    pub(crate) tcp_header: TinyTcpHeader,
+    pub(crate) data: Vec<u8>,
+}
+
+impl SPacket {
+    pub fn from_packet(p: Packet) -> Self {
+        SPacket {
+            timestamp: p.timestamp.map(|ts| {
+                ts.duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64
+            }),
+
+            tcp_header: TinyTcpHeader::from_tcpheader(&p.tcp_header),
+            data: p.data,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
 pub(crate) struct Stream {
-    unacked: Vec<Packet>,
+    unacked: Vec<SPacket>,
     highest_ack: Option<u32>,
     is_closed: bool,
     latest_packet: Option<u64>,
-    pub(crate) packets: Vec<Packet>, // TODO(footprint/perf): smallvec this
+    pub(crate) packets: Vec<SPacket>, // TODO(footprint/perf): smallvec this
 }
 
 impl Stream {
@@ -54,9 +115,9 @@ impl Stream {
         if p.tcp_header.sequence_no >= self.highest_ack.unwrap_or(0)
             && (p.tcp_header.flag_psh || p.tcp_header.flag_syn || p.tcp_header.flag_fin)
         {
-            self.unacked.push(p)
+            self.unacked.push(SPacket::from_packet(p))
         } else {
-            self.packets.push(p);
+            self.packets.push(SPacket::from_packet(p));
         }
     }
 
@@ -66,10 +127,10 @@ impl Stream {
             || self
                 .unacked
                 .iter()
-                .any(|p| p.tcp_header.sequence_no < ack_number && p.tcp_header.flag_fin);
+                .any(|p| p.tcp_header.seq_no < ack_number && p.tcp_header.flag_fin);
         self.packets.extend(
             self.unacked
-                .drain_filter(|p| p.tcp_header.sequence_no < ack_number),
+                .drain_filter(|p| p.tcp_header.seq_no < ack_number),
         );
     }
 
@@ -79,7 +140,7 @@ impl Stream {
         self.packets.retain(|p| {
             let th = &p.tcp_header;
             seen.insert((
-                th.sequence_no,
+                th.seq_no,
                 th.ack_no,
                 th.flag_syn,
                 th.flag_psh,
@@ -92,7 +153,7 @@ impl Stream {
 }
 
 #[derive(Debug)]
-pub(crate) struct StreamReassembly {
+pub struct StreamReassembly {
     pub(crate) server: (IpAddr, u16),
     pub(crate) client: (IpAddr, u16),
     pub(crate) client_to_server: Stream,
@@ -101,6 +162,7 @@ pub(crate) struct StreamReassembly {
     pub(crate) reset: bool,
     pub(crate) malformed: bool,
 }
+
 impl StreamReassembly {
     fn get_stream(&mut self, p: &Packet) -> &mut Stream {
         if (p.src_ip, p.tcp_header.source_port) == self.server {
@@ -129,6 +191,23 @@ impl StreamReassembly {
     }
     fn is_done(&self) -> bool {
         self.reset || (self.client_to_server.is_closed && self.server_to_client.is_closed)
+    }
+}
+
+impl Arbitrary for StreamReassembly {
+    fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
+        use std::net::Ipv4Addr;
+        let ip1 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, u8::arbitrary(u)?));
+        let ip2 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, u8::arbitrary(u)?));
+        Ok(StreamReassembly {
+            server: (ip1, u16::arbitrary(u)?),
+            client: (ip2, u16::arbitrary(u)?),
+            client_to_server: Stream::arbitrary(u)?,
+            server_to_client: Stream::arbitrary(u)?,
+            latest_timestamp: u64::arbitrary(u)?,
+            reset: bool::arbitrary(u)?,
+            malformed: bool::arbitrary(u)?,
+        })
     }
 }
 
