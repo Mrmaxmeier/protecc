@@ -426,11 +426,18 @@ impl Database {
         */
         match index {
             QueryIndex::All => {
+                use std::ops::Bound;
+                // FIXME: this breaks iff db.streams.is_empty!
+                let start = match r.start_bound() {
+                    Bound::Included(start) => start.idx(),
+                    Bound::Excluded(start) => start.idx() + 1,
+                    Bound::Unbounded => 0,
+                };
                 return match r.end_bound() {
-                    std::ops::Bound::Included(end) => f(&mut (0..=end.idx()).map(StreamID)),
-                    std::ops::Bound::Excluded(end) => f(&mut (0..end.idx()).map(StreamID)),
-                    std::ops::Bound::Unbounded => unreachable!(),
-                }
+                    Bound::Included(end) => f(&mut (start..=end.idx()).map(StreamID)),
+                    Bound::Excluded(end) => f(&mut (start..end.idx()).map(StreamID)),
+                    Bound::Unbounded => unreachable!(),
+                };
             }
             QueryIndex::Service(port) => {
                 let services = self.services.read().await;
