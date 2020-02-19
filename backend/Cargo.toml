@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 tokio = { version = "0.2.7", features = ["macros", "sync", "tcp", "rt-core", "rt-threaded", "time", "stream", "blocking"]}
-tokio-tungstenite = { git = "https://github.com/snapview/tokio-tungstenite", branch="master" }
+tokio-tungstenite = "0.10.1"
 futures = { version = "0.3.1", default-features = false, features = ["alloc"] }
 pktparse = "0.4.1"
 pcap-parser = { version = "0.8.2", features = ["data"] }
