@@ -81,7 +81,6 @@ const Tag = Record({
 });
 export type Tag = Static<typeof Tag>
 const Service = Record({
-    id: Number,
     slug: String,
     port: Number,
     name: String

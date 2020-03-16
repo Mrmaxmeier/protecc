@@ -323,7 +323,7 @@ impl ConnectionHandler {
                     .unwrap();
                 }
                 let mut chan = tokio::time::throttle(
-                    std::time::Duration::SECOND * 5,
+                    std::time::Duration::MILLISECOND * 250,
                     self.db.stream_notification_rx.clone(),
                 );
                 while let Some(_) = chan.next().await {

@@ -205,6 +205,7 @@ pub(crate) struct PipelineNode {
     name: String,
     status: Mutex<NodeStatus>,
     kind: NodeKind,
+    processed_streams: Mutex<u64>,
     output: Mutex<Option<Value>>,
     submit_q: Arc<WorkQ<StreamWithData>>,
     results: Mutex<Option<broadcast::Sender<(StreamID, NodeResponse)>>>,
@@ -224,6 +225,7 @@ impl PipelineNode {
             results: Mutex::new(Some(results)),
             status: Mutex::new(NodeStatus::Running),
             output: Mutex::new(None),
+            processed_streams: Mutex::new(0),
         }
     }
 
@@ -245,6 +247,7 @@ impl PipelineNode {
                 }
             };
             if stream_id == id {
+                *self.processed_streams.lock().await += 1;
                 return Some(result);
             }
         }
@@ -254,12 +257,15 @@ impl PipelineNode {
         NodeStatusSummary {
             kind: self.kind.clone(),
             status: self.status.lock().await.clone(),
+            name: self.name.clone(),
+            output: self.output.lock().await.clone(),
+            processed_streams: *self.processed_streams.lock().await,
             queued_streams: self
                 .results
                 .lock()
                 .await
                 .as_ref()
-                .map(|chan| chan.receiver_count())
+                .map(|chan| chan.receiver_count() as u64)
                 .unwrap_or(0),
         }
     }
@@ -290,10 +296,14 @@ pub(crate) struct NewStreamNotification {
 }
 
 #[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct NodeStatusSummary {
+    name: String,
+    output: Option<Value>,
     kind: NodeKind,
     status: NodeStatus,
-    queued_streams: usize,
+    queued_streams: u64,
+    processed_streams: u64,
 }
 #[derive(Serialize, Debug)]
 pub(crate) struct PipelineStatus {
