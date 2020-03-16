@@ -657,8 +657,14 @@ pub async fn accept_connection(stream: TcpStream, database: Arc<Database>) {
     while let Some(msg) = read.next().await {
         match msg {
             SelectKind::In(rmsg) => {
+                let msg = match rmsg {
+                    Ok(val) => val,
+                    Err(e) => {
+                        eprintln!("{:?}", e);
+                        break;
+                    }
+                };
                 incr_counter!(ws_rx);
-                let msg = rmsg.expect("read.next().is_err()");
                 match msg {
                     Message::Text(text) => {
                         let frame = serde_json::from_str::<ReqFrame>(&text);

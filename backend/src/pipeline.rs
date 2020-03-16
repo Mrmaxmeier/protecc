@@ -158,12 +158,14 @@ impl PipelineManager {
     ) {
         let (results_chan, _) = broadcast::channel(4);
         let submit_q = WorkQ::new(32, None);
+        let current_stream_id = db.stream_notification_rx.clone().recv().await;
 
         let node = Arc::new(crate::pipeline::PipelineNode::new(
             registration_info.name.clone(),
             registration_info.kind.clone(),
             submit_q.clone(),
             results_chan.clone(),
+            current_stream_id,
         ));
         db.pipeline.write().await.register_node(node.clone()).await;
 
@@ -209,6 +211,7 @@ pub(crate) struct PipelineNode {
     output: Mutex<Option<Value>>,
     submit_q: Arc<WorkQ<StreamWithData>>,
     results: Mutex<Option<broadcast::Sender<(StreamID, NodeResponse)>>>,
+    missed_streams_until: Mutex<Option<StreamID>>,
 }
 
 impl PipelineNode {
@@ -217,6 +220,7 @@ impl PipelineNode {
         kind: NodeKind,
         submit_q: Arc<WorkQ<StreamWithData>>,
         results: broadcast::Sender<(StreamID, NodeResponse)>,
+        current_stream_id: Option<StreamID>,
     ) -> PipelineNode {
         PipelineNode {
             name,
@@ -226,6 +230,7 @@ impl PipelineNode {
             status: Mutex::new(NodeStatus::Running),
             output: Mutex::new(None),
             processed_streams: Mutex::new(0),
+            missed_streams_until: Mutex::new(current_stream_id),
         }
     }
 
@@ -267,6 +272,12 @@ impl PipelineNode {
                 .as_ref()
                 .map(|chan| chan.receiver_count() as u64)
                 .unwrap_or(0),
+            missed_streams: self
+                .missed_streams_until
+                .lock()
+                .await
+                .map(|sid| sid.idx() as u64)
+                .unwrap_or(0),
         }
     }
 }
@@ -304,6 +315,7 @@ pub(crate) struct NodeStatusSummary {
     status: NodeStatus,
     queued_streams: u64,
     processed_streams: u64,
+    missed_streams: u64,
 }
 #[derive(Serialize, Debug)]
 pub(crate) struct PipelineStatus {

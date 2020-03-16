@@ -6,7 +6,7 @@ import Logo from './logo.png';
 import { Dashboard } from '../Dashboard/Dashboard';
 import { Connected } from '../Api/ProteccApi';
 import { Streams } from '../Streams/Streams';
-import { Taggers } from '../Taggers/Taggers';
+import { Pipeline } from '../Pipeline/Pipeline';
 
 
 function ConnectionStatus() {
@@ -29,7 +29,7 @@ export function AppLayout() {
         { path: "/streams", name: "Streams", component: <Streams /> },
         { path: "/config", name: "Configuration", component: <></> },
         { path: "/query", name: "Query", component: <></> },
-        { path: "/taggers", name: "Taggers", component: <Taggers /> },
+        { path: "/pipeline", name: "Taggers & Co", component: <Pipeline /> },
     ];
 
     let [navOpen, setNavOpen] = useState(false);
