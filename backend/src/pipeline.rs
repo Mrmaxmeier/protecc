@@ -110,7 +110,9 @@ impl ExecutionPlan {
             db.streams.write().await[swd.stream.id.idx()].tags = stream_tags;
         }
         if !self.reduce_stage.is_empty() {
-            for action in self.process_stage(&self.reduce_stage, &swd).await {}
+            for action in self.process_stage(&self.reduce_stage, &swd).await {
+                todo!();
+            }
         }
     }
 
@@ -180,11 +182,18 @@ impl PipelineManager {
         for mapper in &self.execution_plan.map_stage {
             nodes.insert(mapper.name.clone(), mapper.status_summary().await);
         }
+        for mapper in &self.execution_plan.tag_stage {
+            nodes.insert(mapper.name.clone(), mapper.status_summary().await);
+        }
+        for mapper in &self.execution_plan.reduce_stage {
+            nodes.insert(mapper.name.clone(), mapper.status_summary().await);
+        }
         PipelineStatus { nodes }
     }
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub(crate) enum NodeStatus {
     Running,         // processing
     Disabled,        // can be reenabled
@@ -257,6 +266,7 @@ impl PipelineNode {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub(crate) enum NodeKind {
     Mapper,
     Reducer,

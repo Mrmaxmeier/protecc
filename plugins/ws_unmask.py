@@ -11,7 +11,7 @@ name = "WS-Unmask"
 registerPipelineNode = {
     "registerPipelineNode": {
         "name": name,
-        "kind": "Mapper",
+        "kind": "mapper",
         "metadata_only": False,
         "filter": 'data_matches("Upgrade: websocket")',
     }

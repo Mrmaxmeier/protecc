@@ -11,7 +11,7 @@ DICE_ROLL = 1337
 registerPipelineNode = {
     "registerPipelineNode": {
         "name": name,
-        "kind": "Tagger",
+        "kind": "tagger",
         "metadata_only": False,
         "filter": None,
     }
@@ -26,9 +26,10 @@ getTagID = {
     }
 }
 
+
 async def main():
     uri = "ws://localhost:10000"
-    async with websockets.connect(uri, max_size=25<<20) as websocket:
+    async with websockets.connect(uri, max_size=25 << 20) as websocket:
         await websocket.send(json.dumps(dict(id=0, payload=getTagID)))
         tag_id = json.loads(await websocket.recv())["payload"]["tagID"]
         print(f"{tag_id = :#x}")
@@ -40,13 +41,28 @@ async def main():
             print(resp)
             stream = resp["pipelineStream"]
             if random.randrange(DICE_ROLL) == 0:
-                await websocket.send(json.dumps(dict(id=0, payload={
-                    "pipelineResponse": [stream["id"], {"tagWith": [tag_id]}]
-                })))
+                await websocket.send(
+                    json.dumps(
+                        dict(
+                            id=0,
+                            payload={
+                                "pipelineResponse": [
+                                    stream["id"],
+                                    {"tagWith": [tag_id]},
+                                ]
+                            },
+                        )
+                    )
+                )
             else:
-                await websocket.send(json.dumps(dict(id=0, payload={
-                    "pipelineResponse": [stream["id"], "neutral"]
-                })))
+                await websocket.send(
+                    json.dumps(
+                        dict(
+                            id=0,
+                            payload={"pipelineResponse": [stream["id"], "neutral"]},
+                        )
+                    )
+                )
 
 
 asyncio.get_event_loop().run_until_complete(main())

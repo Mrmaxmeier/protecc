@@ -71,7 +71,6 @@ export const Api: Context<ProteccApi> = createContext(api);
 
 // TODO: type
 export type Counters = { [name: string]: number }
-export const Counters = createContext<Counters | null>(null);
 
 
 const Tag = Record({
