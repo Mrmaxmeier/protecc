@@ -107,14 +107,8 @@ export const Connected = createContext<ConnectionStatus>('disconnected');
 
 
 export const ApiProvider: React.FC = ({ children }) => {
-    const [counters, setCounters] = useState<Counters | null>(null);
     const [config, setConfig] = useState<Configuration | null>(null);
     const [connected, setConnected] = useState<ConnectionStatus>(api.isConnected ? 'connected' : 'disconnected');
-
-
-    useEffect(() => api.listen({ watch: 'counters' }, ({ counters }) =>
-        setCounters((old) => old === null ? counters : { ...old, ...counters })
-    ), []);
 
     useEffect(() => api.listen({ watch: 'configuration' }, (msg) =>
         setConfig(OuterConfiguration.check(msg).configuration)
@@ -131,16 +125,13 @@ export const ApiProvider: React.FC = ({ children }) => {
         }
     }, [])
 
-
     return (
         <Api.Provider value={api}>
-            <Counters.Provider value={counters}>
-                <Config.Provider value={config}>
-                    <Connected.Provider value={connected}>
-                        {children}
-                    </Connected.Provider>
-                </Config.Provider>
-            </Counters.Provider>
+            <Config.Provider value={config}>
+                <Connected.Provider value={connected}>
+                    {children}
+                </Connected.Provider>
+            </Config.Provider>
         </Api.Provider>
     )
 }

@@ -1,9 +1,19 @@
-import React, { useContext } from 'react';
-import { Counters } from '../Api/ProteccApi';
+import React, { useContext, useState, useEffect } from 'react';
+import { Counters, Api } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
 
 export function Dashboard() {
-    let counters = useContext(Counters);
+    let api = useContext(Api)
+    const [counters, setCounters] = useState<Counters | null>(null);
+
+    useEffect(() => api.listen({ watch: 'counters' }, ({ counters }) =>
+        setCounters((old) => old === null ? counters : { ...old, ...counters })
+    ), [api]);
+
     if (counters == null) return <Loading />;
-    return <pre>{JSON.stringify(counters)}</pre>;
+    let countersSorted: { [key: string]: number } = {}
+    Object.keys(counters).sort().forEach((key) => {
+        countersSorted[key] = counters[key];
+    });
+    return <pre>{JSON.stringify(countersSorted, null, 2)}</pre>;
 }
