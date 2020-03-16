@@ -29,16 +29,22 @@ export class ProteccApi {
         return id;
     }
 
+    emitOn(id: number, payload: any) {
+        this.socket.emit('msg', JSON.stringify({ id, payload }));
+    }
+
     listen(payload: any, cb: (msg: any) => void): () => void {
         let id: number | null = null
         let cleanup = this.onConnect(() => {
-            let id = this.emit(payload);
+            id = this.emit(payload);
             this.listeners[id] = cb;
         })
         return () => {
             cleanup()
-            if (id && this.listeners[id])
+            if (id !== null && this.listeners[id]) {
                 delete this.listeners[id]
+                this.emitOn(id, 'cancel')
+            }
         }
     }
 

@@ -4,6 +4,7 @@ import { Loading } from '../Components/Loading';
 import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput } from '@patternfly/react-core';
 import { onEnter, nanToNull } from '../Util';
 import { useHistory, useParams } from 'react-router-dom';
+import { ColoredDot } from '../Components/ColoredDot';
 
 
 interface Params {
@@ -49,13 +50,12 @@ function PortMenu({ port, tag }: Params) {
             placeholder={'Port'}
             value={input}
             type='text'
+            id='portinput'
             onChange={setInput}
-            aria-label='text'
             css=''
             onKeyPress={onEnter(() => history.push(makeUrl({ port: nanToNull(parseInt(input)), tag })))}
         />,
-    ];
-    items.concat(Object.entries(config.services).map(([id, service]) =>
+    ].concat(Object.entries(config.services).map(([id, service]) =>
         <OptionsMenuItem
             isSelected={port === service.port}
             key={id}
@@ -73,21 +73,27 @@ function TagMenu(params: Params) {
     let history = useHistory();
     let config = useContext(Config);
 
-    let selectedTag = params.tag !== null && config !== null && config.services[params.tag] ? config.services[params.tag] : null
+
+    let selectedTag = params.tag !== null && config !== null && config.tags[params.tag] ? config.tags[params.tag] : null
 
     if (config === null)
         return <Loading />
 
-
-    let items = Object.entries(config.tags).map(([id, tag]) =>
+    let items = [
+        <OptionsMenuItem
+            isSelected={params.tag === null}
+            key={'empty'}
+            onSelect={() => history.push(makeUrl({ port: params.port, tag: null }))}
+        >&nbsp;</OptionsMenuItem>
+    ].concat(Object.entries(config.tags).map(([id, tag]) =>
         <OptionsMenuItem
             isSelected={params.tag === id}
             key={id}
             onSelect={() => history.push(makeUrl({ port: params.port, tag: id }))}
         >
-            {tag.name}
+            <ColoredDot color={tag.color} /> {tag.name}
         </OptionsMenuItem>
-    )
+    ))
 
 
     return <Menu name={selectedTag === null ? 'Tag' : selectedTag.name} id='tag-menu' menuItems={items} />
