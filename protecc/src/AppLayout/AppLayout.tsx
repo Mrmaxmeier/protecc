@@ -7,6 +7,7 @@ import { Dashboard } from '../Dashboard/Dashboard';
 import { Connected } from '../Api/ProteccApi';
 import { Streams } from '../Streams/Streams';
 import { Pipeline } from '../Pipeline/Pipeline';
+import { Configuration } from '../Configuration/Configuration';
 
 
 function ConnectionStatus() {
@@ -27,7 +28,7 @@ export function AppLayout() {
     let pages = [
         { path: "/", name: "Dashboard", component: <Dashboard /> },
         { path: "/streams", name: "Streams", component: <Streams /> },
-        { path: "/config", name: "Configuration", component: <></> },
+        { path: "/config", name: "Configuration", component: <Configuration /> },
         { path: "/query", name: "Query", component: <></> },
         { path: "/pipeline", name: "Taggers & Co", component: <Pipeline /> },
     ];

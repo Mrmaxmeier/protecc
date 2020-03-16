@@ -166,6 +166,7 @@ impl PipelineManager {
             submit_q.clone(),
             results_chan.clone(),
             current_stream_id,
+            false,
         ));
         db.pipeline.write().await.register_node(node.clone()).await;
 
@@ -212,6 +213,7 @@ pub(crate) struct PipelineNode {
     submit_q: Arc<WorkQ<StreamWithData>>,
     results: Mutex<Option<broadcast::Sender<(StreamID, NodeResponse)>>>,
     missed_streams_until: Mutex<Option<StreamID>>,
+    is_starlark: bool,
 }
 
 impl PipelineNode {
@@ -221,6 +223,7 @@ impl PipelineNode {
         submit_q: Arc<WorkQ<StreamWithData>>,
         results: broadcast::Sender<(StreamID, NodeResponse)>,
         current_stream_id: Option<StreamID>,
+        is_starlark: bool,
     ) -> PipelineNode {
         PipelineNode {
             name,
@@ -231,6 +234,7 @@ impl PipelineNode {
             output: Mutex::new(None),
             processed_streams: Mutex::new(0),
             missed_streams_until: Mutex::new(current_stream_id),
+            is_starlark,
         }
     }
 
@@ -278,6 +282,7 @@ impl PipelineNode {
                 .await
                 .map(|sid| sid.idx() as u64)
                 .unwrap_or(0),
+            is_starlark: self.is_starlark,
         }
     }
 }
@@ -310,6 +315,7 @@ pub(crate) struct NewStreamNotification {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct NodeStatusSummary {
     name: String,
+    is_starlark: bool,
     output: Option<Value>,
     kind: NodeKind,
     status: NodeStatus,

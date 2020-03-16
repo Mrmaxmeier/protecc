@@ -22,7 +22,7 @@ getTagID = {
         "slug": "dice_roll",
         "owner": name,
         "name": "Dice Roll",
-        "color": "gray",
+        "color": "grey",
     }
 }
 

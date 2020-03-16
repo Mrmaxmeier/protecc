@@ -1,9 +1,9 @@
 import React, { useState, useContext, useEffect, FC } from 'react';
 import { Api } from '../Api/ProteccApi';
-import { Record, Static, Dictionary, Number, Union, Literal, String } from 'runtypes';
+import { Record, Static, Dictionary, Number, Union, Literal, String, Boolean } from 'runtypes';
 import { EmptyState, Gallery, GalleryItem, Card, CardHead, CardActions, Dropdown, KebabToggle, CardBody, CardFooter, DropdownItem, DropdownSeparator, Progress, ProgressVariant, Title, EmptyStateVariant, EmptyStateIcon } from '@patternfly/react-core';
 import { Loading } from '../Components/Loading';
-import { CubesIcon } from '@patternfly/react-icons';
+import { CubesIcon, PluggedIcon, ConnectedIcon } from '@patternfly/react-icons';
 
 
 const NodeKind = Union(
@@ -26,6 +26,7 @@ const NodeStatusSummary = Record({
     queuedStreams: Number,
     processedStreams: Number,
     missedStreams: Number,
+    isStarlark: Boolean,
 })
 type NodeStatusSummary = Static<typeof NodeStatusSummary>
 
@@ -36,7 +37,7 @@ const PipelineStatus = Record({
 })
 type PipelineStatus = Static<typeof PipelineStatus>
 
-const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams, processedStreams, missedStreams }) => {
+const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams, processedStreams, missedStreams, isStarlark }) => {
     let [isOpen, setIsOpen] = useState(false)
 
     const dropdownItems = [
@@ -65,6 +66,9 @@ const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams,
     let progress = processedStreams ? (processedStreams + queuedStreams) / processedStreams : 0;
     return <Card>
         <CardHead>
+            <span style={{ marginRight: '.3em' }}>
+                {isStarlark ? <PluggedIcon /> : <ConnectedIcon />}
+            </span>
             {name}
             <CardActions>
                 <Dropdown
