@@ -3,7 +3,6 @@ import './App.css';
 import { ApiProvider } from './Api/ProteccApi';
 import { AppLayout } from './AppLayout/AppLayout';
 
-
 function App() {
   return (
     <ApiProvider>

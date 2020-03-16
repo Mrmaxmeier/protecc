@@ -1,10 +1,15 @@
-import React, { useContext, useState } from 'react';
-import { Config } from '../Api/ProteccApi';
+import React, { useContext, useState, useEffect } from 'react';
+import { Config, Api } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
-import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput } from '@patternfly/react-core';
+import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, FlexModifiers, Switch, Modal } from '@patternfly/react-core';
 import { onEnter, nanToNull } from '../Util';
+import { Table, TableHeader, TableBody, cellWidth, RowWrapperProps } from '@patternfly/react-table';
 import { useHistory, useParams } from 'react-router-dom';
 import { ColoredDot } from '../Components/ColoredDot';
+import { Record, Array, Number, Static } from 'runtypes';
+import { StreamOverview, prettyPrintEndpoint } from '../Api/Types';
+import { HotKeys, GlobalHotKeys } from 'react-hotkeys';
+
 
 
 interface Params {
@@ -22,6 +27,8 @@ function makeUrl({ port, tag }: Params): string {
     return '/streams'
 }
 
+
+
 function Menu(props: { name: string, id: string, menuItems: any[] }) {
     let [open, setOpen] = useState(false);
 
@@ -33,11 +40,13 @@ function Menu(props: { name: string, id: string, menuItems: any[] }) {
     />
 }
 
+
+
 function PortMenu({ port, tag }: Params) {
     let history = useHistory();
     let config = useContext(Config);
 
-    let selectedService = port !== null && config !== null && config.services[port] ? config.services[port] : null
+    let selectedService = (port !== null && config !== null && Object.values(config.services).find((s) => s.port === port)) || null
 
     let [input, setInput] = useState((selectedService !== null || port === null) ? '' : port.toString());
 
@@ -69,6 +78,8 @@ function PortMenu({ port, tag }: Params) {
     return <Menu name={selectedService !== null ? selectedService.name : (port === null ? "Port" : port.toString())} id='port-menu' menuItems={items} />
 }
 
+
+
 function TagMenu(params: Params) {
     let history = useHistory();
     let config = useContext(Config);
@@ -99,6 +110,189 @@ function TagMenu(params: Params) {
     return <Menu name={selectedTag === null ? 'Tag' : selectedTag.name} id='tag-menu' menuItems={items} />
 }
 
+
+
+const WindowUpdate = Record({
+    windowUpdate: Record({
+        new: Array(StreamOverview),
+        changed: Array(StreamOverview),
+        deleted: Array(Number)
+    })
+})
+type WindowUpdate = Static<typeof WindowUpdate>
+
+function StreamsTable(params: Params) {
+    let api = useContext(Api)
+
+    let [loaded, setLoaded] = useState<StreamOverview[]>([])
+    let [windowParams, setWindowParams] = useState({ pages: 2, attached: true })
+    const pageSize = 50
+    let [page, setPage] = useState(1)
+    let [streamId, setStreamId] = useState<number | null>(null)
+    let [details, setDetails] = useState<number | null>(null)
+    let [detailsOpen, setDetailsOpen] = useState(false)
+
+    useEffect(() => {
+        if (loaded.length > windowParams.pages * pageSize)
+            setLoaded((loaded) => loaded.slice(0, windowParams.pages * pageSize))
+        if (page > 1)
+            setWindowParams({ attached: false, pages: windowParams.pages + (page >= windowParams.pages ? 1 : 0) })
+    }, [loaded.length, windowParams.pages, windowParams.attached, page])
+
+    useEffect(() => {
+        if (streamId != null)
+            api.emit({ windowUpdate: { id: streamId, params: { size: windowParams.pages * pageSize, attached: windowParams.attached } } })
+    }, [api, windowParams.pages, windowParams.attached, streamId])
+
+    useEffect(() => {
+        let index = (() => {
+            if (params.port !== null && params.tag !== null)
+                return { serviceTagged: [params.port, params.tag] }
+            if (params.port !== null)
+                return { service: params.port }
+            if (params.tag !== null)
+                return { tagged: params.tag }
+            return 'all'
+        })()
+        let windowParams = { size: pageSize * 2, attached: true }
+
+        api.listen({ watch: { window: { index, params: windowParams } } }, (msg) => {
+            let { windowUpdate } = WindowUpdate.check(msg)
+            setLoaded((loaded) => {
+                let newLoaded = loaded.slice(0)
+                let deleted = new Set(windowUpdate.deleted.concat(windowUpdate.changed.map((a) => a.id)))
+
+                newLoaded = newLoaded
+                    .filter((e) => !deleted.has(e.id))
+                    .concat(windowUpdate.new)
+                    .concat(windowUpdate.changed)
+                    .sort((a, b) => b.id - a.id)
+                return newLoaded
+            })
+        }, setStreamId)
+    }, [params, api])
+
+    let columns = [
+        { transforms: [cellWidth(10)], title: 'Id' },
+        { transforms: [cellWidth(10)], title: 'Server' },
+        { transforms: [cellWidth(10)], title: 'Client' },
+        { transforms: [cellWidth(10)], title: 'Server  data' },
+        { transforms: [cellWidth(10)], title: 'Client data' },
+        { transforms: [cellWidth('max')], title: 'Tags' },
+    ]
+    let rows = loaded.map((stream) => ({
+        cells: [
+            stream.id,
+            prettyPrintEndpoint(stream.server),
+            prettyPrintEndpoint(stream.client),
+            stream.serverDataLen,
+            stream.clientDataLen,
+            stream.tags
+        ],
+        key: stream.id
+    }))
+
+    const customRowWrapper = ({
+        rowProps,
+        ...props
+    }: RowWrapperProps) => {
+        let clicked = rowProps && (
+            loaded[pageSize * (page - 1) + rowProps.rowIndex].id === details
+        )
+        const customStyle = {
+            borderLeft: '3px solid var(--pf-global--primary-color--100)'
+        }
+        return (
+            <tr
+                {...props}
+                style={clicked ? customStyle : {}}
+            />
+        );
+    }
+
+    const onNext = () => {
+        if (detailsOpen) {
+
+        } else {
+            setPage((page) => page + 1)
+        }
+    }
+
+    const onPrevious = () => {
+        if (detailsOpen) {
+
+        } else {
+            setPage((page) => page > 1 ? page - 1 : page)
+        }
+    }
+    const toggleAttach = () => {
+        if (!windowParams.attached) {
+            setPage(1)
+            setWindowParams({ attached: true, pages: 2 })
+        }
+        else
+            setWindowParams({ ...windowParams, attached: false })
+    }
+
+    return (
+        <>
+            <Flex>
+                <FlexItem>
+                    <Switch
+                        id="attached"
+                        label="Attached"
+                        isChecked={windowParams.attached}
+                        onChange={(v) => setWindowParams({ ...windowParams, attached: v })}
+                    />
+                </FlexItem>
+                <FlexItem breakpointMods={[{ modifier: FlexModifiers["align-right"] }]}>
+                    <Pagination
+                        itemCount={loaded.length}
+                        perPage={pageSize}
+                        page={page}
+                        perPageOptions={[{ title: '50', value: 50 }]}
+                        onSetPage={(_, p) => setPage(p)}
+                        isCompact
+                    />
+                </FlexItem>
+            </Flex>
+            <Table
+                aria-label="Streams table"
+                rows={rows.slice((page - 1) * pageSize, page * pageSize)}
+                cells={columns}
+                variant={'compact'}
+                rowWrapper={customRowWrapper}
+            >
+                <TableHeader />
+                <TableBody
+                    rowKey={(s: any) => s.rowData.key}
+                    onRowClick={(_, o) => {
+                        setDetails(o.key)
+                        setDetailsOpen(true)
+                    }}
+                />
+            </Table>
+            <GlobalHotKeys allowChanges={true} keyMap={{ NEXT: "right", PREVIOUS: "left", ATTACH: 'a' }} handlers={{
+                NEXT: onNext,
+                PREVIOUS: onPrevious,
+                ATTACH: toggleAttach
+            }} />
+            {details !== null && (
+                <Modal
+                    title={"Stream " + details}
+                    isOpen={details !== null && detailsOpen}
+                    onClose={() => setDetailsOpen(false)}
+                >
+                    "lol"
+                </Modal>
+            )
+            }
+        </>
+    )
+}
+
+
+
 export function Streams() {
     let unparsedParams = useParams<{ port?: string, tag?: string }>();
     let params = {
@@ -119,7 +313,7 @@ export function Streams() {
                 </Split>
             </StackItem>
             <StackItem isFilled>
-                way more memes
+                <StreamsTable {...params} />
             </StackItem>
         </Stack>
     )

@@ -33,11 +33,12 @@ export class ProteccApi {
         this.socket.emit('msg', JSON.stringify({ id, payload }));
     }
 
-    listen(payload: any, cb: (msg: any) => void): () => void {
+    listen(payload: any, cb: (msg: any) => void, idCb?: (id: number) => void): () => void {
         let id: number | null = null
         let cleanup = this.onConnect(() => {
             id = this.emit(payload);
             this.listeners[id] = cb;
+            if (idCb) idCb(id)
         })
         return () => {
             cleanup()

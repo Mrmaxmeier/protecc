@@ -1176,7 +1176,7 @@
   resolved "https://registry.yarnpkg.com/@nodelib/fs.stat/-/fs.stat-1.1.3.tgz#2b5a3ab3f918cca48a8c754c08168e3f03eba61b"
   integrity sha512-shAmDyaQC4H92APFoIaVDHCx5bStIocgvbwQyxPRrbUY20V1EYTbSDchWbuwlMG3V17cprZhA6+78JfB+3DTPw==
 
-"@patternfly/patternfly@^2.68.3":
+"@patternfly/patternfly@2.68.3", "@patternfly/patternfly@^2.68.3":
   version "2.68.3"
   resolved "https://registry.yarnpkg.com/@patternfly/patternfly/-/patternfly-2.68.3.tgz#fd2b8b92618cd9adde714d46f33ae050d7a3d4f0"
   integrity sha512-ZsANYyp/AVRaSWAFBnKuoyvVoA1tMT7hh1jHpua0sQYjN4ocuN89MNcNdAJhdawt1Bh+p9OEtDgl4vfKQbJ9RQ==
@@ -1212,6 +1212,20 @@
     cssstyle "^0.3.1"
     emotion "^9.2.9"
     emotion-server "^9.2.9"
+
+"@patternfly/react-table@^2.28.10":
+  version "2.28.10"
+  resolved "https://registry.yarnpkg.com/@patternfly/react-table/-/react-table-2.28.10.tgz#829a99cf3a44a60586ab06a3930c44b411f1f8d6"
+  integrity sha512-OPonTCMVsumEOUNc6u6WuxVWsqsTODnhmFMJcL9IO3QWN19CGYqEY9EQX0yfPuGRVhkAD4zutm5XsEpxg/mYbQ==
+  dependencies:
+    "@patternfly/patternfly" "2.68.3"
+    "@patternfly/react-core" "^3.146.0"
+    "@patternfly/react-icons" "^3.15.11"
+    "@patternfly/react-styles" "^3.7.8"
+    "@patternfly/react-tokens" "^2.8.8"
+    classnames "^2.2.5"
+    exenv "^1.2.2"
+    lodash "^4.17.15"
 
 "@patternfly/react-tokens@^2.8.8":
   version "2.8.8"
@@ -1518,6 +1532,11 @@
   dependencies:
     "@types/prop-types" "*"
     csstype "^2.2.0"
+
+"@types/scheduler@^0.16.1":
+  version "0.16.1"
+  resolved "https://registry.yarnpkg.com/@types/scheduler/-/scheduler-0.16.1.tgz#18845205e86ff0038517aab7a18a62a6b9f71275"
+  integrity sha512-EaCxbanVeyxDRTQBkdLb3Bvl/HK7PBK6UJjsSixB0iHKoWxE5uu2Q/DgtpOhPIojN0Zl1whvOd7PoHs2P0s5eA==
 
 "@types/socket.io-client@^1.4.32":
   version "1.4.32"
@@ -2891,6 +2910,11 @@ class-utils@^0.3.5:
     define-property "^0.2.5"
     isobject "^3.0.0"
     static-extend "^0.1.1"
+
+classnames@^2.2.5:
+  version "2.2.6"
+  resolved "https://registry.yarnpkg.com/classnames/-/classnames-2.2.6.tgz#43935bffdd291f326dad0a205309b38d00f650ce"
+  integrity sha512-JR/iSQOSt+LQIWwrwEzJ9uk0xfN3mTVYMwt1Ir5mUcSN6pU+V4zQFFaJsclJbPuAUQH+yfWef6tm7l1quW3C8Q==
 
 clean-css@^4.2.1:
   version "4.2.3"
@@ -8645,7 +8669,7 @@ prop-types-extra@^1.1.0:
     react-is "^16.3.2"
     warning "^4.0.0"
 
-prop-types@^15.6.2, prop-types@^15.7.2:
+prop-types@^15.6.1, prop-types@^15.6.2, prop-types@^15.7.2:
   version "15.7.2"
   resolved "https://registry.yarnpkg.com/prop-types/-/prop-types-15.7.2.tgz#52c41e75b8c87e72b9d9360e0206b99dcbffa6c5"
   integrity sha512-8QQikdH7//R2vurIJSutZ1smHYTcLpRWEOlHnzcWHmBYrOGUysKwSsrC89BCiFj3CbrfJ/nXFdJepOVrY1GCHQ==
@@ -8865,6 +8889,13 @@ react-error-overlay@^6.0.6:
   version "6.0.6"
   resolved "https://registry.yarnpkg.com/react-error-overlay/-/react-error-overlay-6.0.6.tgz#ac4d9dc4c1b5c536c2c312bf66aa2b09bfa384e2"
   integrity sha512-Yzpno3enVzSrSCnnljmr4b/2KUQSMZaPuqmS26t9k4nW7uwJk6STWmH9heNjPuvqUTO3jOSPkHoKgO4+Dw7uIw==
+
+react-hotkeys@^2.0.0:
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/react-hotkeys/-/react-hotkeys-2.0.0.tgz#a7719c7340cbba888b0e9184f806a9ec0ac2c53f"
+  integrity sha512-3n3OU8vLX/pfcJrR3xJ1zlww6KS1kEJt0Whxc4FiGV+MJrQ1mYSYI3qS/11d2MJDFm8IhOXMTFQirfu6AVOF6Q==
+  dependencies:
+    prop-types "^15.6.1"
 
 react-is@^16.12.0, react-is@^16.3.2, react-is@^16.6.0, react-is@^16.7.0:
   version "16.13.0"
