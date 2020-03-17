@@ -163,7 +163,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
             return 'all'
         })()
         let windowParams = { size: pageSize * 2, attached: true }
-
+        setLoaded([])
         api.listen({ watch: { window: { index, params: windowParams } } }, (msg) => {
             let { windowUpdate } = WindowUpdate.check(msg)
             setLoaded((loaded) => {
@@ -178,7 +178,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
                 return newLoaded
             })
         }, setStreamId)
-    }, [params, api])
+    }, [params.port, params.tag, api])
 
     let columns = [
         { transforms: [cellWidth(10)], title: 'Id' },
@@ -276,7 +276,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
             >
                 <TableHeader />
                 <TableBody
-                    rowKey={(s: any) => s.rowData.key}
+                    rowKey={'key'}
                     onRowClick={(e, o) => {
                         let anyTarget = e.target as any
                         if (anyTarget.tagName && anyTarget.tagName.toLowerCase() === 'a') {
