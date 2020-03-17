@@ -5,23 +5,8 @@ import { Record, Dictionary, Number, Static } from 'runtypes';
 import { Bullseye, EmptyState, EmptyStateVariant, EmptyStateIcon, Title, Button } from '@patternfly/react-core';
 import { SearchIcon } from '@patternfly/react-icons';
 import { Table, TableHeader, TableBody, TableVariant } from '@patternfly/react-table';
-
-let tagColors: { [key: string]: string } = {
-    red: '#db2828',
-    orange: '#f2711c',
-    yellow: '#fbbd08',
-    olive: '#b5cc18',
-    green: '#21ba45',
-    teal: '#00b5ad',
-    blue: '#2185d0',
-    violet: '#6435c9',
-    purple: '#a333c8',
-    pink: '#e03997',
-    brown: '#a5673f',
-    grey: '#767676',
-    gray: '#767676',
-    black: '#1b1c1d',
-}
+import { ColoredLabel } from '../Components/ColoredLabel';
+import { compare } from '../Util';
 
 const IndexSizes = Record({
     indexSizes: Record({
@@ -44,36 +29,22 @@ export function Configuration() {
 
     const columnsTags = ['Slug', 'Name', 'Owner', 'Color', 'Streams', '']
     const columnsServices = ['Slug', 'Port', 'Name', 'Streams', '']
-    let tags = config.tags
-    const rowsTags = Object.keys(config.tags).sort().map(tag => ({
-        heightAuto: true,
-        cells: [
-            tags[tag].slug,
-            tags[tag].name,
-            tags[tag].owner,
-            {
-                title: <span style={{
-                    // => https://react.semantic-ui.com/elements/label/#variations-colored
-                    backgroundColor: tagColors[tags[tag].color],
-                    borderColor: tagColors[tags[tag].color],
-                    color: '#fff',
-                    display: 'inline-block',
-                    lineHeight: 1,
-                    verticalAlign: 'baseline',
-                    margin: "0 .14285714em",
-                    padding: '.5833em .833em',
-                    fontWeight: 700,
-                    border: '0 solid transparent',
-                    borderRadius: '.28571429rem',
-
-                    fontSize: '.8em'
-                }}>
-                    {tags[tag].color.toUpperCase()}
-                </span>
-            },
-            indexSizes.indexSizes.tags[tag],
-        ] as any
-    }))
+    const rowsTags = Object.entries(config.tags)
+        .sort(([a], [b]) => compare(a, b))
+        .map(([id, tag]) => ({
+            heightAuto: true,
+            cells: [
+                tag.slug,
+                tag.name,
+                tag.owner,
+                {
+                    title: <ColoredLabel useSemanticColors color={tag.color}>
+                        {tag.color.toUpperCase()}
+                    </ColoredLabel>
+                },
+                indexSizes.indexSizes.tags[id],
+            ] as any
+        }))
 
     if (Object.keys(config.tags).length === 0) {
         rowsTags.push({
@@ -97,16 +68,17 @@ export function Configuration() {
         })
     }
 
-    let services = config.services
-    const rowsServices = Object.keys(config.services).sort().map(service => ({
-        heightAuto: true,
-        cells: [
-            services[service].slug,
-            services[service].port,
-            services[service].name,
-            indexSizes.indexSizes.services[services[service].port],
-        ] as any
-    }))
+    const rowsServices = Object.entries(config.services)
+        .sort(([a], [b]) => compare(a, b))
+        .map(([_, service]) => ({
+            heightAuto: true,
+            cells: [
+                service.slug,
+                service.port,
+                service.name,
+                indexSizes.indexSizes.services[service.port],
+            ] as any
+        }))
 
 
     return <>

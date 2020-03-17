@@ -1,11 +1,20 @@
 import React, { FC } from 'react';
+import { SemanticColor, semanticColorToColorcode } from './ColoredLabel';
 
-export const ColoredDot: FC<{ size?: string, color: string }> = (props) => {
+interface Props {
+    size?: string
+    useSemanticColors?: boolean
+    color: string
+}
+
+export const ColoredDot: FC<Props> = ({ size, useSemanticColors, color }) => {
+    let actualColor = useSemanticColors && SemanticColor.guard(color) ? semanticColorToColorcode(color) : color
+
     return <span style={{
-        height: props.size || '1em',
-        width: props.size || '1em',
+        height: size || '1em',
+        width: size || '1em',
         marginRight: '0.3em',
-        backgroundColor: props.color,
+        backgroundColor: actualColor,
         borderRadius: '50%',
         display: 'inline-block'
     }}

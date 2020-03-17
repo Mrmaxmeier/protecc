@@ -8,6 +8,7 @@ import { Connected } from '../Api/ProteccApi';
 import { Streams } from '../Streams/Streams';
 import { Pipeline } from '../Pipeline/Pipeline';
 import { Configuration } from '../Configuration/Configuration';
+import { Stream } from '../Stream/Stream';
 
 
 function ConnectionStatus() {
@@ -73,6 +74,7 @@ export function AppLayout() {
                         <Route key={"streams-port"} exact path={"/streams/port/:port"}><Streams /></Route>
                         <Route key={"streams-tag"} exact path={"/streams/tag/:tag"}><Streams /></Route>
                         <Route key={"streams-port-tag"} exact path={"/streams/:port/:tag"}><Streams /></Route>
+                        <Route key={'stream'} exact path={'/stream/:id'}><Stream /></Route>
                     </Switch>
                 </PageSection>
             </Page>

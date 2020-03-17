@@ -1,20 +1,22 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { Config, Api } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
-import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, FlexModifiers, Switch, Modal } from '@patternfly/react-core';
+import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, FlexModifiers, Switch, Modal, Title } from '@patternfly/react-core';
 import { onEnter, nanToNull } from '../Util';
 import { Table, TableHeader, TableBody, cellWidth, RowWrapperProps } from '@patternfly/react-table';
-import { useHistory, useParams } from 'react-router-dom';
+import { useHistory, useParams, Link } from 'react-router-dom';
 import { ColoredDot } from '../Components/ColoredDot';
 import { Record, Array, Number, Static } from 'runtypes';
 import { StreamOverview, prettyPrintEndpoint } from '../Api/Types';
-import { HotKeys, GlobalHotKeys } from 'react-hotkeys';
+import { GlobalHotKeys } from 'react-hotkeys';
+import { Tags } from '../Components/Tags';
+import { StreamDetails } from '../Components/StreamDetails';
 
 
 
 interface Params {
     port: number | null
-    tag: string | null
+    tag: number | null
 }
 
 function makeUrl({ port, tag }: Params): string {
@@ -96,13 +98,13 @@ function TagMenu(params: Params) {
             key={'empty'}
             onSelect={() => history.push(makeUrl({ port: params.port, tag: null }))}
         >&nbsp;</OptionsMenuItem>
-    ].concat(Object.entries(config.tags).map(([id, tag]) =>
+    ].concat(Object.entries(config.tags).map(([id, tag]) => ({ id: parseInt(id), tag })).map(({ id, tag }) =>
         <OptionsMenuItem
             isSelected={params.tag === id}
-            key={id}
+            key={id.toString()}
             onSelect={() => history.push(makeUrl({ port: params.port, tag: id }))}
         >
-            <ColoredDot color={tag.color} /> {tag.name}
+            <ColoredDot useSemanticColors color={tag.color} /> {tag.name}
         </OptionsMenuItem>
     ))
 
@@ -138,6 +140,12 @@ function StreamsTable(params: Params) {
         if (page > 1)
             setWindowParams({ attached: false, pages: windowParams.pages + (page >= windowParams.pages ? 1 : 0) })
     }, [loaded.length, windowParams.pages, windowParams.attached, page])
+
+
+    useEffect(() => {
+        if (detailsOpen)
+            setWindowParams((params) => ({ ...params, attached: false }))
+    }, [detailsOpen])
 
     useEffect(() => {
         if (streamId != null)
@@ -182,20 +190,17 @@ function StreamsTable(params: Params) {
     ]
     let rows = loaded.map((stream) => ({
         cells: [
-            stream.id,
+            { title: <Link to={'/stream/' + stream.id}>{stream.id}</Link> },
             prettyPrintEndpoint(stream.server),
             prettyPrintEndpoint(stream.client),
             stream.serverDataLen,
             stream.clientDataLen,
-            stream.tags
+            { title: <Tags tags={stream.tags} /> }
         ],
         key: stream.id
     }))
 
-    const customRowWrapper = ({
-        rowProps,
-        ...props
-    }: RowWrapperProps) => {
+    const customRowWrapper = ({ rowProps, ...props }: RowWrapperProps) => {
         let clicked = rowProps && (
             loaded[pageSize * (page - 1) + rowProps.rowIndex].id === details
         )
@@ -212,7 +217,10 @@ function StreamsTable(params: Params) {
 
     const onNext = () => {
         if (detailsOpen) {
-
+            let index = loaded.findIndex((v) => v.id === details)
+            if (index === -1 || index + 1 >= loaded.length) return
+            setDetails(loaded[index + 1].id)
+            setPage(Math.floor((index + 1) / pageSize) + 1)
         } else {
             setPage((page) => page + 1)
         }
@@ -220,7 +228,10 @@ function StreamsTable(params: Params) {
 
     const onPrevious = () => {
         if (detailsOpen) {
-
+            let index = loaded.findIndex((v) => v.id === details)
+            if (index === -1 || index - 1 < 0) return
+            setDetails(loaded[index - 1].id)
+            setPage(() => Math.floor((index - 1) / pageSize) + 1)
         } else {
             setPage((page) => page > 1 ? page - 1 : page)
         }
@@ -242,12 +253,12 @@ function StreamsTable(params: Params) {
                         id="attached"
                         label="Attached"
                         isChecked={windowParams.attached}
-                        onChange={(v) => setWindowParams({ ...windowParams, attached: v })}
+                        onChange={toggleAttach}
                     />
                 </FlexItem>
                 <FlexItem breakpointMods={[{ modifier: FlexModifiers["align-right"] }]}>
                     <Pagination
-                        itemCount={loaded.length}
+                        itemCount={Math.min(loaded.length, windowParams.pages * pageSize)}
                         perPage={pageSize}
                         page={page}
                         perPageOptions={[{ title: '50', value: 50 }]}
@@ -266,9 +277,15 @@ function StreamsTable(params: Params) {
                 <TableHeader />
                 <TableBody
                     rowKey={(s: any) => s.rowData.key}
-                    onRowClick={(_, o) => {
-                        setDetails(o.key)
-                        setDetailsOpen(true)
+                    onRowClick={(e, o) => {
+                        let anyTarget = e.target as any
+                        if (anyTarget.tagName && anyTarget.tagName.toLowerCase() === 'a') {
+                            e.stopPropagation()
+                        }
+                        else {
+                            setDetails(o.key)
+                            setDetailsOpen(true)
+                        }
                     }}
                 />
             </Table>
@@ -279,11 +296,13 @@ function StreamsTable(params: Params) {
             }} />
             {details !== null && (
                 <Modal
-                    title={"Stream " + details}
+                    title={'Stream ' + details}
+                    header={<Title headingLevel={'h1'} size={'3xl'}><Link to={'/stream/' + details}>{"Stream " + details}</Link></Title>}
                     isOpen={details !== null && detailsOpen}
                     onClose={() => setDetailsOpen(false)}
+                    style={{ padding: '1em', backgroundColor: 'var(--pf-global--BackgroundColor--300)' }}
                 >
-                    "lol"
+                    <StreamDetails streamId={details} />
                 </Modal>
             )
             }
@@ -297,7 +316,7 @@ export function Streams() {
     let unparsedParams = useParams<{ port?: string, tag?: string }>();
     let params = {
         port: unparsedParams.port === undefined ? null : nanToNull(parseInt(unparsedParams.port)),
-        tag: unparsedParams.tag === undefined ? null : unparsedParams.tag
+        tag: unparsedParams.tag === undefined ? null : nanToNull(parseInt(unparsedParams.tag))
     }
 
     return (

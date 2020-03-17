@@ -1,6 +1,7 @@
 import React, { Context, createContext, useState, useEffect } from 'react';
 import io from 'socket.io-client';
 import { Record, Static, String, Number, Unknown, Dictionary, Literal, Union } from 'runtypes';
+import { SemanticColor } from '../Components/ColoredLabel';
 
 const StreamMessage = Record({
     id: Number,
@@ -77,7 +78,7 @@ export type Counters = { [name: string]: number }
 const Tag = Record({
     slug: String,
     name: String,
-    color: String,
+    color: SemanticColor,
     owner: String
 });
 export type Tag = Static<typeof Tag>
@@ -88,8 +89,8 @@ const Service = Record({
 });
 export type Service = Static<typeof Service>
 const Configuration = Record({
-    tags: Dictionary(Tag),
-    services: Dictionary(Service),
+    tags: Dictionary(Tag, 'number'),
+    services: Dictionary(Service, 'number'),
     scripts: Dictionary(String)
 })
 const OuterConfiguration = Record({
