@@ -123,7 +123,7 @@ const WindowUpdate = Record({
 })
 type WindowUpdate = Static<typeof WindowUpdate>
 
-function StreamsTable(params: Params) {
+let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
     let api = useContext(Api)
 
     let [loaded, setLoaded] = useState<StreamOverview[]>([])
@@ -308,9 +308,7 @@ function StreamsTable(params: Params) {
             }
         </>
     )
-}
-
-
+})
 
 export function Streams() {
     let unparsedParams = useParams<{ port?: string, tag?: string }>();
