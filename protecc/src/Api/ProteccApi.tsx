@@ -1,4 +1,4 @@
-import React, { Context, createContext, useState, useEffect } from 'react';
+import React, { Context, createContext, useState, useEffect, useContext } from 'react';
 import io from 'socket.io-client';
 import { Record, Static, String, Number, Unknown, Dictionary, Literal, Union } from 'runtypes';
 import { SemanticColor } from '../Components/ColoredLabel';
@@ -112,13 +112,26 @@ export type ConnectionStatus = Static<typeof ConnectionStatus>
 export const Connected = createContext<ConnectionStatus>('disconnected');
 
 
-export const ApiProvider: React.FC = ({ children }) => {
-    const [config, setConfig] = useState<Configuration | null>(null);
-    const [connected, setConnected] = useState<ConnectionStatus>(api.isConnected ? 'connected' : 'disconnected');
+export function useUpdatingValue<T>(payload: any, check: (msg: any) => T): T | null {
+    const api = useContext(Api)
+    const [value, setValue] = useState<T | null>(null)
 
-    useEffect(() => api.listen({ watch: 'configuration' }, (msg) =>
-        setConfig(OuterConfiguration.check(msg).configuration)
-    ), []);
+    useEffect(() => api.listen(payload, (msg) =>
+        setValue(check(msg))
+        // these values should never change anyways
+        // eslint-disable-next-line
+    ), [api])
+
+    return value
+}
+
+const ConfigProvider: React.FC = ({ children }) => {
+    const config = useUpdatingValue({ watch: 'configuration' }, m => OuterConfiguration.check(m).configuration);
+    return <Config.Provider value={config}>{children}</Config.Provider>
+}
+
+export const ApiProvider: React.FC = ({ children }) => {
+    const [connected, setConnected] = useState<ConnectionStatus>(api.isConnected ? 'connected' : 'disconnected');
 
     useEffect(() => {
         let connectCleanup = api.onConnect(() => setConnected('connected'))
@@ -133,11 +146,11 @@ export const ApiProvider: React.FC = ({ children }) => {
 
     return (
         <Api.Provider value={api}>
-            <Config.Provider value={config}>
+            <ConfigProvider >
                 <Connected.Provider value={connected}>
                     {children}
                 </Connected.Provider>
-            </Config.Provider>
+            </ConfigProvider>
         </Api.Provider>
     )
 }

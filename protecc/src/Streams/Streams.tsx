@@ -3,7 +3,6 @@ import { Config, Api } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
 import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, FlexModifiers, Switch, Modal, Title } from '@patternfly/react-core';
 import { onEnter, nanToNull } from '../Util';
-import { Table, TableHeader, TableBody, cellWidth, RowWrapperProps } from '@patternfly/react-table';
 import { useHistory, useParams, Link } from 'react-router-dom';
 import { ColoredDot } from '../Components/ColoredDot';
 import { Record, Array, Number, Static } from 'runtypes';
@@ -11,6 +10,7 @@ import { StreamOverview, prettyPrintEndpoint } from '../Api/Types';
 import { GlobalHotKeys } from 'react-hotkeys';
 import { Tags } from '../Components/Tags';
 import { StreamDetails } from '../Components/StreamDetails';
+import { LightweightTable, LightweightTableHeader } from '../Components/LightweightTable';
 
 
 
@@ -180,40 +180,6 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
         }, setStreamId)
     }, [params.port, params.tag, api])
 
-    let columns = [
-        { transforms: [cellWidth(10)], title: 'Id' },
-        { transforms: [cellWidth(10)], title: 'Server' },
-        { transforms: [cellWidth(10)], title: 'Client' },
-        { transforms: [cellWidth(10)], title: 'Server  data' },
-        { transforms: [cellWidth(10)], title: 'Client data' },
-        { transforms: [cellWidth('max')], title: 'Tags' },
-    ]
-    let rows = loaded.map((stream) => ({
-        cells: [
-            { title: <Link to={'/stream/' + stream.id}>{stream.id}</Link> },
-            prettyPrintEndpoint(stream.server),
-            prettyPrintEndpoint(stream.client),
-            stream.serverDataLen,
-            stream.clientDataLen,
-            { title: <Tags tags={stream.tags} /> }
-        ],
-        key: stream.id
-    }))
-
-    const customRowWrapper = ({ rowProps, ...props }: RowWrapperProps) => {
-        let clicked = rowProps && (
-            loaded[pageSize * (page - 1) + rowProps.rowIndex].id === details
-        )
-        const customStyle = {
-            borderLeft: '3px solid var(--pf-global--primary-color--100)'
-        }
-        return (
-            <tr
-                {...props}
-                style={clicked ? customStyle : {}}
-            />
-        );
-    }
 
     const onNext = () => {
         if (detailsOpen) {
@@ -245,6 +211,15 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
             setWindowParams({ ...windowParams, attached: false })
     }
 
+    let headers = [
+        { content: 'Id', width: 10 },
+        { content: 'Server', width: 10 },
+        { content: 'Client', width: 10 },
+        { content: 'Server  data', width: 10 },
+        { content: 'Client data', width: 10 },
+        { content: 'Tags', width: 'max' },
+    ]
+
     return (
         <>
             <Flex>
@@ -267,28 +242,33 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
                     />
                 </FlexItem>
             </Flex>
-            <Table
-                aria-label="Streams table"
-                rows={rows.slice((page - 1) * pageSize, page * pageSize)}
-                cells={columns}
-                variant={'compact'}
-                rowWrapper={customRowWrapper}
-            >
-                <TableHeader />
-                <TableBody
-                    rowKey={'key'}
-                    onRowClick={(e, o) => {
-                        let anyTarget = e.target as any
-                        if (anyTarget.tagName && anyTarget.tagName.toLowerCase() === 'a') {
-                            e.stopPropagation()
+            <LightweightTable compact>
+                <LightweightTableHeader headers={headers} />
+                <tbody>
+                    {loaded.slice((page - 1) * pageSize, page * pageSize).map((stream) => {
+                        const clickedStyle = {
+                            borderLeft: '3px solid var(--pf-global--primary-color--100)'
                         }
-                        else {
-                            setDetails(o.key)
-                            setDetailsOpen(true)
-                        }
-                    }}
-                />
-            </Table>
+                        return (
+                            <tr
+                                key={stream.id}
+                                style={stream.id === details ? clickedStyle : {}}
+                                onClick={() => {
+                                    setDetails(stream.id)
+                                    setDetailsOpen(true)
+                                }}
+                            >
+                                <td><Link to={'/stream/' + stream.id}>{stream.id}</Link></td>
+                                <td>{prettyPrintEndpoint(stream.server)}</td>
+                                <td>{prettyPrintEndpoint(stream.client)}</td>
+                                <td>{stream.serverDataLen}</td>
+                                <td>{stream.clientDataLen}</td>
+                                <td><Tags tags={stream.tags} /></td>
+                            </tr>
+                        )
+                    })}
+                </tbody>
+            </LightweightTable>
             <GlobalHotKeys allowChanges={true} keyMap={{ NEXT: "right", PREVIOUS: "left", ATTACH: 'a' }} handlers={{
                 NEXT: onNext,
                 PREVIOUS: onPrevious,

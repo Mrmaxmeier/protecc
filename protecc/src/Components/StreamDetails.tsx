@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState } from 'react';
 import { StreamDetailed, prettyPrintEndpoint, DataSegment, parseFlags } from '../Api/Types';
-import { Api } from '../Api/ProteccApi';
+import { useUpdatingValue } from '../Api/ProteccApi';
 import { Loading } from './Loading';
 import { Record, Static } from 'runtypes';
 import { Stack, StackItem, Bullseye, Card, CardBody, OptionsMenu, OptionsMenuItem, OptionsMenuToggle } from '@patternfly/react-core';
-import { Table, TableBody, TableHeader, cellWidth } from '@patternfly/react-table';
 import { Tags } from './Tags';
 import { SemanticColor, ColoredLabel, Details } from './ColoredLabel';
 import { DataView, DisplayType, DisplayTypes } from './DataView';
+import { LightweightTable, LightweightTableHeader } from './LightweightTable';
 
 interface Props {
     streamId: number
@@ -64,47 +64,39 @@ function Segment({ segment, encoding }: { segment: DataSegment, encoding: Displa
 
 export function StreamDetails({ streamId }: Props) {
 
-    let api = useContext(Api)
-    let [details, setDetails] = useState<StreamDetailed | null>(null)
+    let details = useUpdatingValue({ watch: { streamDetails: streamId } }, m => DetailsUpdate.check(m).streamDetails)
     let [menuOpen, setMenuOpen] = useState(false)
     let [encoding, setEncoding] = useState(DisplayTypes[0])
-
-    useEffect(() => api.listen({ watch: { streamDetails: streamId } }, (msg) => {
-        let { streamDetails } = DetailsUpdate.check(msg)
-        setDetails(streamDetails)
-    }), [api, streamId])
 
     if (details == null)
         return <Loading />
 
-    let columns = [
-        { transforms: [cellWidth(10)], title: 'Id' },
-        { transforms: [cellWidth(10)], title: 'Server' },
-        { transforms: [cellWidth(10)], title: 'Client' },
-        { transforms: [cellWidth(10)], title: 'Server  data' },
-        { transforms: [cellWidth(10)], title: 'Client data' },
-        { transforms: [cellWidth('max')], title: 'Tags' },
+    let headers = [
+        { content: 'Id', width: 10 },
+        { content: 'Server', width: 10 },
+        { content: 'Client', width: 10 },
+        { content: 'Server  data', width: 10 },
+        { content: 'Client data', width: 10 },
+        { content: 'Tags', width: 'max' },
     ]
-    let rows = [{
-        cells: [
-            details.id,
-            prettyPrintEndpoint(details.server),
-            prettyPrintEndpoint(details.client),
-            details.serverDataLen,
-            details.clientDataLen,
-            { title: <Tags tags={details.tags} streamId={streamId} /> }
-        ],
-        key: details.id
-    }]
 
     return (
         <Bullseye>
             <Stack style={{ width: '90%' }} gutter='lg'>
                 <StackItem>
-                    <Table cells={columns} rows={rows} variant='compact' aria-label='details-table' >
-                        <TableHeader />
-                        <TableBody />
-                    </Table>
+                    <LightweightTable compact>
+                        <LightweightTableHeader headers={headers} />
+                        <tbody>
+                            <tr>
+                                <td>{details.id}</td>
+                                <td>{prettyPrintEndpoint(details.server)}</td>
+                                <td>{prettyPrintEndpoint(details.client)}</td>
+                                <td>{details.serverDataLen}</td>
+                                <td>{details.clientDataLen}</td>
+                                <td><Tags tags={details.tags} /></td>
+                            </tr>
+                        </tbody>
+                    </LightweightTable>
                 </StackItem>
                 <StackItem>
                     <OptionsMenu

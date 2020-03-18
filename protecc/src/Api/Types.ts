@@ -1,4 +1,4 @@
-import { Record, Number, Tuple, String, Static, Array, Union, Literal } from "runtypes";
+import { Record, Number, Tuple, String, Static, Array, Union, Literal, Dictionary } from "runtypes";
 
 export const Endpoint = Tuple(String, Number)
 export type Endpoint = Static<typeof Endpoint>
@@ -44,3 +44,12 @@ export function parseFlags(flags: number): Set<Flag> {
     })
     return result
 }
+
+
+export const IndexSizes = Record({
+    indexSizes: Record({
+        services: Dictionary(Number, 'number'),
+        tags: Dictionary(Number, 'number'),
+    })
+})
+export type IndexSizes = Static<typeof IndexSizes>
