@@ -156,7 +156,7 @@ impl PipelineManager {
         broadcast::Sender<(StreamID, NodeResponse)>,
         NodeGuard,
     ) {
-        let (results_chan, _) = broadcast::channel(4);
+        let (results_chan, _) = broadcast::channel(16);
         let submit_q = WorkQ::new(32, None);
         let current_stream_id = db.stream_notification_rx.clone().recv().await;
 
@@ -171,6 +171,66 @@ impl PipelineManager {
         db.pipeline.write().await.register_node(node.clone()).await;
 
         (submit_q, results_chan, NodeGuard(db, node))
+    }
+
+    pub(crate) async fn start_starlark_tagger(
+        &self,
+        db: Arc<crate::database::Database>,
+        name: &str,
+    ) {
+        let (results_chan, _) = broadcast::channel(16);
+        let submit_q = WorkQ::new(32, None);
+        let current_stream_id = db.stream_notification_rx.clone().recv().await;
+
+        let node = Arc::new(crate::pipeline::PipelineNode::new(
+            name.into(),
+            NodeKind::Tagger,
+            submit_q.clone(),
+            results_chan.clone(),
+            current_stream_id,
+            true,
+        ));
+        db.pipeline.write().await.register_node(node.clone()).await;
+
+        let config = db.configuration_handle.rx.clone().recv().await.unwrap();
+        let script = config.scripts[name].to_owned();
+        let core = crate::scripting::StarlarkEngine::new(&script, config, db).unwrap();
+
+        tokio::spawn(async move {
+            let mut buffer = Vec::new();
+            loop {
+                submit_q.pop_batch(&mut buffer).await;
+                for swd in buffer.drain(..) {
+                    // TODO: got swd but only using .stream
+                    let res = core.get_verdict(&*swd.stream).unwrap();
+                    let resp = if res.added_tags.is_empty() {
+                        NodeResponse::Neutral
+                    } else {
+                        NodeResponse::TagWith(res.added_tags)
+                    };
+                    results_chan.send((swd.stream.id, resp));
+                }
+            }
+        });
+    }
+
+    pub(crate) fn get_node(&mut self, node: &str) -> Option<Arc<PipelineNode>> {
+        for mapper in &self.execution_plan.map_stage {
+            if mapper.name == node {
+                return Some(mapper.clone());
+            }
+        }
+        for tagger in &self.execution_plan.tag_stage {
+            if tagger.name == node {
+                return Some(tagger.clone());
+            }
+        }
+        for reducer in &self.execution_plan.reduce_stage {
+            if reducer.name == node {
+                return Some(reducer.clone());
+            }
+        }
+        None
     }
 
     pub(crate) async fn remove_node(&mut self, node: Arc<PipelineNode>, status: NodeStatus) {
@@ -205,15 +265,15 @@ pub(crate) enum NodeStatus {
 
 #[derive(Debug)]
 pub(crate) struct PipelineNode {
-    name: String,
-    status: Mutex<NodeStatus>,
-    kind: NodeKind,
-    processed_streams: Mutex<u64>,
-    output: Mutex<Option<Value>>,
-    submit_q: Arc<WorkQ<StreamWithData>>,
-    results: Mutex<Option<broadcast::Sender<(StreamID, NodeResponse)>>>,
-    missed_streams_until: Mutex<Option<StreamID>>,
-    is_starlark: bool,
+    pub(crate) name: String,
+    pub(crate) status: Mutex<NodeStatus>,
+    pub(crate) kind: NodeKind,
+    pub(crate) processed_streams: Mutex<u64>,
+    pub(crate) output: Mutex<Option<Value>>,
+    pub(crate) submit_q: Arc<WorkQ<StreamWithData>>,
+    pub(crate) results: Mutex<Option<broadcast::Sender<(StreamID, NodeResponse)>>>,
+    pub(crate) missed_streams_until: Mutex<Option<StreamID>>,
+    pub(crate) is_starlark: bool,
 }
 
 impl PipelineNode {

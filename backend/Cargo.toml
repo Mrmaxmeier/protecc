@@ -8,7 +8,7 @@ edition = "2018"
 tokio = { version = "0.2.7", features = ["macros", "sync", "tcp", "rt-core", "rt-threaded", "time", "stream", "blocking"]}
 tokio-tungstenite = "0.10.1"
 futures = { version = "0.3.1", default-features = false, features = ["alloc"] }
-pktparse = "0.4.1"
+pktparse = "0.5.0"
 pcap-parser = { version = "0.8.2", features = ["data"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

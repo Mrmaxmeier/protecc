@@ -50,6 +50,7 @@ enum RequestPayload {
         stream_id: StreamID,
         response: crate::pipeline::NodeResponse,
     },
+    ManagePipelineNode(ManagePipelineNode),
 }
 
 #[derive(Serialize, Debug)]
@@ -110,6 +111,15 @@ struct ScanResult {
     added_tags: SmallVec<[TagID; 4]>,
     attached: Option<serde_json::Value>,
     sort_key: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+enum ManagePipelineNode {
+    Disable(String),
+    Enable(String),
+    Remove(String),
+    AttachStarlark(String),
 }
 
 #[derive(Serialize, Debug)]
@@ -513,6 +523,32 @@ impl ConnectionHandler {
         ResponsePayload::TagID(tag_id)
     }
 
+    async fn manage_pipeline_node(&self, action: &ManagePipelineNode) {
+        use crate::pipeline::NodeStatus;
+        use ManagePipelineNode::*;
+        let mut pipeline = self.db.pipeline.write().await;
+        match action {
+            Enable(node) => {
+                let node = pipeline.get_node(node).unwrap();
+                let mut node_status = node.status.lock().await;
+                if *node_status == NodeStatus::Disabled {
+                    *node_status = NodeStatus::Running;
+                }
+            }
+            Disable(node) => {
+                let node = pipeline.get_node(node).unwrap();
+                let mut node_status = node.status.lock().await;
+                if *node_status == NodeStatus::Running {
+                    *node_status = NodeStatus::Disabled;
+                }
+            }
+            Remove(node) => todo!(),
+            AttachStarlark(name) => {
+                pipeline.start_starlark_tagger(self.db.clone(), name).await;
+            }
+        }
+    }
+
     async fn await_cancel(self: Arc<Self>, id: u64) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         {
@@ -603,6 +639,9 @@ impl ConnectionHandler {
                         .await
                 }
                 RequestPayload::GetTagID(tag) => self_.send_out(&req, self_.get_tag_id(tag)).await,
+                RequestPayload::ManagePipelineNode(manage) => {
+                    self_.manage_pipeline_node(manage).await
+                }
                 RequestPayload::Cancel => unreachable!(),
                 RequestPayload::PipelineResponse { .. } => unreachable!(),
             };
