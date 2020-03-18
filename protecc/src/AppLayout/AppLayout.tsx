@@ -9,6 +9,7 @@ import { Streams } from '../Streams/Streams';
 import { Pipeline } from '../Pipeline/Pipeline';
 import { Configuration } from '../Configuration/Configuration';
 import { Stream } from '../Stream/Stream';
+import { Query } from '../Query/Query';
 
 
 function ConnectionStatus() {
@@ -30,7 +31,7 @@ export function AppLayout() {
         { path: "/", name: "Dashboard", component: <Dashboard /> },
         { path: "/streams", name: "Streams", component: <Streams /> },
         { path: "/config", name: "Configuration", component: <Configuration /> },
-        { path: "/query", name: "Query", component: <></> },
+        { path: "/query", name: "Query", component: <Query /> },
         { path: "/pipeline", name: "Taggers & Co", component: <Pipeline /> },
     ];
 
