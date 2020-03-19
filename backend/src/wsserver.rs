@@ -119,6 +119,7 @@ enum ManagePipelineNode {
     Disable(String),
     Enable(String),
     Remove(String),
+    CatchUp(String),
     AttachStarlark(String),
 }
 
@@ -323,8 +324,19 @@ impl ConnectionHandler {
             }
             ResponseStreamKind::PipelineStatus => {
                 let mut tx = self.stream_tx.clone();
+                let mut pipeline_topo_rx = {
+                    let pipeline = self.db.pipeline.read().await;
+                    pipeline.execution_plan_rx.clone()
+                };
+                let current_stream_id = self.db.stream_notification_rx.borrow().clone();
                 {
-                    let status = self.db.pipeline.read().await.status().await;
+                    let status = self
+                        .db
+                        .pipeline
+                        .read()
+                        .await
+                        .status(current_stream_id)
+                        .await;
                     tx.send(RespFrame {
                         id: req_id,
                         payload: ResponsePayload::PipelineStatus(status),
@@ -336,14 +348,30 @@ impl ConnectionHandler {
                     std::time::Duration::MILLISECOND * 250,
                     self.db.stream_notification_rx.clone(),
                 );
-                while let Some(_) = chan.next().await {
-                    let status = self.db.pipeline.read().await.status().await;
-                    tx.send(RespFrame {
-                        id: req_id,
-                        payload: ResponsePayload::PipelineStatus(status),
-                    })
-                    .await
-                    .unwrap();
+
+                loop {
+                    tokio::select! {
+                        _ = chan.next() => {
+                            let current_stream_id = self.db.stream_notification_rx.borrow().clone();
+                            let status = self.db.pipeline.read().await.status(current_stream_id).await;
+                            tx.send(RespFrame {
+                                id: req_id,
+                                payload: ResponsePayload::PipelineStatus(status),
+                            })
+                            .await
+                            .unwrap();
+                        }
+                        _ = pipeline_topo_rx.recv() => {
+                            let current_stream_id = self.db.stream_notification_rx.borrow().clone();
+                            let status = self.db.pipeline.read().await.status(current_stream_id).await;
+                            tx.send(RespFrame {
+                                id: req_id,
+                                payload: ResponsePayload::PipelineStatus(status),
+                            })
+                            .await
+                            .unwrap();
+                        }
+                    }
                 }
             }
         }
@@ -420,7 +448,7 @@ impl ConnectionHandler {
             .recv()
             .await
             .unwrap();
-        let latest_id = self.db.stream_notification_rx.clone().recv().await.unwrap();
+        let latest_id = self.db.stream_notification_rx.borrow().clone();
         let bound_high = query.bound_high.unwrap_or(latest_id);
         let bound_low = query.bound_low.unwrap_or(StreamID::new(0));
         let scan_progress = if query.reverse { bound_low } else { bound_high };
@@ -526,6 +554,7 @@ impl ConnectionHandler {
     async fn manage_pipeline_node(&self, action: &ManagePipelineNode) {
         use crate::pipeline::NodeStatus;
         use ManagePipelineNode::*;
+        let current_stream_id = self.db.stream_notification_rx.borrow().clone();
         let mut pipeline = self.db.pipeline.write().await;
         match action {
             Enable(node) => {
@@ -533,6 +562,7 @@ impl ConnectionHandler {
                 let mut node_status = node.status.lock().await;
                 if *node_status == NodeStatus::Disabled {
                     *node_status = NodeStatus::Running;
+                    node.missed_streams_tracker.end_range(current_stream_id);
                 }
             }
             Disable(node) => {
@@ -540,13 +570,22 @@ impl ConnectionHandler {
                 let mut node_status = node.status.lock().await;
                 if *node_status == NodeStatus::Running {
                     *node_status = NodeStatus::Disabled;
+                    node.missed_streams_tracker.start_range(current_stream_id);
                 }
             }
             Remove(node) => todo!(),
+            CatchUp(node) => {
+                let node = pipeline.get_node(node).unwrap();
+                let is_running = *node.status.lock().await == NodeStatus::Running;
+                if is_running {
+                    node.missed_streams_tracker.submit_to_node();
+                }
+            }
             AttachStarlark(name) => {
                 pipeline.start_starlark_tagger(self.db.clone(), name).await;
             }
         }
+        pipeline.publish_topo();
     }
 
     async fn await_cancel(self: Arc<Self>, id: u64) {

@@ -128,7 +128,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
 
     let [loaded, setLoaded] = useState<StreamOverview[]>([])
     let [windowParams, setWindowParams] = useState({ pages: 2, attached: true })
-    const pageSize = 50
+    const pageSize = 25
     let [page, setPage] = useState(1)
     let [streamId, setStreamId] = useState<number | null>(null)
     let [details, setDetails] = useState<number | null>(null)
@@ -236,7 +236,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
                         itemCount={Math.min(loaded.length, windowParams.pages * pageSize)}
                         perPage={pageSize}
                         page={page}
-                        perPageOptions={[{ title: '50', value: 50 }]}
+                        perPageOptions={[{ title: '' + pageSize, value: pageSize }]}
                         onSetPage={(_, p) => setPage(p)}
                         isCompact
                     />

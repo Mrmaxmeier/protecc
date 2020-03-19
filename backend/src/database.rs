@@ -397,7 +397,7 @@ impl Database {
             idx.insert(stream_id);
         })
         .await;
-        self.stream_update_tx.send(stream_id).unwrap(); // TODO: send (stream_id, tag_id)?
+        let _ = self.stream_update_tx.send(stream_id); // TODO: send (stream_id, tag_id)?
     }
 
     pub(crate) async fn remove_tag(&self, stream_id: StreamID, tag_id: TagID) {
@@ -412,7 +412,7 @@ impl Database {
             idx.remove(&stream_id);
         })
         .await;
-        self.stream_update_tx.send(stream_id).unwrap();
+        let _ = self.stream_update_tx.send(stream_id);
     }
 
     pub(crate) async fn with_index_iter<R, F, O>(&self, index: QueryIndex, r: R, f: F) -> O

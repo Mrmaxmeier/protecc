@@ -26,6 +26,7 @@ const NodeStatusSummary = Record({
     queuedStreams: Number,
     processedStreams: Number,
     missedStreams: Number,
+    catchingUp: Boolean,
     isStarlark: Boolean,
 })
 type NodeStatusSummary = Static<typeof NodeStatusSummary>
@@ -37,18 +38,57 @@ const PipelineStatus = Record({
 })
 type PipelineStatus = Static<typeof PipelineStatus>
 
-const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams, processedStreams, missedStreams, isStarlark }) => {
+const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams, processedStreams, missedStreams, catchingUp, isStarlark }) => {
+    let api = useContext(Api)
     let [isOpen, setIsOpen] = useState(false)
 
     const dropdownItems = [
-        <DropdownItem key="disable" component="button" isDisabled={status !== 'running'}>
+        <DropdownItem
+            key="disable"
+            component="button"
+            isDisabled={status !== 'running'}
+            onClick={() => api.emit({
+                managePipelineNode: {
+                    disable: name,
+                }
+            })}
+        >
             Disable
         </DropdownItem>,
-        <DropdownItem key="catch-up" component="button" isDisabled={missedStreams === 0}>
+        <DropdownItem
+            key="enable"
+            component="button"
+            isDisabled={status !== 'disabled'}
+            onClick={() => api.emit({
+                managePipelineNode: {
+                    enable: name,
+                }
+            })}
+        >
+            Enable
+        </DropdownItem>,
+        <DropdownItem
+            key="catch-up"
+            component="button"
+            isDisabled={missedStreams === 0 || status !== 'running' || catchingUp}
+            onClick={() => api.emit({
+                managePipelineNode: {
+                    catchUp: name,
+                }
+            })}
+        >
             Catch-Up
         </DropdownItem>,
         <DropdownSeparator key="separator" />,
-        <DropdownItem key="remove" component="button">
+        <DropdownItem
+            key="remove"
+            component="button"
+            onClick={() => api.emit({
+                managePipelineNode: {
+                    remove: name,
+                }
+            })}
+        >
             Remove
         </DropdownItem>,
     ];
@@ -82,7 +122,7 @@ const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams,
             </CardActions>
         </CardHead>
         <CardBody>
-            <pre>{JSON.stringify({ name, kind, status, queuedStreams, processedStreams, missedStreams }, null, 2)}</pre>
+            <pre>{JSON.stringify({ name, kind, status, queuedStreams, processedStreams, missedStreams, catchingUp, isStarlark }, null, 2)}</pre>
         </CardBody>
         <CardFooter>
             <Progress value={progress * 100} title={statusTitle} variant={status === 'running' ? ProgressVariant.success : ProgressVariant.danger} />

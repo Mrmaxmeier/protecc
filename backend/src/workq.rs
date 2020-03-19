@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 
-/// Futures-aware mpmc channel with tracy instrumentation.
+/// Futures-aware (work-stealing) mpmc channel with tracy instrumentation.
 #[derive(Debug)]
 pub struct WorkQ<T> {
     data: Mutex<VecDeque<T>>,
