@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { StreamDetailed, prettyPrintEndpoint, DataSegment, parseFlags } from '../Api/Types';
-import { useUpdatingValue } from '../Api/ProteccApi';
+import { prettyPrintEndpoint, DataSegment, parseFlags } from '../Api/Types';
+import { useStream } from '../Api/ProteccApi';
 import { Loading } from './Loading';
-import { Record, Static } from 'runtypes';
 import { Stack, StackItem, Bullseye, Card, CardBody, OptionsMenu, OptionsMenuItem, OptionsMenuToggle, Checkbox, Button } from '@patternfly/react-core';
 import { Tags } from './Tags';
 import { SemanticColor, ColoredLabel, Details } from './ColoredLabel';
@@ -12,11 +11,6 @@ import { LightweightTable, LightweightTableHeader } from './LightweightTable';
 interface Props {
     streamId: number
 }
-
-const DetailsUpdate = Record({
-    streamDetails: StreamDetailed
-})
-type DetailsUpdate = Static<typeof DetailsUpdate>
 
 function Segment({ segment, encoding }: { segment: DataSegment, encoding: DisplayType }) {
     const serverStyle = {
@@ -64,7 +58,7 @@ function Segment({ segment, encoding }: { segment: DataSegment, encoding: Displa
 
 export function StreamDetails({ streamId }: Props) {
 
-    let details = useUpdatingValue({ watch: { streamDetails: streamId } }, m => DetailsUpdate.check(m).streamDetails)
+    let details = useStream(streamId)
     let [menuOpen, setMenuOpen] = useState(false)
     let [encoding, setEncoding] = useState(DisplayTypes[0])
     let [collapse, setCollapse] = useState(true)

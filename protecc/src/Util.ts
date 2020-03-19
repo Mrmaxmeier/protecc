@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import numeral from 'numeral'
 
 export const onEnter = (cb: () => void) => (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') cb();
@@ -47,3 +48,13 @@ export function uniqBy<T, K>(a: T[], key: (v: T) => K): T[] {
         return seen.has(k) ? false : seen.add(k);
     });
 }
+
+export function beautify(o: any): string {
+    return JSON.stringify(o, null, 2)
+}
+
+const format = (format: string, trim?: boolean) => (n: number) => numeral(n).format(format).replace(trim === undefined || trim ? '.00' : '', '')
+export const formatBytes = format('0.00b')
+export const formatNumber = format('0.00a')
+export const formatPercent = format('0.00', false)
+export const formatMillis = (n: number) => format('00:00:00')(n / 1000.0)

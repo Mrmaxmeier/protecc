@@ -4,6 +4,7 @@ import * as monacoEditor from 'monaco-editor/esm/vs/editor/editor.api'
 import { Config, Api } from '../Api/ProteccApi'
 import Editor from '@monaco-editor/react'
 import { Alert, AlertActionCloseButton } from '@patternfly/react-core'
+import { SemanticColor } from '../Components/ColoredLabel'
 
 type StandaloneEditor = monacoEditor.editor.IStandaloneCodeEditor
 
@@ -122,16 +123,16 @@ export function EditorWidget({ onExecute, error, onChange }: { onExecute?: () =>
     const [editor, setEditor] = useState<StandaloneEditor | null>(null)
     const [loadedFile, setLoadedFile] = useState<{ name: string, content: string } | null>(null)
     const [content, setContent] = useState<string | null>(null)
-    const [shownError, setShownError] = useState(error || null)
+    const [shownError, setShownError] = useState<[string, string] | null>((error && ["Execution failed", error]) || null)
 
     const config = useContext(Config)
     const api = useContext(Api)
 
-    useEffect(() => setShownError(error || null), [error])
+    useEffect(() => setShownError((error && ["Execution failed", error]) || null), [error])
 
     useEffect(() => {
         if (editor === null) return
-        if (shownError === null || shownError === '') {
+        if (shownError === null || shownError[1] === '') {
             editor.removeOverlayWidget({ getId: () => 'error' } as any)
         }
         else {
@@ -140,12 +141,12 @@ export function EditorWidget({ onExecute, error, onChange }: { onExecute?: () =>
                     let div = document.createElement('div')
                     ReactDOM.render(
                         <Alert
-                            title='Execution failed'
+                            title={shownError[0]}
                             isInline
                             variant='danger'
                             action={<AlertActionCloseButton onClose={() => setShownError(null)} />}
                         >
-                            {shownError}
+                            {shownError[1]}
                         </Alert>
                         , div)
                     return div
@@ -241,6 +242,43 @@ export function EditorWidget({ onExecute, error, onChange }: { onExecute?: () =>
             }
         })
     }, [editor, api, save, loadedFile])
+
+    useEffect(() => {
+        editor?.addAction({
+            id: 'createTag',
+            label: 'Create Tag',
+            keybindings: [2091],
+            contextMenuOrder: 0,
+            run: () => {
+                showTextInput(editor, 'Enter tag description (&lt;slug&gt; &lt;name&gt; [color])', s => {
+                    if (s === null || s.length === 0) return
+                    const split = s.split(' ')
+                    if (split.length === 2)
+                        split.push('grey')
+                    if (split.length !== 3 || split[0] === '' || split[1] === '' || split[2] === '') {
+                        setShownError(["Couldn't create tag", 'This command requires either 2 or 3 arguments, not ' + split.length])
+                        return
+                    }
+                    if (!SemanticColor.guard(split[2])) {
+                        setShownError(["Couldn't create tag", split[2] + ' is not a valid color'])
+                        return
+                    }
+
+
+                    api.emit({
+                        updateConfiguration: {
+                            setTag: {
+                                slug: split[0],
+                                name: split[1],
+                                color: split[2],
+                                owner: 'webui'
+                            }
+                        }
+                    })
+                })
+            }
+        })
+    }, [editor, api])
 
     useEffect(() => {
         editor?.addAction({

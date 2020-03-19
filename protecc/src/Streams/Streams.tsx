@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect } from 'react';
+import React, { useContext, useState, useEffect, useCallback } from 'react';
 import { Config, Api } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
 import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, FlexModifiers, Switch, Modal, Title } from '@patternfly/react-core';
@@ -181,7 +181,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
     }, [params.port, params.tag, api])
 
 
-    const onNext = () => {
+    const onNext = useCallback(() => {
         if (detailsOpen) {
             let index = loaded.findIndex((v) => v.id === details)
             if (index === -1 || index + 1 >= loaded.length) return
@@ -190,9 +190,9 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
         } else {
             setPage((page) => page + 1)
         }
-    }
+    }, [loaded, details, detailsOpen])
 
-    const onPrevious = () => {
+    const onPrevious = useCallback(() => {
         if (detailsOpen) {
             let index = loaded.findIndex((v) => v.id === details)
             if (index === -1 || index - 1 < 0) return
@@ -201,15 +201,16 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
         } else {
             setPage((page) => page > 1 ? page - 1 : page)
         }
-    }
-    const toggleAttach = () => {
+    }, [loaded, details, detailsOpen])
+
+    const toggleAttach = useCallback(() => {
         if (!windowParams.attached) {
             setPage(1)
             setWindowParams({ attached: true, pages: 2 })
         }
         else
             setWindowParams({ ...windowParams, attached: false })
-    }
+    }, [windowParams])
 
     let headers = [
         { content: 'Id', width: 10 },
@@ -246,13 +247,10 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
                 <LightweightTableHeader headers={headers} />
                 <tbody>
                     {loaded.slice((page - 1) * pageSize, page * pageSize).map((stream) => {
-                        const clickedStyle = {
-                            borderLeft: '3px solid var(--pf-global--primary-color--100)'
-                        }
                         return (
                             <tr
                                 key={stream.id}
-                                style={stream.id === details ? clickedStyle : {}}
+                                className={stream.id === details ? 'highlighted' : ''}
                                 onClick={() => {
                                     setDetails(stream.id)
                                     setDetailsOpen(true)

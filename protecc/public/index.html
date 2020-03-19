@@ -47,6 +47,19 @@
       overflow: auto;
     }
 
+    pre.ellipsis {
+      margin: 0;
+      color: rgba(0, 0, 0, 0.65);
+      font-family: Consolas, monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    tr.highlighted {
+      border-left: 3px solid var(--pf-global--primary-color--100);
+    }
+
     div.pf-c-modal-box {
       --pf-c-modal-box--BackgroundColor: var(--pf-global--BackgroundColor--200)
     }

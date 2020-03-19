@@ -1,7 +1,8 @@
-import React, { Context, createContext, useState, useEffect, useContext } from 'react';
+import React, { Context, createContext, useState, useEffect, useContext, useCallback } from 'react';
 import io from 'socket.io-client';
 import { Record, Static, String, Number, Unknown, Dictionary, Literal, Union } from 'runtypes';
 import { SemanticColor } from '../Components/ColoredLabel';
+import { StreamDetailed } from './Types';
 
 const StreamMessage = Record({
     id: Number,
@@ -112,21 +113,22 @@ export type ConnectionStatus = Static<typeof ConnectionStatus>
 export const Connected = createContext<ConnectionStatus>('disconnected');
 
 
-export function useUpdatingValue<T>(payload: any, check: (msg: any) => T): T | null {
+export function useUpdatingValue<T>(payload: any, check: (msg: any) => T, dependencies: any[]): T | null {
     const api = useContext(Api)
     const [value, setValue] = useState<T | null>(null)
 
+    const cb = useCallback(check, [])
+
     useEffect(() => api.listen(payload, (msg) =>
-        setValue(check(msg))
-        // these values should never change anyways
+        setValue(cb(msg))
         // eslint-disable-next-line
-    ), [api])
+    ), [api, cb].concat(dependencies))
 
     return value
 }
 
 const ConfigProvider: React.FC = ({ children }) => {
-    const config = useUpdatingValue({ watch: 'configuration' }, m => OuterConfiguration.check(m).configuration);
+    const config = useUpdatingValue({ watch: 'configuration' }, m => OuterConfiguration.check(m).configuration, []);
     return <Config.Provider value={config}>{children}</Config.Provider>
 }
 
@@ -153,4 +155,14 @@ export const ApiProvider: React.FC = ({ children }) => {
             </ConfigProvider>
         </Api.Provider>
     )
+}
+
+
+export const DetailsUpdate = Record({
+    streamDetails: StreamDetailed
+})
+export type DetailsUpdate = Static<typeof DetailsUpdate>
+
+export function useStream(id: number) {
+    return useUpdatingValue({ watch: { streamDetails: id } }, m => DetailsUpdate.check(m).streamDetails, [id])
 }

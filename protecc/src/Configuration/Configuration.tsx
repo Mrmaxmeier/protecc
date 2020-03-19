@@ -146,7 +146,7 @@ function AddServiceRow({ port, indexSize }: { port: number, indexSize: number })
 
 export function Configuration() {
     const config = useContext(Config)
-    const indexSizes = useUpdatingValue({ watch: 'indexSizes' }, m => IndexSizes.check(m).indexSizes);
+    const indexSizes = useUpdatingValue({ watch: 'indexSizes' }, m => IndexSizes.check(m).indexSizes, []);
 
     if (indexSizes === null || config === null) return <Loading />;
 

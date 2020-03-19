@@ -1,6 +1,7 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { Counters, Api } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
+import { beautify } from '../Util';
 
 export function Dashboard() {
     let api = useContext(Api)
@@ -15,5 +16,5 @@ export function Dashboard() {
     Object.keys(counters).sort().forEach((key) => {
         countersSorted[key] = counters[key];
     });
-    return <pre>{JSON.stringify(countersSorted, null, 2)}</pre>;
+    return <pre>{beautify(countersSorted)}</pre>;
 }

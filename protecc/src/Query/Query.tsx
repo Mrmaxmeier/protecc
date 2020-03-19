@@ -1,11 +1,15 @@
-import React, { useState, useContext, useCallback, useReducer, Dispatch } from 'react'
-import { Stack, StackItem, ToolbarGroup, Toolbar, TextInput, Button, ToolbarItem, Progress, Split, SplitItem, Bullseye } from '@patternfly/react-core'
+import React, { useState, useContext, useCallback, useReducer, Dispatch, useEffect } from 'react'
+import { Stack, StackItem, ToolbarGroup, Toolbar, TextInput, Button, ToolbarItem, Progress, Split, SplitItem, Bullseye, Pagination, Modal, Title, Divider } from '@patternfly/react-core'
 import { EditorWidget } from './EditorWidget'
 import { ArrowRightIcon, TrashAltIcon, LessIcon, ArrowLeftIcon, PlayIcon, PauseIcon } from '@patternfly/react-icons'
-import { setIfInt, setIfIntOrEmpty, negate, compare, uniqBy } from '../Util'
-import { QueryResult } from '../Api/Types'
-import { Api, ProteccApi } from '../Api/ProteccApi'
+import { setIfInt, setIfIntOrEmpty, negate, compare, uniqBy, formatPercent, beautify } from '../Util'
+import { QueryResult, prettyPrintEndpoint } from '../Api/Types'
+import { Api, ProteccApi, useStream } from '../Api/ProteccApi'
 import { Record, String, Number, Boolean, Array, Static, Null } from 'runtypes'
+import { LightweightTable, LightweightTableHeader } from '../Components/LightweightTable'
+import { Link } from 'react-router-dom'
+import { Tags } from '../Components/Tags'
+import { GlobalHotKeys } from 'react-hotkeys'
 
 const QueryResponse = Record({
     starlarkScan: Record({
@@ -31,7 +35,6 @@ type QueryState = {
     pageSize: number,
     paused: boolean,
     runState: 'running' | 'idle' | 'done' | 'errored',
-    page: number,
     discarding: boolean,
     deduplicate: boolean,
     maxPages: number
@@ -99,7 +102,7 @@ function handleResponse(state: QueryState, { starlarkScan }: QueryResponse, setE
         .concat(starlarkScan.scanResults.filter(r => r.sortKey === undefined))
     const sorted = state.results.filter(r => r.sortKey !== undefined)
         .concat(starlarkScan.scanResults.filter(r => r.sortKey !== undefined))
-    let results = sorted.sort((a, b) => compare(a.sortKey, b.sortKey)).concat(nonSorted)
+    let results = sorted.sort((a, b) => compare(b.sortKey, a.sortKey)).concat(nonSorted)
 
     if (state.deduplicate)
         results = uniqBy(results, v => v.attached)
@@ -135,10 +138,13 @@ function queryStateReducer(state: QueryState | null, action: QueryStateAction): 
 }
 
 
-function RenderProgress({ state, onChangePause }: { state: QueryState, onChangePause?: (v: boolean) => void }) {
-    const percentage = state.progress === null ? 0 : Math.abs(state.progress.lastScanned - state.progress.from) / Math.abs(state.progress.to - state.progress.from) * 100.0
-    const progressText = state.progress === null ? 'Initializing query...' : percentage + '%'
-    const variant = state.runState === 'done' || state.runState === 'running' ? 'success' : (state.runState === 'idle' ? 'info' : 'danger')
+function QueryProgress({ state, onChangePause }: { state: QueryState, onChangePause?: (v: boolean) => void }) {
+    const max = state.progress === null ? 100 : Math.abs(state.progress.to - state.progress.from)
+    const value = state.progress === null ? 0 : Math.min(Math.abs(state.progress.lastScanned - state.progress.from), max)
+    const percentage = value / max * 100.0
+    const progressText = state.progress === null ? 'Initializing query...' : (formatPercent(percentage) + '%')
+    console.log(progressText)
+    const variant = state.runState === 'done' ? 'success' : (state.runState === 'errored' ? 'danger' : 'info')
     const isDone = state.runState !== 'running' && state.runState !== 'idle'
 
     return <Split>
@@ -146,17 +152,157 @@ function RenderProgress({ state, onChangePause }: { state: QueryState, onChangeP
             <Bullseye>
                 <Progress
                     style={{ width: '100%' }}
-                    value={state.runState === 'errored' ? 100 : percentage}
+                    value={state.runState === 'errored' ? max : value}
                     valueText={progressText}
+                    label={progressText}
                     variant={variant}
-                    measureLocation='inside'
+                    min={0}
+                    max={max}
                 />
             </Bullseye>
         </SplitItem>
         <SplitItem>
             <Button variant='plain' isDisabled={isDone} onClick={() => onChangePause && onChangePause(!state.paused)}>{state.paused ? <PlayIcon /> : <PauseIcon />}</Button>
         </SplitItem>
+        <GlobalHotKeys allowChanges={true} keyMap={{ PAUSE: "p" }} handlers={{
+            PAUSE: () => onChangePause && onChangePause(!state.paused)
+        }} />
     </Split>
+}
+
+function ResultDetails({ result }: { result: QueryResult }) {
+    let updatedStream = useStream(result.stream.id)
+    const stream = updatedStream === null ? result.stream : updatedStream
+
+    return <Bullseye>
+        <Stack style={{ width: '90%' }} gutter='lg'>
+            <StackItem>
+                <LightweightTable compact>
+                    <LightweightTableHeader headers={[
+                        { content: 'Id', width: 10 },
+                        { content: 'Server', width: 10 },
+                        { content: 'Client', width: 10 },
+                        { content: 'Server  data', width: 10 },
+                        { content: 'Client data', width: 10 },
+                        { content: 'Sort key', width: 10 },
+                        { content: 'Tags', width: 'max' },
+                    ]} />
+                    <tbody>
+                        <tr>
+                            <td>{stream.id}</td>
+                            <td>{prettyPrintEndpoint(stream.server)}</td>
+                            <td>{prettyPrintEndpoint(stream.client)}</td>
+                            <td>{stream.serverDataLen}</td>
+                            <td>{stream.clientDataLen}</td>
+                            <td>{result.sortKey}</td>
+                            <td><Tags tags={stream.tags} streamId={stream.id} /></td>
+                        </tr>
+                    </tbody>
+                </LightweightTable>
+            </StackItem>
+            <Divider />
+            <StackItem>
+                <Title size={'lg'}>Added Tags:</Title>
+                <Tags tags={result.addedTags} />
+            </StackItem>
+            <Divider />
+            <StackItem>
+                <Title size={'lg'}>Emitted data:</Title>
+                <div>
+                    <pre className='scroll'>{result.attached === null ? '' : beautify(result.attached)}</pre>
+                </div>
+            </StackItem>
+        </Stack>
+    </Bullseye>
+}
+
+function QueryTable({ state }: { state: QueryState }) {
+    const [page, setPage] = useState(1)
+    const [details, setDetails] = useState<QueryResult | null>(null)
+    const [detailsOpen, setDetailsOpen] = useState(false)
+    const [pageSize, setPageSize] = useState(state.pageSize)
+
+    useEffect(() => setPageSize(state.pageSize), [state.pageSize])
+
+    let pageSizes = [pageSize, 10, 20, 50, 100]
+        .filter((n, i) => i === 0 || n !== pageSize)
+        .map(n => ({ title: n.toString(), value: n }))
+
+    const onNext = useCallback(() => {
+        if (detailsOpen) {
+            let index = state.results.findIndex((v) => v.stream.id === details?.stream.id)
+            if (index === -1 || index + 1 >= state.results.length) return
+            setDetails(state.results[index + 1])
+            setPage(Math.floor((index + 1) / pageSize) + 1)
+        } else {
+            setPage((page) => page + 1 <= Math.ceil(state.results.length / pageSize) ? page + 1 : page)
+        }
+    }, [details, detailsOpen, pageSize, state.results])
+
+    const onPrevious = useCallback(() => {
+        if (detailsOpen) {
+            let index = state.results.findIndex((v) => v.stream.id === details?.stream.id)
+            if (index === -1 || index - 1 < 0) return
+            setDetails(state.results[index - 1])
+            setPage(() => Math.floor((index - 1) / pageSize) + 1)
+        } else {
+            setPage((page) => page > 1 ? page - 1 : page)
+        }
+    }, [details, detailsOpen, pageSize, state.results])
+
+    return <>
+        <Pagination
+            style={{ '--pf-c-pagination__nav-page-select--c-form-control--Width': '5em' } as React.CSSProperties}
+            itemCount={state.results.length}
+            perPage={pageSize}
+            page={page}
+            perPageOptions={pageSizes}
+            onPerPageSelect={(_, v) => setPageSize(v)}
+            onSetPage={(_, p) => setPage(p)}
+        />
+        <LightweightTable compact>
+            <LightweightTableHeader headers={[
+                { content: 'Id', width: 10 },
+                { content: 'Server', width: 10 },
+                { content: 'Client', width: 10 },
+                { content: 'Sort key', width: 10 },
+                { content: 'Tags', width: 20 },
+                { content: 'Data', width: 'max' }
+            ]} />
+            <tbody>{
+                state.results.slice((page - 1) * pageSize, page * pageSize).map(result =>
+                    <tr
+                        key={result.stream.id}
+                        onClick={() => { setDetails(result); setDetailsOpen(true) }}
+                        className={result.stream.id === details?.stream.id ? 'highlighted' : ''}
+                    >
+                        <td><Link to={'/stream/' + result.stream.id}>{result.stream.id}</Link></td>
+                        <td>{prettyPrintEndpoint(result.stream.server)}</td>
+                        <td>{prettyPrintEndpoint(result.stream.client)}</td>
+                        <td>{result.sortKey === null ? '-' : result.sortKey}</td>
+                        <td><Tags tags={result.addedTags === null ? [] : result.addedTags}></Tags></td>
+                        <td><pre className='ellipsis'>{result.attached === null ? '' : JSON.stringify(result.attached)}</pre></td>
+                    </tr>
+                )
+            }</tbody>
+        </LightweightTable>
+        <GlobalHotKeys allowChanges={true} keyMap={{ NEXT: "right", PREVIOUS: "left" }} handlers={{
+            NEXT: onNext,
+            PREVIOUS: onPrevious,
+        }} />
+        {details !== null && (
+            <Modal
+                title={'Stream ' + details.stream.id}
+                header={<Title headingLevel={'h1'} size={'3xl'}><Link to={'/stream/' + details}>{"Stream " + details.stream.id}</Link></Title>}
+                isOpen={detailsOpen}
+                onClose={() => setDetailsOpen(false)}
+                style={{ padding: '1em', backgroundColor: 'var(--pf-global--BackgroundColor--300)' }}
+            >
+                <ResultDetails result={details} />
+            </Modal>
+        )
+        }
+    </>
 }
 
 export function Query() {
@@ -196,10 +342,8 @@ export function Query() {
                 program: editorContents,
                 pastToFuture,
                 pageSize,
-                lastRequest: null,
                 paused: false,
                 runState: 'running',
-                page: 1,
                 discarding,
                 deduplicate,
                 maxPages: maxPageFetch
@@ -215,52 +359,65 @@ export function Query() {
             <StackItem>
                 <Split gutter='lg'>
                     <SplitItem>
-                        <Toolbar>
-                            <ToolbarGroup>
-                                <ToolbarItem>
-                                    Range:&nbsp;
+                        <Bullseye>
+                            <Toolbar>
+                                <ToolbarGroup>
+                                    <ToolbarItem>
+                                        Range:&nbsp;
                                 </ToolbarItem>
-                                <ToolbarItem>
-                                    <TextInput placeholder='Latest' style={{ width: '5em' }} value={lowerBound === null ? '' : lowerBound} onChange={setIfIntOrEmpty(setLowerBound)} css='' />
+                                    <ToolbarItem>
+                                        <TextInput placeholder='Latest' style={{ width: '5em' }} value={lowerBound === null ? '' : lowerBound} onChange={setIfIntOrEmpty(setLowerBound)} css='' />
+                                    </ToolbarItem>
+                                    <ToolbarItem>
+                                        <Button placeholder='Lower bound' variant='plain' onClick={negate(setPastToFuture)}>{pastToFuture ? <ArrowLeftIcon /> : <ArrowRightIcon />}</Button>
+                                    </ToolbarItem>
+                                    <ToolbarItem>
+                                        <TextInput placeholder='Earliest' style={{ width: '5em' }} value={upperBound === null ? '' : upperBound} onChange={setIfIntOrEmpty(setUpperBound)} css='' />
+                                    </ToolbarItem>
+                                </ToolbarGroup>
+                                <ToolbarGroup>
+                                    <ToolbarItem>
+                                        <Button variant={discarding ? 'primary' : 'tertiary'} onClick={negate(setDiscarding)}><TrashAltIcon /></Button>
+                                    </ToolbarItem>
+                                    <ToolbarItem>
+                                        <Button variant={deduplicate ? 'primary' : 'tertiary'} onClick={negate(setDeduplicate)}><LessIcon /></Button>
+                                    </ToolbarItem>
+                                </ToolbarGroup>
+                                <ToolbarGroup>
+                                    <ToolbarItem>
+                                        Page Size:&nbsp;
                                 </ToolbarItem>
-                                <ToolbarItem>
-                                    <Button placeholder='Lower bound' variant='plain' onClick={negate(setPastToFuture)}>{pastToFuture ? <ArrowLeftIcon /> : <ArrowRightIcon />}</Button>
-                                </ToolbarItem>
-                                <ToolbarItem>
-                                    <TextInput placeholder='Earliest' style={{ width: '5em' }} value={upperBound === null ? '' : upperBound} onChange={setIfIntOrEmpty(setUpperBound)} css='' />
-                                </ToolbarItem>
-                            </ToolbarGroup>
-                            <ToolbarGroup>
-                                <ToolbarItem>
-                                    <Button variant={discarding ? 'primary' : 'tertiary'} onClick={negate(setDiscarding)}><TrashAltIcon /></Button>
-                                </ToolbarItem>
-                                <ToolbarItem>
-                                    <Button variant={deduplicate ? 'primary' : 'tertiary'} onClick={negate(setDeduplicate)}><LessIcon /></Button>
-                                </ToolbarItem>
-                            </ToolbarGroup>
-                            <ToolbarGroup>
-                                <ToolbarItem>
-                                    Page Size:&nbsp;
-                                </ToolbarItem>
-                                <ToolbarItem>
-                                    <TextInput style={{ width: '5em' }} value={pageSize} onChange={setIfInt(setPageSize)} css='' />
-                                </ToolbarItem>
-                            </ToolbarGroup>
-                            <ToolbarGroup>
-                                <ToolbarItem>
-                                    <Button variant='primary' onClick={execute}>Execute</Button>
-                                </ToolbarItem>
-                            </ToolbarGroup>
-                        </Toolbar>
+                                    <ToolbarItem>
+                                        <TextInput style={{ width: '5em' }} value={pageSize} onChange={setIfInt(setPageSize)} css='' />
+                                    </ToolbarItem>
+                                </ToolbarGroup>
+                                <ToolbarGroup>
+                                    <ToolbarItem>
+                                        <Button variant='primary' onClick={execute}>Execute</Button>
+                                    </ToolbarItem>
+                                </ToolbarGroup>
+                            </Toolbar>
+                        </Bullseye>
                     </SplitItem>
                     <SplitItem isFilled>
-                        {queryState !== null && <RenderProgress state={queryState} onChangePause={(b) => !b && continueFetching()} />}
+                        {queryState !== null &&
+                            <QueryProgress
+                                state={queryState}
+                                onChangePause={paused => {
+                                    dispatch({ type: 'set', arg: s => s === null ? s : { ...s, paused } })
+                                    if (!paused)
+                                        continueFetching()
+                                }}
+                            />
+                        }
                     </SplitItem>
                 </Split>
             </StackItem>
-            <StackItem>
-                <pre>{JSON.stringify(queryState, null, 2)}</pre>
-            </StackItem>
+            {queryState &&
+                <StackItem>
+                    <QueryTable state={queryState} />
+                </StackItem>
+            }
         </Stack>
     )
 }
