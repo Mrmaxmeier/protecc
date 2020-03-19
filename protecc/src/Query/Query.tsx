@@ -2,7 +2,7 @@ import React, { useState, useContext, useCallback, useReducer, Dispatch, useEffe
 import { Stack, StackItem, ToolbarGroup, Toolbar, TextInput, Button, ToolbarItem, Progress, Split, SplitItem, Bullseye, Pagination, Modal, Title, Divider, Tooltip } from '@patternfly/react-core'
 import { EditorWidget } from './EditorWidget'
 import { ArrowRightIcon, TrashAltIcon, LessIcon, ArrowLeftIcon, PlayIcon, PauseIcon } from '@patternfly/react-icons'
-import { setIfInt, setIfIntOrEmpty, negate, compare, uniqBy, formatPercent, beautify, onEnter } from '../Util'
+import { setIfInt, setIfIntOrEmpty, negate, compare, uniqBy, formatPercent, beautify, onEnter, formatBytes } from '../Util'
 import { QueryResult, prettyPrintEndpoint } from '../Api/Types'
 import { Api, ProteccApi, useStream } from '../Api/ProteccApi'
 import { Record, String, Number, Boolean, Array, Static, Null } from 'runtypes'
@@ -191,8 +191,8 @@ function ResultDetails({ result }: { result: QueryResult }) {
                             <td>{stream.id}</td>
                             <td>{prettyPrintEndpoint(stream.server)}</td>
                             <td>{prettyPrintEndpoint(stream.client)}</td>
-                            <td>{stream.serverDataLen}</td>
-                            <td>{stream.clientDataLen}</td>
+                            <td>{formatBytes(stream.serverDataLen)}</td>
+                            <td>{formatBytes(stream.clientDataLen)}</td>
                             <td>{result.sortKey}</td>
                             <td><Tags tags={stream.tags} streamId={stream.id} /></td>
                         </tr>

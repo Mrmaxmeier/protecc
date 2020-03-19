@@ -7,6 +7,8 @@ import { Tags } from './Tags';
 import { SemanticColor, ColoredLabel, Details } from './ColoredLabel';
 import { DataView, DisplayType, DisplayTypes } from './DataView';
 import { LightweightTable, LightweightTableHeader } from './LightweightTable';
+import { toByteArray, fromByteArray } from 'base64-js';
+import { formatBytes } from '../Util';
 
 interface Props {
     streamId: number
@@ -69,10 +71,31 @@ export function StreamDetails({ streamId }: Props) {
     if (details == null)
         return <Loading />
 
+    const concatData = (segments: DataSegment[]) => {
+        const segmentData = segments.map(segment => toByteArray(segment.data))
+        let length = 0
+        segmentData.forEach(data =>
+            length += data.length
+        )
+        const data = new Uint8Array(length)
+        let i = 0
+        segmentData.forEach(s => {
+            s.forEach((v, j) =>
+                data[i + j] = v
+            )
+            i += s.length
+        })
+        return fromByteArray(data)
+    }
+    const data = concatData(details.segments)
+    const clientData = concatData(details.segments.filter(s => s.sender === 'client'))
+    const serverData = concatData(details.segments.filter(s => s.sender === 'server'))
+
     let headers = [
         { content: 'Id', width: 10 },
         { content: 'Server', width: 10 },
         { content: 'Client', width: 10 },
+        { content: 'Data', width: 10 },
         { content: 'Server  data', width: 10 },
         { content: 'Client data', width: 10 },
         { content: 'Service', width: 10 },
@@ -93,8 +116,30 @@ export function StreamDetails({ streamId }: Props) {
                                 <td>{details.id}</td>
                                 <td>{prettyPrintEndpoint(details.server)}</td>
                                 <td>{prettyPrintEndpoint(details.client)}</td>
-                                <td>{details.serverDataLen}</td>
-                                <td>{details.clientDataLen}</td>
+                                <td>
+                                    <a
+                                        download={details.id + '.bin'}
+                                        href={'data:text/plain;base64,' + data}
+                                    >
+                                        {formatBytes(details.serverDataLen + details.clientDataLen)}
+                                    </a>
+                                </td>
+                                <td>
+                                    <a
+                                        download={details.id + '-server.bin'}
+                                        href={'data:text/plain;base64,' + serverData}
+                                    >
+                                        {formatBytes(details.serverDataLen)}
+                                    </a>
+                                </td>
+                                <td>
+                                    <a
+                                        download={details.id + '-client.bin'}
+                                        href={'data:text/plain;base64,' + clientData}
+                                    >
+                                        {formatBytes(details.clientDataLen)}
+                                    </a>
+                                </td>
                                 <td>{service === null ? '-' : service.name}</td>
                                 <td><Tags tags={details.tags} /></td>
                             </tr>

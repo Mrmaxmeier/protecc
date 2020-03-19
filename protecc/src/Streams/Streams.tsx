@@ -2,7 +2,7 @@ import React, { useContext, useState, useEffect, useCallback } from 'react';
 import { Config, Api, serviceFromPort } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
 import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, FlexModifiers, Switch, Modal, Title } from '@patternfly/react-core';
-import { onEnter, nanToNull } from '../Util';
+import { onEnter, nanToNull, formatBytes } from '../Util';
 import { useHistory, useParams, Link } from 'react-router-dom';
 import { ColoredDot } from '../Components/ColoredDot';
 import { Record, Array, Number, Static } from 'runtypes';
@@ -262,8 +262,8 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
                                 <td><Link to={'/stream/' + stream.id}>{stream.id}</Link></td>
                                 <td>{prettyPrintEndpoint(stream.server)}</td>
                                 <td>{prettyPrintEndpoint(stream.client)}</td>
-                                <td>{stream.serverDataLen}</td>
-                                <td>{stream.clientDataLen}</td>
+                                <td>{formatBytes(stream.serverDataLen)}</td>
+                                <td>{formatBytes(stream.clientDataLen)}</td>
                                 <td>{service && service !== null ? service.name : '-'}</td>
                                 <td><Tags tags={stream.tags} /></td>
                             </tr>
