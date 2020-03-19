@@ -10,7 +10,7 @@ export const StarlarkLanguageProvider: React.FC<{}> = ({ children }) => {
             registerAutocomplete(monaco)
             monaco.languages.setMonarchTokensProvider('starlark', starlarkTokensProvider as any)
             monaco.languages.register({ id: 'starlark' })
-            monaco.languages.setLanguageConfiguration('starlark', starlarkLanguageDefinition as any)
+            monaco.languages.setLanguageConfiguration('starlark', starlarkLanguageDefinition(monaco) as any)
 
             monaco.editor.defineTheme('starlark-dark', {
                 base: 'vs-dark',

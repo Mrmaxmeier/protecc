@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { prettyPrintEndpoint, DataSegment, parseFlags } from '../Api/Types';
-import { useStream } from '../Api/ProteccApi';
+import { useStream, Config, serviceFromPort } from '../Api/ProteccApi';
 import { Loading } from './Loading';
-import { Stack, StackItem, Bullseye, Card, CardBody, OptionsMenu, OptionsMenuItem, OptionsMenuToggle, Checkbox, Button } from '@patternfly/react-core';
+import { Stack, StackItem, Bullseye, Card, CardBody, OptionsMenu, OptionsMenuItem, OptionsMenuToggle, Button, SplitItem, Split, Switch } from '@patternfly/react-core';
 import { Tags } from './Tags';
 import { SemanticColor, ColoredLabel, Details } from './ColoredLabel';
 import { DataView, DisplayType, DisplayTypes } from './DataView';
@@ -59,6 +59,8 @@ function Segment({ segment, encoding }: { segment: DataSegment, encoding: Displa
 export function StreamDetails({ streamId }: Props) {
 
     let details = useStream(streamId)
+    let config = useContext(Config)
+
     let [menuOpen, setMenuOpen] = useState(false)
     let [encoding, setEncoding] = useState(DisplayTypes[0])
     let [collapse, setCollapse] = useState(true)
@@ -73,10 +75,12 @@ export function StreamDetails({ streamId }: Props) {
         { content: 'Client', width: 10 },
         { content: 'Server  data', width: 10 },
         { content: 'Client data', width: 10 },
+        { content: 'Service', width: 10 },
         { content: 'Tags', width: 'max' },
     ]
 
     let segments = details.segments.filter(segment => !collapse || segment.data.length);
+    let service = config === null ? null : serviceFromPort(config.services, details.server[1])
 
     return (
         <Bullseye>
@@ -91,27 +95,36 @@ export function StreamDetails({ streamId }: Props) {
                                 <td>{prettyPrintEndpoint(details.client)}</td>
                                 <td>{details.serverDataLen}</td>
                                 <td>{details.clientDataLen}</td>
+                                <td>{service === null ? '-' : service.name}</td>
                                 <td><Tags tags={details.tags} /></td>
                             </tr>
                         </tbody>
                     </LightweightTable>
                 </StackItem>
                 <StackItem>
-                    <OptionsMenu
-                        id='encoding'
-                        isOpen={menuOpen}
-                        toggle={<OptionsMenuToggle onToggle={setMenuOpen} toggleTemplate={"Encoding"} />}
-                        menuItems={DisplayTypes.map((type) =>
-                            <OptionsMenuItem
-                                key={type}
-                                onSelect={() => setEncoding(type)}
-                                isSelected={encoding === type}
-                            >
-                                {type}
-                            </OptionsMenuItem>
-                        )}
-                    />
-                    <Checkbox label="Collapse Empty" isChecked={collapse} onChange={setCollapse} id="collapse" />
+                    <Split gutter='sm'>
+                        <SplitItem>
+                            <OptionsMenu
+                                id='encoding'
+                                isOpen={menuOpen}
+                                toggle={<OptionsMenuToggle onToggle={setMenuOpen} toggleTemplate={"Encoding"} />}
+                                menuItems={DisplayTypes.map((type) =>
+                                    <OptionsMenuItem
+                                        key={type}
+                                        onSelect={() => setEncoding(type)}
+                                        isSelected={encoding === type}
+                                    >
+                                        {type}
+                                    </OptionsMenuItem>
+                                )}
+                            />
+                        </SplitItem>
+                        <SplitItem>
+                            <Bullseye>
+                                <Switch label="Collapse Empty" isChecked={collapse} onChange={setCollapse} id="collapse" />
+                            </Bullseye>
+                        </SplitItem>
+                    </Split>
                 </StackItem>
                 <StackItem>
                     <Stack gutter='sm'>
@@ -123,7 +136,9 @@ export function StreamDetails({ streamId }: Props) {
                             )}
                         {segments.length >= renderLimit ? (
                             <StackItem>
-                                <Button onClick={() => setRenderLimit(limit => limit + 100)}>Render moar :^)</Button>
+                                <Bullseye>
+                                    <Button onClick={() => setRenderLimit(limit => limit + 100)}>Render moar :^)</Button>
+                                </Bullseye>
                             </StackItem>
                         ) : null}
                     </Stack>

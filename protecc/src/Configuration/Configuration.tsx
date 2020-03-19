@@ -138,7 +138,7 @@ function AddServiceRow({ port, indexSize }: { port: number, indexSize: number })
             <td><TextEdit editing value={service.slug} onChange={v => setService({ ...service, slug: v })} onSubmit={submit} /></td>
             <td><TextEdit editing value={service.port.toString()} disabled /></td>
             <td><TextEdit editing value={service.name} onChange={v => setService({ ...service, name: v })} onSubmit={submit} /></td>
-            <td>-</td>
+            <td>{indexSize}</td>
             <td><Button variant='plain' onClick={submit}><PlusIcon /></Button></td>
         </tr>
     )
@@ -175,6 +175,7 @@ export function Configuration() {
         .map(([port, indexSize]) => ({ port: parseInt(port), indexSize }))
         .filter(v => !definedServices.has(v.port))
         .sort((a, b) => compare(a.indexSize, b.indexSize))
+
 
     return <Stack gutter='md'>
         <StackItem>

@@ -89,18 +89,20 @@ const defaultContent =
     `index(service=services.some_service)
 
 def q():
-if id % 1000 == 0:
-    emit(client_port)
-return id % 500 == 0
+    if id % 1000 == 0:
+        emit(client_port)
+    return id % 500 == 0
 
 sort_key(data_len)
 q()
 # press ctrl + space for autocompletion, all relevant builtins are listed there
 # press ctrl + space again while autocompletion is open for more information on builtins
 # press F1 to see all available commands, these are all the custom ones:
-# Execute Query(Shift + Enter)
-# Save to local storage(Ctrl + S)
-# Load local: <save name>`
+# Execute Query (Shift + Enter)
+# Save to local storage (Ctrl + S)
+# Load local: <save name>
+# Start as tagger
+# Create tag (Ctrl + M)`
 
 export function EditorWidget({ onExecute, error, onChange }: { onExecute?: () => void, error?: string, onChange?: (value: string) => void }) {
     const topBarStyle = {

@@ -102,6 +102,10 @@ type OuterConfiguration = Static<typeof OuterConfiguration>
 
 export const Config = createContext<Configuration | null>(null);
 
+export function serviceFromPort(services: { [id: number]: Service }, port: number): Service | null {
+    return Object.values(services).find(s => s.port === port) || null
+}
+
 
 export const ConnectionStatus = Union(
     Literal('connected'),

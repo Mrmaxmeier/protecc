@@ -1,8 +1,8 @@
 import React, { useState, useContext, useCallback, useReducer, Dispatch, useEffect } from 'react'
-import { Stack, StackItem, ToolbarGroup, Toolbar, TextInput, Button, ToolbarItem, Progress, Split, SplitItem, Bullseye, Pagination, Modal, Title, Divider } from '@patternfly/react-core'
+import { Stack, StackItem, ToolbarGroup, Toolbar, TextInput, Button, ToolbarItem, Progress, Split, SplitItem, Bullseye, Pagination, Modal, Title, Divider, Tooltip } from '@patternfly/react-core'
 import { EditorWidget } from './EditorWidget'
 import { ArrowRightIcon, TrashAltIcon, LessIcon, ArrowLeftIcon, PlayIcon, PauseIcon } from '@patternfly/react-icons'
-import { setIfInt, setIfIntOrEmpty, negate, compare, uniqBy, formatPercent, beautify } from '../Util'
+import { setIfInt, setIfIntOrEmpty, negate, compare, uniqBy, formatPercent, beautify, onEnter } from '../Util'
 import { QueryResult, prettyPrintEndpoint } from '../Api/Types'
 import { Api, ProteccApi, useStream } from '../Api/ProteccApi'
 import { Record, String, Number, Boolean, Array, Static, Null } from 'runtypes'
@@ -96,7 +96,7 @@ function handleResponse(state: QueryState, { starlarkScan }: QueryResponse, setE
         to: state.pastToFuture ? starlarkScan.boundHigh : starlarkScan.boundLow,
     } : { ...state.progress, lastScanned: starlarkScan.scanProgress }
 
-    const runState = starlarkScan.error ? 'errored' : (starlarkScan.rangeExhausted ? 'done' : 'running')
+    const runState = starlarkScan.error ? 'errored' : (starlarkScan.rangeExhausted || progress.lastScanned === progress.to ? 'done' : 'running')
 
     const nonSorted = state.results.filter(r => r.sortKey === undefined)
         .concat(starlarkScan.scanResults.filter(r => r.sortKey === undefined))
@@ -143,7 +143,6 @@ function QueryProgress({ state, onChangePause }: { state: QueryState, onChangePa
     const value = state.progress === null ? 0 : Math.min(Math.abs(state.progress.lastScanned - state.progress.from), max)
     const percentage = value / max * 100.0
     const progressText = state.progress === null ? 'Initializing query...' : (formatPercent(percentage) + '%')
-    console.log(progressText)
     const variant = state.runState === 'done' ? 'success' : (state.runState === 'errored' ? 'danger' : 'info')
     const isDone = state.runState !== 'running' && state.runState !== 'idle'
 
@@ -162,7 +161,7 @@ function QueryProgress({ state, onChangePause }: { state: QueryState, onChangePa
             </Bullseye>
         </SplitItem>
         <SplitItem>
-            <Button variant='plain' isDisabled={isDone} onClick={() => onChangePause && onChangePause(!state.paused)}>{state.paused ? <PlayIcon /> : <PauseIcon />}</Button>
+            <Button variant='plain' isDisabled={isDone} onClick={() => onChangePause && onChangePause(!state.paused)}>{state.paused || isDone ? <PlayIcon /> : <PauseIcon />}</Button>
         </SplitItem>
         <GlobalHotKeys allowChanges={true} keyMap={{ PAUSE: "p" }} handlers={{
             PAUSE: () => onChangePause && onChangePause(!state.paused)
@@ -293,7 +292,7 @@ function QueryTable({ state }: { state: QueryState }) {
         {details !== null && (
             <Modal
                 title={'Stream ' + details.stream.id}
-                header={<Title headingLevel={'h1'} size={'3xl'}><Link to={'/stream/' + details}>{"Stream " + details.stream.id}</Link></Title>}
+                header={<Title headingLevel={'h1'} size={'3xl'}><Link to={'/stream/' + details.stream.id}>{"Stream " + details.stream.id}</Link></Title>}
                 isOpen={detailsOpen}
                 onClose={() => setDetailsOpen(false)}
                 style={{ padding: '1em', backgroundColor: 'var(--pf-global--BackgroundColor--300)' }}
@@ -366,21 +365,25 @@ export function Query() {
                                         Range:&nbsp;
                                 </ToolbarItem>
                                     <ToolbarItem>
-                                        <TextInput placeholder='Latest' style={{ width: '5em' }} value={lowerBound === null ? '' : lowerBound} onChange={setIfIntOrEmpty(setLowerBound)} css='' />
+                                        <TextInput onKeyDown={onEnter(execute)} placeholder='Latest' style={{ width: '5em' }} value={lowerBound === null ? '' : lowerBound} onChange={setIfIntOrEmpty(setLowerBound)} css='' />
                                     </ToolbarItem>
                                     <ToolbarItem>
                                         <Button placeholder='Lower bound' variant='plain' onClick={negate(setPastToFuture)}>{pastToFuture ? <ArrowLeftIcon /> : <ArrowRightIcon />}</Button>
                                     </ToolbarItem>
                                     <ToolbarItem>
-                                        <TextInput placeholder='Earliest' style={{ width: '5em' }} value={upperBound === null ? '' : upperBound} onChange={setIfIntOrEmpty(setUpperBound)} css='' />
+                                        <TextInput onKeyDown={onEnter(execute)} placeholder='Earliest' style={{ width: '5em' }} value={upperBound === null ? '' : upperBound} onChange={setIfIntOrEmpty(setUpperBound)} css='' />
                                     </ToolbarItem>
                                 </ToolbarGroup>
                                 <ToolbarGroup>
                                     <ToolbarItem>
-                                        <Button variant={discarding ? 'primary' : 'tertiary'} onClick={negate(setDiscarding)}><TrashAltIcon /></Button>
+                                        <Tooltip content={'Only keep 9 pages and discard the rest. This will cause the query to go on until the end of the data, use this in combination with sort_key'}>
+                                            <Button variant={discarding ? 'primary' : 'tertiary'} onClick={negate(setDiscarding)}><TrashAltIcon /></Button>
+                                        </Tooltip>
                                     </ToolbarItem>
                                     <ToolbarItem>
-                                        <Button variant={deduplicate ? 'primary' : 'tertiary'} onClick={negate(setDeduplicate)}><LessIcon /></Button>
+                                        <Tooltip content={'Deduplicate results by emitted data'}>
+                                            <Button variant={deduplicate ? 'primary' : 'tertiary'} onClick={negate(setDeduplicate)}><LessIcon /></Button>
+                                        </Tooltip>
                                     </ToolbarItem>
                                 </ToolbarGroup>
                                 <ToolbarGroup>
@@ -388,7 +391,7 @@ export function Query() {
                                         Page Size:&nbsp;
                                 </ToolbarItem>
                                     <ToolbarItem>
-                                        <TextInput style={{ width: '5em' }} value={pageSize} onChange={setIfInt(setPageSize)} css='' />
+                                        <TextInput onKeyDown={onEnter(execute)} style={{ width: '5em' }} value={pageSize} onChange={setIfInt(setPageSize)} css='' />
                                     </ToolbarItem>
                                 </ToolbarGroup>
                                 <ToolbarGroup>

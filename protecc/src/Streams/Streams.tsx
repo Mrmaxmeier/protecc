@@ -1,5 +1,5 @@
 import React, { useContext, useState, useEffect, useCallback } from 'react';
-import { Config, Api } from '../Api/ProteccApi';
+import { Config, Api, serviceFromPort } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
 import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, FlexModifiers, Switch, Modal, Title } from '@patternfly/react-core';
 import { onEnter, nanToNull } from '../Util';
@@ -125,6 +125,7 @@ type WindowUpdate = Static<typeof WindowUpdate>
 
 let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
     let api = useContext(Api)
+    let config = useContext(Config)
 
     let [loaded, setLoaded] = useState<StreamOverview[]>([])
     let [windowParams, setWindowParams] = useState({ pages: 2, attached: true })
@@ -218,6 +219,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
         { content: 'Client', width: 10 },
         { content: 'Server  data', width: 10 },
         { content: 'Client data', width: 10 },
+        { content: 'Service', width: 10 },
         { content: 'Tags', width: 'max' },
     ]
 
@@ -247,6 +249,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
                 <LightweightTableHeader headers={headers} />
                 <tbody>
                     {loaded.slice((page - 1) * pageSize, page * pageSize).map((stream) => {
+                        let service = config === null ? null : serviceFromPort(config.services, stream.server[1])
                         return (
                             <tr
                                 key={stream.id}
@@ -261,6 +264,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
                                 <td>{prettyPrintEndpoint(stream.client)}</td>
                                 <td>{stream.serverDataLen}</td>
                                 <td>{stream.clientDataLen}</td>
+                                <td>{service && service !== null ? service.name : '-'}</td>
                                 <td><Tags tags={stream.tags} /></td>
                             </tr>
                         )
