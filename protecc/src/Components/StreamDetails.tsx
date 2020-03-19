@@ -3,7 +3,7 @@ import { StreamDetailed, prettyPrintEndpoint, DataSegment, parseFlags } from '..
 import { useUpdatingValue } from '../Api/ProteccApi';
 import { Loading } from './Loading';
 import { Record, Static } from 'runtypes';
-import { Stack, StackItem, Bullseye, Card, CardBody, OptionsMenu, OptionsMenuItem, OptionsMenuToggle } from '@patternfly/react-core';
+import { Stack, StackItem, Bullseye, Card, CardBody, OptionsMenu, OptionsMenuItem, OptionsMenuToggle, Checkbox, Button } from '@patternfly/react-core';
 import { Tags } from './Tags';
 import { SemanticColor, ColoredLabel, Details } from './ColoredLabel';
 import { DataView, DisplayType, DisplayTypes } from './DataView';
@@ -67,6 +67,8 @@ export function StreamDetails({ streamId }: Props) {
     let details = useUpdatingValue({ watch: { streamDetails: streamId } }, m => DetailsUpdate.check(m).streamDetails)
     let [menuOpen, setMenuOpen] = useState(false)
     let [encoding, setEncoding] = useState(DisplayTypes[0])
+    let [collapse, setCollapse] = useState(true)
+    let [renderLimit, setRenderLimit] = useState(100)
 
     if (details == null)
         return <Loading />
@@ -79,6 +81,8 @@ export function StreamDetails({ streamId }: Props) {
         { content: 'Client data', width: 10 },
         { content: 'Tags', width: 'max' },
     ]
+
+    let segments = details.segments.filter(segment => !collapse || segment.data.length);
 
     return (
         <Bullseye>
@@ -113,17 +117,24 @@ export function StreamDetails({ streamId }: Props) {
                             </OptionsMenuItem>
                         )}
                     />
+                    <Checkbox label="Collapse Empty" isChecked={collapse} onChange={setCollapse} id="collapse" />
                 </StackItem>
                 <StackItem>
                     <Stack gutter='sm'>
-                        {details.segments.map((segment) =>
-                            <StackItem key={segment.sender + '-' + segment.seq + '-' + segment.flags + '-' + segment.timestamp}>
-                                <Segment segment={segment} encoding={encoding} />
+                        {segments.slice(0, renderLimit)
+                            .map((segment, idx) =>
+                                <StackItem key={idx}>
+                                    <Segment segment={segment} encoding={encoding} />
+                                </StackItem>
+                            )}
+                        {segments.length >= renderLimit ? (
+                            <StackItem>
+                                <Button onClick={() => setRenderLimit(limit => limit + 100)}>Render moar :^)</Button>
                             </StackItem>
-                        )}
+                        ) : null}
                     </Stack>
                 </StackItem>
             </Stack>
-        </Bullseye>
+        </Bullseye >
     )
 }

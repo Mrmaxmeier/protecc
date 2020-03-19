@@ -141,7 +141,7 @@ impl PipelineManager {
         }
     }
 
-    pub(crate) async fn register_node(&mut self, node: Arc<PipelineNode>) {
+    pub(crate) fn register_node(&mut self, node: Arc<PipelineNode>) {
         self.execution_plan.add_node(node);
         self.publish_topo();
     }
@@ -165,16 +165,17 @@ impl PipelineManager {
             results_chan.clone(),
             false,
         );
-        db.pipeline.write().await.register_node(node.clone()).await;
+        db.pipeline.write().await.register_node(node.clone());
 
         (submit_q, results_chan, NodeGuard(db, node))
     }
 
     pub(crate) async fn start_starlark_tagger(
-        &self,
+        &mut self,
         db: Arc<crate::database::Database>,
         name: &str,
     ) {
+        println!("start_starlark_tagger");
         let (results_chan, _) = broadcast::channel(16);
         let submit_q = WorkQ::new(32, None);
 
@@ -186,19 +187,27 @@ impl PipelineManager {
             results_chan.clone(),
             true,
         );
-        db.pipeline.write().await.register_node(node.clone()).await;
+        self.register_node(node.clone());
 
-        let config = db.configuration_handle.rx.clone().recv().await.unwrap();
+        let config = db.configuration_handle.rx.borrow().clone();
         let script = config.scripts[name].to_owned();
         let core = crate::scripting::StarlarkEngine::new(&script, config, db).unwrap();
 
         tokio::spawn(async move {
             let mut buffer = Vec::new();
-            loop {
+            let error;
+            'main: loop {
                 submit_q.pop_batch(&mut buffer).await;
                 for swd in buffer.drain(..) {
                     // TODO: got swd but only using .stream
-                    let res = core.get_verdict(&*swd.stream).unwrap();
+                    let verdict = core.get_verdict(&*swd.stream);
+                    let res = match verdict {
+                        Ok(res) => res,
+                        Err(err) => {
+                            error = format!("{:?}", err);
+                            break 'main;
+                        }
+                    };
                     let resp = if res.added_tags.is_empty() {
                         NodeResponse::Neutral
                     } else {
@@ -207,6 +216,9 @@ impl PipelineManager {
                     results_chan.send((swd.stream.id, resp)).unwrap();
                 }
             }
+
+            let mut status = node.status.lock().await;
+            *status = NodeStatus::Errored(error);
         });
     }
 

@@ -30,7 +30,7 @@ function renderHexdump(_: string, decoded: Uint8Array) {
     return (
         <pre className='scroll'>
             {rows.map((row) => (
-                <span>
+                <span key={row.number}>
                     <span style={{ color: "#a0a000" }}>{row.number}</span>
                     {': '}
                     <span style={{ color: "#666666" }}>{row.hex}</span>
@@ -52,7 +52,12 @@ function renderUtf8(_: string, decoded: Uint8Array) {
 }
 
 function auto(data: Uint8Array): DisplayType {
-    return utf8(data) ? 'utf-8' : 'hexdump'
+    try {
+        new TextDecoder('utf-8', { fatal: true }).decode(data);
+        return 'utf-8'
+    } catch (e) {
+        return 'hexdump'
+    }
 }
 
 function utf8(data: Uint8Array): string {
