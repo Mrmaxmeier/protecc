@@ -190,6 +190,7 @@ export function EditorWidget({ onExecute, error, onChange }: { onExecute?: () =>
         api.emit({ updateConfiguration: { setScript: [name, content] } })
         setLoadedFile({ name, content })
     }, [editor, api])
+
     const saveAs = useCallback(() => {
         if (editor === null) return
         showTextInput(editor, 'Enter script name', (name) => {
@@ -212,6 +213,34 @@ export function EditorWidget({ onExecute, error, onChange }: { onExecute?: () =>
             }
         })
     }, [editor, loadedFile, saveAs, save])
+
+    useEffect(() => {
+        editor?.addAction({
+            id: 'startTagger',
+            label: 'Start as tagger',
+            contextMenuOrder: 0,
+            run: () => {
+                const startTagger = (name: string) => {
+                    api.emit({
+                        managePipelineNode: {
+                            attachStarlark: name,
+                        }
+                    })
+                }
+                if (loadedFile === null) {
+                    if (editor === null) return
+                    showTextInput(editor, 'Enter script name', (name) => {
+                        if (name === null || name.length === 0) return
+                        save(name)
+                        startTagger(name)
+                    })
+                } else {
+                    save(loadedFile.name)
+                    startTagger(loadedFile.name)
+                }
+            }
+        })
+    }, [editor, api, save, loadedFile])
 
     useEffect(() => {
         editor?.addAction({
