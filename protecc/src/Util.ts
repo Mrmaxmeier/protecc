@@ -23,3 +23,27 @@ export function compare<T>(a: T, b: T): number {
         return 0
     return -1
 }
+
+export const setIfIntOrEmpty = (cb: (v: number | null) => void) => (v: string) => {
+    if (!v || v === '') {
+        cb(null)
+    } else {
+        setIfInt(cb)(v)
+    }
+}
+
+export const setIfInt = (cb: (v: number) => void) => (v: string) => {
+    const n = parseInt(v)
+    if (n && !isNaN(n))
+        cb(n)
+}
+
+export const negate = (cb: (f: (v: boolean) => boolean) => void) => () => cb((b) => !b)
+
+export function uniqBy<T, K>(a: T[], key: (v: T) => K): T[] {
+    let seen = new Set<K>();
+    return a.filter(item => {
+        let k = key(item);
+        return seen.has(k) ? false : seen.add(k);
+    });
+}

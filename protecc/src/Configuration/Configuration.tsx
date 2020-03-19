@@ -23,15 +23,15 @@ function TextEdit({ editing, value, disabled, onChange, onSubmit }: { editing: b
 }
 
 function ColorEdit({ editing, value, disabled, onChange }: { editing: boolean, value: SemanticColor, disabled?: boolean, onChange?: (value: SemanticColor) => void }) {
-    const selected = <ColoredLabel color={value}>{value.toUpperCase()}</ColoredLabel>
+    const selected = <ColoredLabel useSemanticColors color={value}>{value.toUpperCase()}</ColoredLabel>
     const [open, setOpen] = useState(false)
 
     if (!editing)
         return selected
 
-    const items = SemanticColor.alternatives.filter(v => v.value !== 'gray' && v.value !== 'yellow').map(literal =>
+    const items = SemanticColor.alternatives.filter(v => v.value !== 'gray').map(literal =>
         <DropdownItem key={literal.value} onClick={() => { if (onChange) onChange(literal.value) }}>
-            <ColoredLabel color={literal.value}>{literal.value.toUpperCase()}</ColoredLabel>
+            <ColoredLabel useSemanticColors color={literal.value}>{literal.value.toUpperCase()}</ColoredLabel>
         </DropdownItem>
     )
     return <Dropdown

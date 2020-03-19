@@ -1,4 +1,4 @@
-import { Record, Number, Tuple, String, Static, Array, Union, Literal, Dictionary } from "runtypes";
+import { Record, Number, Tuple, String, Static, Array, Union, Literal, Dictionary, Unknown, Null } from "runtypes";
 
 export const Endpoint = Tuple(String, Number)
 export type Endpoint = Static<typeof Endpoint>
@@ -53,3 +53,13 @@ export const IndexSizes = Record({
     })
 })
 export type IndexSizes = Static<typeof IndexSizes>
+
+
+export const QueryResult = Record({
+    stream: StreamOverview,
+    attached: Unknown.Or(Null),
+    sortKey: Number.Or(Null),
+    addedTags: Array(Number)
+})
+
+export type QueryResult = Static<typeof QueryResult>

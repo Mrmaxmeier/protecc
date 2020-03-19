@@ -35,7 +35,7 @@ export function AppLayout() {
         { path: "/pipeline", name: "Taggers & Co", component: <Pipeline /> },
     ];
 
-    let [navOpen, setNavOpen] = useState(false);
+    let [navOpen, setNavOpen] = useState(true);
     let [page, setPage] = useState(window.location.hash);
 
     const header = (
