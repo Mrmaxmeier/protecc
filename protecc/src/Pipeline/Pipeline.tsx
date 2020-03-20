@@ -1,9 +1,11 @@
 import React, { useState, useContext, useEffect, FC } from 'react';
 import { Api } from '../Api/ProteccApi';
 import { Record, Static, Dictionary, Number, Union, Literal, String, Boolean } from 'runtypes';
-import { EmptyState, Gallery, GalleryItem, Card, CardHead, CardActions, Dropdown, KebabToggle, CardBody, CardFooter, DropdownItem, DropdownSeparator, Progress, ProgressVariant, Title, EmptyStateVariant, EmptyStateIcon } from '@patternfly/react-core';
+import { EmptyState, Gallery, GalleryItem, Card, CardHead, CardActions, Dropdown, KebabToggle, CardBody, CardFooter, DropdownItem, DropdownSeparator, Progress, ProgressVariant, Title, EmptyStateVariant, EmptyStateIcon, Stack, StackItem, Tooltip, Alert, Spinner, Bullseye } from '@patternfly/react-core';
 import { Loading } from '../Components/Loading';
-import { CubesIcon, PluggedIcon, ConnectedIcon } from '@patternfly/react-icons';
+import { CubesIcon, PluggedIcon, StarIcon } from '@patternfly/react-icons';
+import { ChartDonut, ChartThemeColor } from '@patternfly/react-charts';
+import { formatPercent } from '../Util';
 
 
 const NodeKind = Union(
@@ -101,13 +103,13 @@ const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams,
     } else if (status === 'disabled') {
         statusTitle = 'Disabled';
     } else {
-        statusTitle = 'Errored: ' + status.errored
+        statusTitle = 'Errored'
     }
     let progress = processedStreams ? (processedStreams + queuedStreams) / processedStreams : 0;
     return <Card>
         <CardHead>
             <span style={{ marginRight: '.3em' }}>
-                {isStarlark ? <PluggedIcon /> : <ConnectedIcon />}
+                {isStarlark ? <Tooltip content='Starlark node'><StarIcon /></Tooltip> : <Tooltip content='External node'><PluggedIcon /></Tooltip>}
             </span>
             {name}
             <CardActions>
@@ -122,7 +124,35 @@ const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams,
             </CardActions>
         </CardHead>
         <CardBody>
-            <pre>{JSON.stringify({ name, kind, status, queuedStreams, processedStreams, missedStreams, catchingUp, isStarlark }, null, 2)}</pre>
+            <Stack gutter='sm'>
+                {catchingUp &&
+                    <StackItem>
+                        <Bullseye>
+                            Catching up...
+                        </Bullseye>
+                    </StackItem>
+                }
+                <StackItem>
+                    <ChartDonut
+                        constrainToVisibleArea
+                        data={[
+                            { x: 'Processed', y: processedStreams },
+                            { x: 'Queued', y: queuedStreams },
+                            { x: 'Missed', y: missedStreams }
+                        ]}
+                        labels={({ datum }: { datum: { x: string, y: number } }) => `${datum.x}: ${datum.y}`}
+                        title={formatPercent(processedStreams / (processedStreams + queuedStreams + missedStreams) * 100) + '%'}
+                        subTitle={'processed'}
+                        themeColor={ChartThemeColor.default}
+                    />
+                </StackItem>
+                {status !== 'running' && status !== 'disabled' &&
+                    <StackItem>
+                        <Alert variant='danger' title='Tagger errored'>{status.errored}</Alert>
+                    </StackItem>
+                }
+            </Stack>
+
         </CardBody>
         <CardFooter>
             <Progress value={progress * 100} title={statusTitle} variant={status === 'running' ? ProgressVariant.success : ProgressVariant.danger} />
@@ -161,11 +191,37 @@ export function Pipeline() {
     }
 
     return <>
-        <Title size="4xl">Mappers</Title>
-        {nodeSection("mapper")}
-        <Title size="4xl">Taggers</Title>
-        {nodeSection("tagger")}
-        <Title size="4xl">Reducers</Title>
-        {nodeSection("reducer")}
+        <Stack gutter='lg'>
+            <StackItem>
+                <Stack gutter='sm'>
+                    <StackItem>
+                        <Title size="4xl">Mappers</Title>
+                    </StackItem>
+                    <StackItem>
+                        {nodeSection("mapper")}
+                    </StackItem>
+                </Stack>
+            </StackItem>
+            <StackItem>
+                <Stack gutter='sm'>
+                    <StackItem>
+                        <Title size="4xl">Taggers</Title>
+                    </StackItem>
+                    <StackItem>
+                        {nodeSection("tagger")}
+                    </StackItem>
+                </Stack>
+            </StackItem>
+            <StackItem>
+                <Stack gutter='sm'>
+                    <StackItem>
+                        <Title size="4xl">Reducers</Title>
+                    </StackItem>
+                    <StackItem>
+                        {nodeSection("reducer")}
+                    </StackItem>
+                </Stack>
+            </StackItem>
+        </Stack>
     </>
 }

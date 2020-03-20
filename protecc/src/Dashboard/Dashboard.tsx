@@ -1,5 +1,5 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { Counters, Api, Config, useUpdatingValue } from '../Api/ProteccApi';
+import { Counters, Api, useUpdatingValue } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
 import { beautify, formatBytes, formatPercent, formatNumber, compare } from '../Util';
 import { Stack, StackItem, Bullseye, Title, Level, LevelItem } from '@patternfly/react-core';
