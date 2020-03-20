@@ -1,0 +1,14 @@
+ubuntu/debian:
+apt-get install -y apparmor-utils
+aa-complain /usr/sbin/tcpdump
+
+
+# cat tcpdump_complete.sh
+#!/usr/bin/env bash
+echo "FINISHED $1"
+curl -F "file=@$1" http://10.32.5.4:5421/
+mv "$1" /root/pcaps/
+
+
+tcpdump -n -i ens10 "tcp port not 22 and tcp port not 5421" -G 30 -w "pcaps-inprogress/game_tcp_%Y%m%d_%H%M%S.pcap" -z /root/tcpdump_complete.sh
+
