@@ -174,7 +174,7 @@ export function Configuration() {
     const undefinedServices = Object.entries(indexSizes.services)
         .map(([port, indexSize]) => ({ port: parseInt(port), indexSize }))
         .filter(v => !definedServices.has(v.port))
-        .sort((a, b) => compare(a.indexSize, b.indexSize))
+        .sort((a, b) => compare(b.indexSize, a.indexSize))
 
 
     return <Stack gutter='md'>

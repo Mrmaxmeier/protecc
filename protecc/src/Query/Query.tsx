@@ -10,6 +10,8 @@ import { LightweightTable, LightweightTableHeader } from '../Components/Lightwei
 import { Link } from 'react-router-dom'
 import { Tags } from '../Components/Tags'
 import { GlobalHotKeys } from 'react-hotkeys'
+import { StreamDetails } from '../Components/StreamDetails'
+import { Stream } from '../Stream/Stream'
 
 const QueryResponse = Record({
     starlarkScan: Record({
@@ -170,34 +172,14 @@ function QueryProgress({ state, onChangePause }: { state: QueryState, onChangePa
 }
 
 function ResultDetails({ result }: { result: QueryResult }) {
-    let updatedStream = useStream(result.stream.id)
-    const stream = updatedStream === null ? result.stream : updatedStream
 
     return <Bullseye>
         <Stack style={{ width: '90%' }} gutter='lg'>
             <StackItem>
-                <LightweightTable compact>
-                    <LightweightTableHeader headers={[
-                        { content: 'Id', width: 10 },
-                        { content: 'Server', width: 10 },
-                        { content: 'Client', width: 10 },
-                        { content: 'Server  data', width: 10 },
-                        { content: 'Client data', width: 10 },
-                        { content: 'Sort key', width: 10 },
-                        { content: 'Tags', width: 'max' },
-                    ]} />
-                    <tbody>
-                        <tr>
-                            <td>{stream.id}</td>
-                            <td>{prettyPrintEndpoint(stream.server)}</td>
-                            <td>{prettyPrintEndpoint(stream.client)}</td>
-                            <td>{formatBytes(stream.serverDataLen)}</td>
-                            <td>{formatBytes(stream.clientDataLen)}</td>
-                            <td>{result.sortKey}</td>
-                            <td><Tags tags={stream.tags} streamId={stream.id} /></td>
-                        </tr>
-                    </tbody>
-                </LightweightTable>
+                <Title size={'lg'}>Emitted data:</Title>
+                <div>
+                    <pre className='scroll'>{result.attached === null ? '' : beautify(result.attached)}</pre>
+                </div>
             </StackItem>
             <Divider />
             <StackItem>
@@ -206,10 +188,8 @@ function ResultDetails({ result }: { result: QueryResult }) {
             </StackItem>
             <Divider />
             <StackItem>
-                <Title size={'lg'}>Emitted data:</Title>
-                <div>
-                    <pre className='scroll'>{result.attached === null ? '' : beautify(result.attached)}</pre>
-                </div>
+                <Title size={'lg'}>Stream Details:</Title>
+                <StreamDetails streamId={result.stream.id} />
             </StackItem>
         </Stack>
     </Bullseye>

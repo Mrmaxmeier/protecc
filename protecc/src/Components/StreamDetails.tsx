@@ -141,7 +141,7 @@ export function StreamDetails({ streamId }: Props) {
                                     </a>
                                 </td>
                                 <td>{service === null ? '-' : service.name}</td>
-                                <td><Tags tags={details.tags} /></td>
+                                <td><Tags tags={details.tags} streamId={streamId} /></td>
                             </tr>
                         </tbody>
                     </LightweightTable>
