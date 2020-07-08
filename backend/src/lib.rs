@@ -8,6 +8,7 @@ pub mod pcapmanager;
 pub mod pcapreader;
 pub mod pipeline;
 pub mod scripting;
+pub mod wirefilter;
 // pub mod query;
 pub mod reassembly;
 pub mod serde_aux;
