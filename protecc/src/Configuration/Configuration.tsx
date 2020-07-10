@@ -13,7 +13,6 @@ function TextEdit({ editing, value, disabled, onChange, onSubmit }: { editing: b
         return <>{value}</>
 
     return <TextInput
-        css=''
         value={value}
         onChange={onChange}
         isDisabled={disabled}
@@ -38,7 +37,7 @@ function ColorEdit({ editing, value, disabled, onChange }: { editing: boolean, v
         id='color-edit'
         isOpen={open}
         direction='down'
-        toggle={<DropdownToggle onToggle={setOpen} iconComponent={CaretDownIcon}>{selected}</DropdownToggle>}
+        toggle={<DropdownToggle onToggle={setOpen} icon={CaretDownIcon}>{selected}</DropdownToggle>}
         dropdownItems={items}
     />
 }
@@ -177,7 +176,7 @@ export function Configuration() {
         .sort((a, b) => compare(b.indexSize, a.indexSize))
 
 
-    return <Stack gutter='md'>
+    return <Stack hasGutter>
         <StackItem>
             <LightweightTable compact>
                 <caption>Tags</caption>
@@ -193,7 +192,7 @@ export function Configuration() {
                 <caption>Services</caption>
                 <LightweightTableHeader headers={columnsServices} />
                 <tbody>
-                    {rowsServices.map(p => <ServiceRow key={p.service.port} {...p} />)}
+                    {rowsServices.map(p => <ServiceRow {...p} />)}
                     {undefinedServices.map(p => <AddServiceRow key={p.port} {...p} />)}
                 </tbody>
             </LightweightTable>

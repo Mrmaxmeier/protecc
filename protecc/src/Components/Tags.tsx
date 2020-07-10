@@ -53,7 +53,7 @@ export function Tags({ tags, streamId }: Props) {
     )
 
     return <Dropdown
-        toggle={<DropdownToggle iconComponent={CaretDownIcon} onToggle={setDropdownOpen} >{chipGroup}</DropdownToggle>}
+        toggle={<DropdownToggle icon={CaretDownIcon} onToggle={setDropdownOpen}>{chipGroup}</DropdownToggle>}
         isOpen={dropdownOpen}
         dropdownItems={items}
         onSelect={() => setDropdownOpen(false)}

@@ -1,7 +1,7 @@
 import React, { useState, useContext, useEffect, FC } from 'react';
 import { Api } from '../Api/ProteccApi';
 import { Record, Static, Dictionary, Number, Union, Literal, String, Boolean } from 'runtypes';
-import { EmptyState, Gallery, GalleryItem, Card, CardHead, CardActions, Dropdown, KebabToggle, CardBody, CardFooter, DropdownItem, DropdownSeparator, Progress, ProgressVariant, Title, EmptyStateVariant, EmptyStateIcon, Stack, StackItem, Tooltip, Alert, Spinner, Bullseye } from '@patternfly/react-core';
+import { EmptyState, Gallery, GalleryItem, Card, CardHeader, CardHeaderMain, CardActions, Dropdown, KebabToggle, CardBody, CardFooter, DropdownItem, DropdownSeparator, Progress, ProgressVariant, Title, EmptyStateVariant, EmptyStateIcon, Stack, StackItem, Tooltip, Alert, Spinner, Bullseye } from '@patternfly/react-core';
 import { Loading } from '../Components/Loading';
 import { CubesIcon, PluggedIcon, StarIcon } from '@patternfly/react-icons';
 import { ChartDonut, ChartThemeColor } from '@patternfly/react-charts';
@@ -107,10 +107,12 @@ const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams,
     }
     let progress = processedStreams ? (processedStreams + queuedStreams) / processedStreams : 0;
     return <Card>
-        <CardHead>
-            <span style={{ marginRight: '.3em' }}>
-                {isStarlark ? <Tooltip content='Starlark node'><StarIcon /></Tooltip> : <Tooltip content='External node'><PluggedIcon /></Tooltip>}
-            </span>
+        <CardHeader>
+            <CardHeaderMain>
+                <span style={{ marginRight: '.3em' }}>
+                    {isStarlark ? <Tooltip content='Starlark node'><StarIcon /></Tooltip> : <Tooltip content='External node'><PluggedIcon /></Tooltip>}
+                </span>
+            </CardHeaderMain>
             {name}
             <CardActions>
                 <Dropdown
@@ -122,9 +124,9 @@ const NodeControl: FC<NodeStatusSummary> = ({ kind, status, name, queuedStreams,
                     position={'right'}
                 />
             </CardActions>
-        </CardHead>
+        </CardHeader>
         <CardBody>
-            <Stack gutter='sm'>
+            <Stack hasGutter>
                 {catchingUp &&
                     <StackItem>
                         <Bullseye>
@@ -183,7 +185,7 @@ export function Pipeline() {
                 </Title>
             </EmptyState>
         return (
-            <Gallery gutter="md">
+            <Gallery hasGutter>
                 {filtered.map(node =>
                     <GalleryItem key={node}><NodeControl {...nodes[node]} /></GalleryItem>)}
             </Gallery>
@@ -191,11 +193,11 @@ export function Pipeline() {
     }
 
     return <>
-        <Stack gutter='lg'>
+        <Stack hasGutter>
             <StackItem>
-                <Stack gutter='sm'>
+                <Stack hasGutter>
                     <StackItem>
-                        <Title size="4xl">Mappers</Title>
+                        <Title headingLevel="h1">Mappers</Title>
                     </StackItem>
                     <StackItem>
                         {nodeSection("mapper")}
@@ -203,9 +205,9 @@ export function Pipeline() {
                 </Stack>
             </StackItem>
             <StackItem>
-                <Stack gutter='sm'>
+                <Stack hasGutter>
                     <StackItem>
-                        <Title size="4xl">Taggers</Title>
+                        <Title headingLevel="h1">Taggers</Title>
                     </StackItem>
                     <StackItem>
                         {nodeSection("tagger")}
@@ -213,9 +215,9 @@ export function Pipeline() {
                 </Stack>
             </StackItem>
             <StackItem>
-                <Stack gutter='sm'>
+                <Stack hasGutter>
                     <StackItem>
-                        <Title size="4xl">Reducers</Title>
+                        <Title headingLevel="h1">Reducers</Title>
                     </StackItem>
                     <StackItem>
                         {nodeSection("reducer")}

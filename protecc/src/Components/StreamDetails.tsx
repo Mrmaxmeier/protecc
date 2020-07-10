@@ -107,7 +107,7 @@ export function StreamDetails({ streamId }: Props) {
 
     return (
         <Bullseye>
-            <Stack style={{ width: '90%' }} gutter='lg'>
+            <Stack style={{ width: '90%' }} hasGutter>
                 <StackItem>
                     <LightweightTable compact>
                         <LightweightTableHeader headers={headers} />
@@ -147,7 +147,7 @@ export function StreamDetails({ streamId }: Props) {
                     </LightweightTable>
                 </StackItem>
                 <StackItem>
-                    <Split gutter='sm'>
+                    <Split hasGutter>
                         <SplitItem>
                             <OptionsMenu
                                 id='encoding'
@@ -172,7 +172,7 @@ export function StreamDetails({ streamId }: Props) {
                     </Split>
                 </StackItem>
                 <StackItem>
-                    <Stack gutter='sm'>
+                    <Stack hasGutter>
                         {segments.slice(0, renderLimit)
                             .map((segment, idx) =>
                                 <StackItem key={idx}>

@@ -36,7 +36,7 @@ export function Dashboard() {
     )
 
 
-    return <Stack gutter='lg'>
+    return <Stack hasGutter>
         <Bullseye>
             <StackItem style={{ width: '80%' }}>
                 <Level>
@@ -52,7 +52,7 @@ export function Dashboard() {
                     <LevelItem>
                         <Stack>
                             <StackItem>
-                                <Title size={'4xl'}>{formatBytes(data)}</Title>
+                                <Title headingLevel={'h1'}>{formatBytes(data)}</Title>
                             </StackItem>
                             <StackItem>
                                 <Bullseye>

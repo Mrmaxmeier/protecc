@@ -18,7 +18,7 @@ export function Loading() {
         <Bullseye>
             <EmptyState>
                 <EmptyStateIcon variant="container" component={Spinner} />
-                <Title size="lg">
+                <Title headingLevel="h4">
                     Loading
                 </Title>
             </EmptyState>

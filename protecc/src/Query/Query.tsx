@@ -145,7 +145,7 @@ function QueryProgress({ state, onChangePause }: { state: QueryState, onChangePa
     const value = state.progress === null ? 0 : Math.min(Math.abs(state.progress.lastScanned - state.progress.from), max)
     const percentage = value / max * 100.0
     const progressText = state.progress === null ? 'Initializing query...' : (formatPercent(percentage) + '%')
-    const variant = state.runState === 'done' ? 'success' : (state.runState === 'errored' ? 'danger' : 'info')
+    const variant = state.runState === 'done' ? 'success' : (state.runState === 'errored' ? 'danger' : undefined)
     const isDone = state.runState !== 'running' && state.runState !== 'idle'
 
     return <Split>
@@ -174,21 +174,21 @@ function QueryProgress({ state, onChangePause }: { state: QueryState, onChangePa
 function ResultDetails({ result }: { result: QueryResult }) {
 
     return <Bullseye>
-        <Stack style={{ width: '90%' }} gutter='lg'>
+        <Stack style={{ width: '90%' }} hasGutter>
             <StackItem>
-                <Title size={'lg'}>Emitted data:</Title>
+                <Title headingLevel='h2'>Emitted data:</Title>
                 <div>
                     <pre className='scroll'>{result.attached === null ? '' : beautify(result.attached)}</pre>
                 </div>
             </StackItem>
             <Divider />
             <StackItem>
-                <Title size={'lg'}>Added Tags:</Title>
+                <Title headingLevel='h2'>Added Tags:</Title>
                 <Tags tags={result.addedTags} />
             </StackItem>
             <Divider />
             <StackItem>
-                <Title size={'lg'}>Stream Details:</Title>
+                <Title headingLevel='h2'>Stream Details:</Title>
                 <StreamDetails streamId={result.stream.id} />
             </StackItem>
         </Stack>
@@ -331,12 +331,12 @@ export function Query() {
     }, [api, deduplicate, discarding, editorContents, lowerBound, pageSize, pastToFuture, upperBound])
 
     return (
-        <Stack gutter='md'>
+        <Stack hasGutter>
             <StackItem>
                 <EditorWidget error={error !== null ? error : undefined} onExecute={execute} onChange={setEditorContents} />
             </StackItem>
             <StackItem>
-                <Split gutter='lg'>
+                <Split hasGutter>
                     <SplitItem>
                         <Bullseye>
                             <Toolbar>
@@ -345,13 +345,13 @@ export function Query() {
                                         Range:&nbsp;
                                 </ToolbarItem>
                                     <ToolbarItem>
-                                        <TextInput onKeyDown={onEnter(execute)} placeholder='Latest' style={{ width: '5em' }} value={lowerBound === null ? '' : lowerBound} onChange={setIfIntOrEmpty(setLowerBound)} css='' />
+                                        <TextInput onKeyDown={onEnter(execute)} placeholder='Latest' style={{ width: '5em' }} value={lowerBound === null ? '' : lowerBound} onChange={setIfIntOrEmpty(setLowerBound)} />
                                     </ToolbarItem>
                                     <ToolbarItem>
                                         <Button placeholder='Lower bound' variant='plain' onClick={negate(setPastToFuture)}>{pastToFuture ? <ArrowLeftIcon /> : <ArrowRightIcon />}</Button>
                                     </ToolbarItem>
                                     <ToolbarItem>
-                                        <TextInput onKeyDown={onEnter(execute)} placeholder='Earliest' style={{ width: '5em' }} value={upperBound === null ? '' : upperBound} onChange={setIfIntOrEmpty(setUpperBound)} css='' />
+                                        <TextInput onKeyDown={onEnter(execute)} placeholder='Earliest' style={{ width: '5em' }} value={upperBound === null ? '' : upperBound} onChange={setIfIntOrEmpty(setUpperBound)} />
                                     </ToolbarItem>
                                 </ToolbarGroup>
                                 <ToolbarGroup>
@@ -371,7 +371,7 @@ export function Query() {
                                         Page Size:&nbsp;
                                 </ToolbarItem>
                                     <ToolbarItem>
-                                        <TextInput onKeyDown={onEnter(execute)} style={{ width: '5em' }} value={pageSize} onChange={setIfInt(setPageSize)} css='' />
+                                        <TextInput onKeyDown={onEnter(execute)} style={{ width: '5em' }} value={pageSize} onChange={setIfInt(setPageSize)} />
                                     </ToolbarItem>
                                 </ToolbarGroup>
                                 <ToolbarGroup>

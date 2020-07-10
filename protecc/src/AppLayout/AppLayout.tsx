@@ -1,5 +1,5 @@
 import React, { useState, useContext } from 'react';
-import { PageHeader, Nav, NavList, NavItem, PageSidebar, Page, PageSection } from "@patternfly/react-core";
+import { PageHeader, Nav, NavList, NavItem, PageSidebar, Page, PageSection, PageHeaderTools } from "@patternfly/react-core";
 import { ConnectedIcon, DisconnectedIcon, InProgressIcon } from '@patternfly/react-icons'
 import { HashRouter as Router, Route, Switch, Link } from 'react-router-dom';
 import Logo from './logo.png';
@@ -41,7 +41,9 @@ export function AppLayout() {
     const header = (
         <PageHeader
             logo={<img src={Logo} width="150em" alt="Protecc" />}
-            avatar={<ConnectionStatus />}
+            headerTools={<PageHeaderTools>
+                <ConnectionStatus />
+            </PageHeaderTools>}
             showNavToggle
             isNavOpen={navOpen}
             onNavToggle={() => setNavOpen(!navOpen)}
@@ -59,7 +61,7 @@ export function AppLayout() {
         </Nav>
     );
     const sidebar = (
-        <PageSidebar nav={nav} isNavOpen={navOpen} />
+        <PageSidebar nav={nav} isNavOpen={navOpen} theme='light' />
     );
 
     return (

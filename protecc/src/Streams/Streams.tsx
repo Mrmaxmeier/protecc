@@ -1,7 +1,7 @@
 import React, { useContext, useState, useEffect, useCallback } from 'react';
 import { Config, Api, serviceFromPort } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
-import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, FlexModifiers, Switch, Modal, Title } from '@patternfly/react-core';
+import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, Switch, Modal, Title } from '@patternfly/react-core';
 import { onEnter, nanToNull, formatBytes } from '../Util';
 import { useHistory, useParams, Link } from 'react-router-dom';
 import { ColoredDot } from '../Components/ColoredDot';
@@ -63,7 +63,6 @@ function PortMenu({ port, tag }: Params) {
             type='text'
             id='portinput'
             onChange={setInput}
-            css=''
             onKeyPress={onEnter(() => history.push(makeUrl({ port: nanToNull(parseInt(input)), tag })))}
         />,
     ].concat(Object.entries(config.services).map(([id, service]) =>
@@ -234,7 +233,7 @@ let StreamsTable: React.FC<Params> = React.memo((params: Params) => {
                         onChange={toggleAttach}
                     />
                 </FlexItem>
-                <FlexItem breakpointMods={[{ modifier: FlexModifiers["align-right"] }]}>
+                <FlexItem align={{ default: 'alignRight' }}>
                     <Pagination
                         itemCount={Math.min(loaded.length, windowParams.pages * pageSize)}
                         perPage={pageSize}
@@ -300,9 +299,9 @@ export function Streams() {
     }
 
     return (
-        <Stack gutter='md'>
+        <Stack hasGutter>
             <StackItem>
-                <Split gutter='sm'>
+                <Split hasGutter>
                     <SplitItem>
                         Port: <PortMenu {...params} />
                     </SplitItem>

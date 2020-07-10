@@ -137,7 +137,7 @@ const ConfigProvider: React.FC = ({ children }) => {
 }
 
 export const ApiProvider: React.FC = ({ children }) => {
-    const [connected, setConnected] = useState<ConnectionStatus>(api.isConnected ? 'connected' : 'disconnected');
+    const [connected, setConnected] = useState<ConnectionStatus>(api.isConnected() ? 'connected' : 'disconnected');
 
     useEffect(() => {
         let connectCleanup = api.onConnect(() => setConnected('connected'))

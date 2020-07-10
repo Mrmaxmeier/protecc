@@ -146,7 +146,7 @@ export function EditorWidget({ onExecute, error, onChange }: { onExecute?: () =>
                             title={shownError[0]}
                             isInline
                             variant='danger'
-                            action={<AlertActionCloseButton onClose={() => setShownError(null)} />}
+                            actionClose={<AlertActionCloseButton onClose={() => setShownError(null)} />}
                         >
                             {shownError[1]}
                         </Alert>
