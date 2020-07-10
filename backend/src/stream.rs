@@ -167,7 +167,7 @@ impl Stream {
                 Sender::Server => &mut server_seg_len,
             };
 
-            if packet.tcp_header.flag_psh {
+            if !packet.data.is_empty() {
                 match sender {
                     Sender::Client => client_pos += packet.data.len(),
                     Sender::Server => server_pos += packet.data.len(),
@@ -185,7 +185,7 @@ impl Stream {
                 missing_data = true;
             }
 
-            if packet.tcp_header.flag_psh {
+            if !packet.data.is_empty() {
                 match sender {
                     Sender::Client => client_data.extend_from_slice(&packet.data),
                     Sender::Server => server_data.extend_from_slice(&packet.data),

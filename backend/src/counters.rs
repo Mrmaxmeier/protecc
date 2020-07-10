@@ -35,6 +35,7 @@ pub(crate) struct Counters {
     pub(crate) streams_processed_out_of_order: u64,
     pub(crate) streams_discarded_no_server_packets: u64,
     pub(crate) streams_discarded_no_data: u64,
+    pub(crate) streams_tagged_missing_data: u64,
     pub(crate) pcap_blocks: u64,
     pub(crate) pcaps_imported: u64,
     pub(crate) db_services: u64,

@@ -285,6 +285,7 @@ impl Database {
                             }
                             if missing_data {
                                 stream.add_tag(missing_data_id);
+                                incr_counter!(streams_tagged_missing_data);
                             }
                             if greedy_reassembly {
                                 stream.add_tag(greedy_reassembly_id);

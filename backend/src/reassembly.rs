@@ -113,7 +113,7 @@ impl Stream {
         let timestamp_secs = packet_time_secs(&p);
         self.latest_packet = Some(max(self.latest_packet.unwrap_or(0), timestamp_secs));
         if p.tcp_header.sequence_no >= self.highest_ack.unwrap_or(0)
-            && (p.tcp_header.flag_psh || p.tcp_header.flag_syn || p.tcp_header.flag_fin)
+            && (!p.data.is_empty() || p.tcp_header.flag_syn || p.tcp_header.flag_fin)
         {
             self.unacked.push(SPacket::from_packet(p))
         } else {
@@ -142,8 +142,8 @@ impl Stream {
             seen.insert((
                 th.seq_no,
                 th.ack_no,
+                p.data.len(),
                 th.flag_syn,
-                th.flag_psh,
                 th.flag_ack,
                 th.flag_rst,
                 th.flag_fin,
@@ -311,17 +311,17 @@ impl Reassembler {
             incr_counter!(streams_discarded_no_server_packets);
             return;
         }
-        let any_server_psh = stream
+        let any_server_payload = stream
             .server_to_client
             .packets
             .iter()
-            .any(|x| x.tcp_header.flag_psh);
-        let any_client_psh = stream
+            .any(|x| !x.data.is_empty());
+        let any_client_payload = stream
             .client_to_server
             .packets
             .iter()
-            .any(|x| x.tcp_header.flag_psh);
-        if !any_server_psh && !any_client_psh {
+            .any(|x| !x.data.is_empty());
+        if !any_server_payload && !any_client_payload {
             incr_counter!(streams_discarded_no_data);
             return;
         }
