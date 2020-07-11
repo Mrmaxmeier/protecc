@@ -238,6 +238,7 @@ impl Stream {
             tags: self.tags.to_vec(),
             client_data_len: self.client_data_len,
             server_data_len: self.server_data_len,
+            first_packet_timestamp: self.segments.first().map(|p| p.timestamp).unwrap_or(0),
         }
     }
 
@@ -323,6 +324,7 @@ pub(crate) struct LightweightStream {
     pub(crate) tags: Vec<TagID>,
     pub(crate) client_data_len: u32,
     pub(crate) server_data_len: u32,
+    pub(crate) first_packet_timestamp: u64,
 }
 
 #[derive(Debug, Clone)]
