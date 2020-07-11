@@ -25,7 +25,7 @@ num_cpus = "1.12.0"
 notify = "5.0.0-pre.3"
 smallvec = { version = "1.2.0", features = ["serde"] }
 arbitrary = { version = "0.4.0", features = ["derive"] }
-wirefilter-engine = "0.6.1"
+wirefilter-engine = { git = "https://github.com/Mrmaxmeier/wirefilter.git", branch="dominating-boolean-matches" }
 
 [features]
 tracy = ["tracyrs/tracy_enable"]

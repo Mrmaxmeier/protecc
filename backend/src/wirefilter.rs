@@ -17,6 +17,7 @@ pub(crate) struct WirefilterContext<'a> {
     uses_data: bool,
     uses_data_combined: bool,
     data_combined_backing: Vec<u8>,
+    query_index: QueryIndex,
 }
 
 impl<'a> WirefilterContext<'a> {
@@ -29,14 +30,14 @@ impl<'a> WirefilterContext<'a> {
         let filter_ast = scheme.parse(content)?;
         let ctx = ExecutionContext::new(&scheme);
 
-        let tag_keys = config
+        let tag_keys: HashMap<TagID, String> = config
             .tags
             .iter()
             .map(|(k, v)| (*k, format!("tag.{}", v.slug)))
             .filter(|(_, k)| filter_ast.uses(k).unwrap())
             .collect();
 
-        let service_keys = config
+        let service_keys: HashMap<ServiceID, String> = config
             .services
             .iter()
             .map(|(k, v)| (*k, format!("service.{}", v.slug)))
@@ -48,6 +49,27 @@ impl<'a> WirefilterContext<'a> {
             || filter_ast.uses("data").unwrap();
 
         let uses_data_combined = filter_ast.uses("data").unwrap();
+
+        let dom_matches = filter_ast.dominating_boolean_matches();
+        let query_index = dom_matches
+            .iter()
+            .map(|field| {
+                for (k, v) in service_keys.iter() {
+                    if v == field {
+                        return QueryIndex::Service(config.services.get(k).unwrap().port);
+                    }
+                }
+
+                for (k, v) in tag_keys.iter() {
+                    if v == field {
+                        return QueryIndex::Tagged(*k);
+                    }
+                }
+
+                QueryIndex::All
+            })
+            .next()
+            .unwrap_or(QueryIndex::All); // TODO: QueryIndex::ServiceTagged
 
         let filter = filter_ast.compile();
 
@@ -62,6 +84,7 @@ impl<'a> WirefilterContext<'a> {
             uses_data,
             uses_data_combined,
             data_combined_backing: Vec::new(),
+            query_index,
         })
     }
 
@@ -180,6 +203,6 @@ impl<'a> WirefilterContext<'a> {
     }
 
     pub(crate) fn get_index(&self) -> QueryIndex {
-        QueryIndex::All // TODO: inspect FilterAst
+        self.query_index
     }
 }
