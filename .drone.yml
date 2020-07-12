@@ -1,0 +1,11 @@
+kind: pipeline
+name: default
+
+steps:
+- name: test
+  image: rust:1.44.1
+  commands:
+  - cd backend
+  - cargo build --verbose --all
+  - cargo test --verbose --all
+
