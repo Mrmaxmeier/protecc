@@ -1764,7 +1764,7 @@ dependencies = [
 [[package]]
 name = "tracyrs"
 version = "0.1.0"
-source = "git+https://github.com/Mrmaxmeier/tracyrs#fb569ccdcd2cc344786ab108387b212776ca7064"
+source = "git+https://github.com/Mrmaxmeier/tracyrs#8204be85e4f6d2fee0a749b7e6ccf7d65e14ad47"
 dependencies = [
  "cc",
  "libc",
