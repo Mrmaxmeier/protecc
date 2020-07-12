@@ -146,7 +146,7 @@ pub async fn read_pcap_file(
                         );
                         let ts = SystemTime::UNIX_EPOCH
                             .checked_add(
-                                ts_secs * Duration::SECOND
+                                Duration::from_secs(ts_secs as u64)
                                     + ts_frac * Duration::from_nanos(1_000_000_000 / frac_unit),
                             )
                             .expect("pcap timestamp overflow");
@@ -187,8 +187,8 @@ pub async fn read_pcap_file(
                     PcapBlockOwned::Legacy(block) => {
                         let ts = SystemTime::UNIX_EPOCH
                             .checked_add(
-                                block.ts_sec * Duration::SECOND
-                                    + block.ts_usec * Duration::MICROSECOND,
+                                Duration::from_secs(block.ts_sec as u64)
+                                    + Duration::from_micros(block.ts_usec as u64),
                             )
                             .expect("pcap timestamp overflow");
                         let linktype = if_linktypes[0];

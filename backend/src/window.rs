@@ -51,7 +51,7 @@ impl Window {
             size: 0,
             attached: true,
             limit_for_reattach: None,
-            latest_id_chan: throttle(std::time::Duration::MILLISECOND * 250, latest_id_chan),
+            latest_id_chan: throttle(std::time::Duration::from_millis(250), latest_id_chan),
             update_id_chan,
             params_rx,
             index: *index,

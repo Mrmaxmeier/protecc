@@ -92,7 +92,7 @@ fn aggregate_counters() -> (
         loop {
             futures::select! {
                 elem = agg_rx.recv().fuse() => {
-                    delay_queue.insert(elem.unwrap(), std::time::Duration::SECOND);
+                    delay_queue.insert(elem.unwrap(), std::time::Duration::from_secs(1));
                 },
                 elem = delay_queue_next(&mut delay_queue).fuse() => {
                     let mut delta = elem.lock().unwrap();

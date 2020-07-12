@@ -275,7 +275,7 @@ impl ConnectionHandler {
 
                 let db = self.db.clone();
 
-                let fetch_index_sizes = async || {
+                async fn fetch_index_sizes(db: &Database, req_id: u64) -> RespFrame {
                     let services = {
                         let services = db.services.read().await;
                         let mut count = HashMap::new();
@@ -305,19 +305,19 @@ impl ConnectionHandler {
                     }
                 };
 
-                tx.send(fetch_index_sizes().await).await.unwrap();
+                tx.send(fetch_index_sizes(&db, req_id).await).await.unwrap();
                 let mut chan = tokio::time::throttle(
-                    std::time::Duration::SECOND,
+                    std::time::Duration::from_secs(1),
                     self.db.stream_notification_rx.clone(),
                 );
                 let mut update_tx = self.db.stream_update_tx.subscribe();
                 loop {
                     tokio::select! {
                         _ = chan.next() => {
-                            tx.send(fetch_index_sizes().await).await.unwrap();
+                            tx.send(fetch_index_sizes(&db, req_id).await).await.unwrap();
                         }
                         _ = update_tx.recv() => {
-                            tx.send(fetch_index_sizes().await).await.unwrap();
+                            tx.send(fetch_index_sizes(&db, req_id).await).await.unwrap();
                         }
                     }
                 }
@@ -345,7 +345,7 @@ impl ConnectionHandler {
                     .unwrap();
                 }
                 let mut chan = tokio::time::throttle(
-                    std::time::Duration::MILLISECOND * 250,
+                    std::time::Duration::from_millis(250),
                     self.db.stream_notification_rx.clone(),
                 );
 

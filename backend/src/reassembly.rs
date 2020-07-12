@@ -128,10 +128,17 @@ impl Stream {
                 .unacked
                 .iter()
                 .any(|p| p.tcp_header.seq_no < ack_number && p.tcp_header.flag_fin);
+        /*
         self.packets.extend(
             self.unacked
                 .drain_filter(|p| p.tcp_header.seq_no < ack_number),
         );
+        */
+        let (now_acked, still_not_acked) = std::mem::replace(&mut self.unacked, vec![])
+            .into_iter()
+            .partition(|p| p.tcp_header.seq_no < ack_number);
+        self.unacked = still_not_acked;
+        self.packets.extend(now_acked);
     }
 
     pub(crate) fn remove_retransmissions(&mut self) {
