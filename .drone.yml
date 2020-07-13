@@ -1,5 +1,5 @@
 kind: pipeline
-name: default
+name: test
 
 steps:
 - name: test
@@ -9,7 +9,10 @@ steps:
   - cargo build --verbose --all
   - cargo test --verbose --all
 
+---
 
+kind: pipeline
+name: release
 - name: build-release
   image: rust:1.44.1
   commands:
