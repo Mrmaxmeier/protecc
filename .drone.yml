@@ -12,6 +12,7 @@ steps:
 
 kind: pipeline
 name: release
+steps:
 - name: build-release
   image: rust:1.44.1
   commands:
