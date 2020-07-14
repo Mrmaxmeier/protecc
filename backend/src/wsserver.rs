@@ -16,7 +16,7 @@ use crate::database::{Database, StreamID, TagID};
 use crate::incr_counter;
 use crate::stream::QueryIndex;
 use crate::stream::{SegmentWithData, StreamDetails};
-use crate::window::WindowHandle;
+use crate::{window::WindowHandle, wirefilter::WirefilterContext};
 
 #[derive(Serialize, Debug)]
 pub(crate) struct RespFrame {
@@ -39,6 +39,7 @@ enum RequestPayload {
     RemoveTag(StreamID, TagID),
     GetTagID(crate::configuration::Tag),
     StarlarkScan(StarlarkScanQuery),
+    WirefilterScan(StarlarkScanQuery),
     DoS(DebugDenialOfService),
     WindowUpdate {
         id: u64,
@@ -541,6 +542,92 @@ impl ConnectionHandler {
         }))
     }
 
+    async fn wirefilter_scan(
+        &self,
+        query: &StarlarkScanQuery,
+    ) -> Result<ResponsePayload, ResponsePayload> {
+        let config = self
+            .db
+            .configuration_handle
+            .clone()
+            .rx
+            .recv()
+            .await
+            .unwrap();
+        let latest_id = self.db.stream_notification_rx.borrow().clone();
+        let bound_high = query.bound_high.unwrap_or(latest_id);
+        let bound_low = query.bound_low.unwrap_or(StreamID::new(0));
+        let scan_progress = if query.reverse { bound_low } else { bound_high };
+        let range_exhausted = false;
+        let streams = self.db.streams.read().await;
+
+        let scheme = WirefilterContext::make_scheme(&config);
+        let mut ctx = WirefilterContext::new(&query.code, &scheme, config, self.db.clone())
+            .map_err(|err| {
+                ResponsePayload::StarlarkScan(StarlarkScanResp {
+                    bound_high,
+                    bound_low,
+                    scan_progress,
+                    range_exhausted,
+                    scan_results: Vec::new(),
+                    error: Some(format!("{}", err)),
+                })
+            })?;
+        let index = ctx.get_index();
+
+        let mut scan_results = Vec::new();
+
+        let scan_results_ref = &mut scan_results;
+
+        const QUERY_SCAN_LIMIT: usize = 0x1000;
+        let (range_exhausted, scan_progress) = self
+            .db
+            .with_index_iter(index, bound_low..=bound_high, move |iter| {
+                let iter = if query.reverse {
+                    Box::new(iter) as Box<dyn Iterator<Item = StreamID>>
+                } else {
+                    Box::new(iter.rev()) as Box<dyn Iterator<Item = StreamID>>
+                };
+
+                let mut range_exhausted = true;
+                let mut scan_progress = scan_progress;
+                for (i, stream_id) in iter.take(QUERY_SCAN_LIMIT).enumerate() {
+                    if i == QUERY_SCAN_LIMIT - 1 {
+                        range_exhausted = false;
+                    }
+
+                    if ctx.matches(&streams[stream_id.idx()]) {
+                        let stream = streams[stream_id.idx()].as_lightweight();
+                        scan_results_ref.push(ScanResult {
+                            stream,
+                            added_tags: smallvec::smallvec![],
+                            attached: None,
+                            sort_key: None,
+                        });
+                        crate::incr_counter!(query_rows_returned);
+                    }
+                    scan_progress = stream_id;
+                    crate::incr_counter!(query_rows_scanned);
+                    if scan_results_ref.len() >= query.window_size {
+                        range_exhausted = false;
+                        break;
+                    }
+                }
+
+                Ok((range_exhausted, scan_progress))
+            })
+            .await?;
+
+        Ok(ResponsePayload::StarlarkScan(StarlarkScanResp {
+            scan_progress,
+            scan_results,
+            range_exhausted,
+            error: None,
+            bound_high,
+            bound_low,
+        }))
+    }
+
     async fn get_tag_id(&self, tag: &crate::configuration::Tag) -> ResponsePayload {
         let tag_id = self
             .db
@@ -671,6 +758,16 @@ impl ConnectionHandler {
                     self_
                         .send_out(&req, async {
                             match self_.starlark_scan(query).await {
+                                Ok(v) => v,
+                                Err(v) => v,
+                            }
+                        })
+                        .await
+                }
+                RequestPayload::WirefilterScan(query) => {
+                    self_
+                        .send_out(&req, async {
+                            match self_.wirefilter_scan(query).await {
                                 Ok(v) => v,
                                 Err(v) => v,
                             }

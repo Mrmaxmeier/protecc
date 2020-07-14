@@ -12,3 +12,23 @@ mv "$1" /root/pcaps/
 
 tcpdump -n -i ens10 "tcp port not 22 and tcp port not 5421" -G 30 -w "pcaps-inprogress/game_tcp_%Y%m%d_%H%M%S.pcap" -z /root/tcpdump_complete.sh
 
+
+
+viel ram + besseres monitoring
+
+
+allgemein:
+remount /tmp/ with noexec?
+
+
+tools box:
+env PASSWORD=hunter2 FLASK_APP=../ad-database/pcap_upload_endpoint flask run -h 0.0.0.0 -p 5421
+
+
+
+
+
+nen team macht http requests mit "team81.attack".....
+
+
+http session following

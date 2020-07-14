@@ -9,7 +9,6 @@ use wirefilter::{ExecutionContext, Filter, Scheme, Type};
 pub(crate) struct WirefilterContext<'a> {
     db: Arc<Database>,
     config: Configuration,
-    scheme: &'a Scheme,
     filter: Filter<'a>,
     ctx: ExecutionContext<'a>,
     tag_keys: HashMap<TagID, String>,
@@ -76,7 +75,6 @@ impl<'a> WirefilterContext<'a> {
         Ok(WirefilterContext {
             config,
             db,
-            scheme,
             filter,
             ctx,
             tag_keys,
