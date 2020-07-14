@@ -3,6 +3,7 @@ import io from 'socket.io-client';
 import { Record, Static, String, Number, Unknown, Dictionary, Literal, Union } from 'runtypes';
 import { SemanticColor } from '../Components/ColoredLabel';
 import { StreamDetailed } from './Types';
+import process from "process";
 
 const StreamMessage = Record({
     id: Number,
@@ -68,7 +69,7 @@ export class ProteccApi {
     isConnected = () => this.socket.connected
 }
 
-const api = new ProteccApi("http://localhost:4000")
+const api = new ProteccApi(window.location.protocol + '//' + window.location.host)
 export const Api: Context<ProteccApi> = createContext(api);
 
 

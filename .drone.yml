@@ -1,5 +1,5 @@
 kind: pipeline
-name: test
+name: snacc
 steps:
 - name: test
   image: rust:1.44.1
@@ -12,16 +12,16 @@ steps:
 
 kind: pipeline
 name: release
+when:
+  event: tag
 steps:
-- name: build-release
+- name: build
   image: rust:1.44.1
   commands:
   - cd backend
   - cargo build --release --all
-  when:
-    event: tag
 
-- name: release
+- name: publish
   image: plugins/gitea-release
   settings:
     api_key:
@@ -29,6 +29,19 @@ steps:
     base_url: https://gitea.ente.ninja
     files:
     - backend/target/release/snacc
-  when:
-    event: tag
  
+ ---
+
+kind: pipeline
+name: protecc
+steps:
+- name: docker
+  image: plugins/docker
+  settings:
+          username:
+            from_secret: docker_user
+          password:
+            from_secret: docker_pass
+          repo: docker.cherryworm.net/protecc
+          registry: docker.cherryworm.net
+          auto_tag: true

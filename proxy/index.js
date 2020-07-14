@@ -6,39 +6,46 @@ var http = require('http').createServer(app);
 var io = require('socket.io')(http);
 const WebSocket = require('ws');
 
-app.use(basicAuth({
-    users: { 'ALLES': 'ALLES' },
-    challenge: true,
-    realm: 'protecc'
-}))
-
-app.use(express.static('../frontend/dist'))
-
-
-const latency = false;
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+function randstr(length) {
+    var result = '';
+    var characters = '0123456789abcdef';
+    for (var i = 0; i < length; i++)
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
+    return result;
 }
+
+if (process.env.AUTH_USERNAME) {
+    const password = process.env.AUTH_PASSWORD || randstr(16);
+    console.log('authenticate with ' + process.env.AUTH_USERNAME + ':' + password);
+    app.use(basicAuth({
+        users: { [process.env.AUTH_USERNAME]: password },
+        challenge: true,
+        realm: 'protecc'
+    }))
+} else {
+    console.log("authentication is disabled, don't use this in production")
+}
+
+
+static_dir = process.env.STATIC_DIR || '../protecc/build'
+console.log('serving from ' + static_dir)
+app.use(express.static(static_dir))
+
+backend = process.env.BACKEND || 'ws://localhost:10000'
+console.log('connecting to backend at ' + backend)
 
 io.on('connection', function (socket) {
     console.log('client connected');
 
     let ws = undefined;
     try {
-        ws = new WebSocket('ws://192.168.1.194:10000/');
-        // ws = new WebSocket('ws://192.168.1.108:10000/');
-        // ws = new WebSocket('ws://localhost:10000/');
-        // ws = new WebSocket('ws://172.24.161.112:10000/');
+        ws = new WebSocket(backend + '/');
     } catch (e) {
         console.error("couldn't connect to server!")
         return
     }
 
     ws.on("message", async function (s) {
-        //console.log('server -> client: ' + s);
-        if (latency)
-            await sleep(500)
         socket.emit('msg', s);
     });
 
@@ -54,13 +61,10 @@ io.on('connection', function (socket) {
                 await sleep(500)
             ws.send(s);
         });
-        socket.on('disconnect', function (reason) {
+        socket.on('disconnect', function () {
             console.log("client disconnected");
             ws.close();
         });
-        socket.on('error', function () {
-            console.log("error")
-        })
     });
 
     ws.on("close", function () {
@@ -69,6 +73,8 @@ io.on('connection', function (socket) {
 
 });
 
-http.listen(4000, function () {
-    console.log('listening on *:4000');
+port = parseInt(process.env.PORT || '4000')
+
+http.listen(port, function () {
+    console.log('listening on *:' + port);
 });
