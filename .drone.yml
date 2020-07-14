@@ -12,14 +12,14 @@ steps:
 
 kind: pipeline
 name: release
-when:
-  event: tag
 steps:
 - name: build
   image: rust:1.44.1
   commands:
   - cd backend
   - cargo build --release --all
+  when:
+    event: tag
 - name: publish
   image: plugins/gitea-release
   settings:
@@ -28,6 +28,8 @@ steps:
     base_url: https://gitea.ente.ninja
     files:
     - backend/target/release/snacc
+  when:
+    event: tag
 
 
 ---
