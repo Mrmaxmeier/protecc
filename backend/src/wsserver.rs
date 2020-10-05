@@ -240,7 +240,7 @@ impl ConnectionHandler {
                             ack: segment.ack,
                             flags: segment.flags,
                             timestamp: segment.timestamp,
-                            sender: segment.sender.clone(),
+                            sender: segment.sender,
                         })
                     }
                     segments.reverse();
@@ -329,7 +329,7 @@ impl ConnectionHandler {
                     let pipeline = self.db.pipeline.read().await;
                     pipeline.execution_plan_rx.clone()
                 };
-                let current_stream_id = self.db.stream_notification_rx.borrow().clone();
+                let current_stream_id = *self.db.stream_notification_rx.borrow();
                 {
                     let status = self
                         .db
@@ -353,7 +353,7 @@ impl ConnectionHandler {
                 loop {
                     tokio::select! {
                         _ = chan.next() => {
-                            let current_stream_id = self.db.stream_notification_rx.borrow().clone();
+                            let current_stream_id = *self.db.stream_notification_rx.borrow();
                             let status = self.db.pipeline.read().await.status(current_stream_id).await;
                             tx.send(RespFrame {
                                 id: req_id,
@@ -363,7 +363,7 @@ impl ConnectionHandler {
                             .unwrap();
                         }
                         _ = pipeline_topo_rx.recv() => {
-                            let current_stream_id = self.db.stream_notification_rx.borrow().clone();
+                            let current_stream_id = *self.db.stream_notification_rx.borrow();
                             let status = self.db.pipeline.read().await.status(current_stream_id).await;
                             tx.send(RespFrame {
                                 id: req_id,
@@ -449,7 +449,7 @@ impl ConnectionHandler {
             .recv()
             .await
             .unwrap();
-        let latest_id = self.db.stream_notification_rx.borrow().clone();
+        let latest_id = *self.db.stream_notification_rx.borrow();
         let bound_high = query.bound_high.unwrap_or(latest_id);
         let bound_low = query.bound_low.unwrap_or(StreamID::new(0));
         let scan_progress = if query.reverse { bound_low } else { bound_high };
@@ -554,7 +554,7 @@ impl ConnectionHandler {
             .recv()
             .await
             .unwrap();
-        let latest_id = self.db.stream_notification_rx.borrow().clone();
+        let latest_id = *self.db.stream_notification_rx.borrow();
         let bound_high = query.bound_high.unwrap_or(latest_id);
         let bound_low = query.bound_low.unwrap_or(StreamID::new(0));
         let scan_progress = if query.reverse { bound_low } else { bound_high };
@@ -641,7 +641,7 @@ impl ConnectionHandler {
     async fn manage_pipeline_node(&self, action: &ManagePipelineNode) {
         use crate::pipeline::NodeStatus;
         use ManagePipelineNode::*;
-        let current_stream_id = self.db.stream_notification_rx.borrow().clone();
+        let current_stream_id = *self.db.stream_notification_rx.borrow();
         let mut pipeline = self.db.pipeline.write().await;
         match action {
             Enable(node) => {

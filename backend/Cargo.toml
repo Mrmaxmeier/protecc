@@ -18,7 +18,7 @@ regex = "1.3.1"
 derive_more = "0.99.2"
 lazy_static = "1.4.0"
 tracyrs = { git= "https://github.com/Mrmaxmeier/tracyrs", default-features = false, features = ["tracy_on_demand"] }
-base64 = "0.12.0"
+base64 = "0.13.0"
 starlark = { git = "https://github.com/Mrmaxmeier/starlark-rust.git", branch="ad-fixes" }
 zstd = "0.5.1"
 num_cpus = "1.12.0"

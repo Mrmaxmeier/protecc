@@ -254,11 +254,11 @@ fn modify_decisions<F: Fn(&mut StreamDecisions)>(env: &Environment, f: F) -> Val
         f(&mut *outcome);
     //println!("decisions: {:?}", outcome);
     } else {
-        Err(ValueError::Runtime(RuntimeError {
+        return Err(ValueError::Runtime(RuntimeError {
             code: "internal error",
             message: String::from("internal error"),
             label: String::from("internal error"),
-        }))?
+        }));
     }
     Ok(Value::new(NoneType::None))
 }

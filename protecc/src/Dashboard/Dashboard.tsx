@@ -1,7 +1,7 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { Counters, Api, useUpdatingValue } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
-import { beautify, formatBytes, formatPercent, formatNumber, compare } from '../Util';
+import { beautify, formatBytes, formatPercent, formatNumber, compare, formatBits } from '../Util';
 import { Stack, StackItem, Bullseye, Title, Level, LevelItem } from '@patternfly/react-core';
 import { ChartDonutUtilization, ChartDonut, ChartThemeColor } from '@patternfly/react-charts';
 import { IndexSizes } from '../Api/Types';
@@ -43,10 +43,10 @@ export function Dashboard() {
                     <LevelItem>
                         <ChartDonutUtilization
                             constrainToVisibleArea
-                            data={{ x: 'Processing rate out of 500MBps', y: bps / 500_000_000 * 100 }}
+                            data={{ x: 'Processing rate out of 1Gbps', y: (bps * 8) / 1_000_000_000 * 100 }}
                             labels={({ datum }) => datum.x ? `${datum.x}: ${formatPercent(datum.y)}%` : ''}
                             subTitle='processing rate'
-                            title={formatBytes(bps) + 'ps'}
+                            title={formatBits(bps * 8) + 'ps'}
                         />
                     </LevelItem>
                     <LevelItem>

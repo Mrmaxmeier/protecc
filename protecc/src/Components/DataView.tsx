@@ -53,6 +53,7 @@ function renderUtf8(_: string, decoded: Uint8Array) {
 
 function auto(data: Uint8Array): DisplayType {
     try {
+        // FIXME: \0 is valid utf-8?
         new TextDecoder('utf-8', { fatal: true }).decode(data);
         return 'utf-8'
     } catch (e) {

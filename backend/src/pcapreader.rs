@@ -1,7 +1,6 @@
 use pcap_parser::data::{PacketData, ETHERTYPE_IPV4, ETHERTYPE_IPV6};
 use pcap_parser::traits::PcapReaderIterator;
 use pcap_parser::{Block, LegacyPcapReader, PcapBlockOwned, PcapError, PcapNGReader};
-use pktparse;
 use std::fs::File;
 use std::io::Read;
 use std::net::IpAddr;

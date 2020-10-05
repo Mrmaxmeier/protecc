@@ -58,3 +58,17 @@ export const formatBytes = format('0.00b')
 export const formatNumber = format('0.00a')
 export const formatPercent = format('0.00', false)
 export const formatMillis = (n: number) => format('00:00:00')(n / 1000.0)
+
+export function formatBits(bits: number) {
+    const steps = ['b', 'Kb', 'Mb', 'Gb', 'Tb']
+    const base = 1000
+
+    for (const suffix of steps) {
+        if (bits >= base) {
+            bits /= base
+        } else {
+            return Math.round(bits) + ' ' + suffix
+        }
+    }
+    return Math.round(bits) + ' Tb'
+}

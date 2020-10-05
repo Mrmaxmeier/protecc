@@ -319,7 +319,7 @@ impl MissedStreamsTrackerHandle {
             missing_since: None,
             active: false,
         });
-        let current_id = db.stream_notification_rx.borrow().clone();
+        let current_id = *db.stream_notification_rx.borrow();
 
         tokio::spawn(async move {
             let node = node.await.unwrap();
@@ -370,7 +370,7 @@ impl MissedStreamsTrackerHandle {
             match packet {
                 MissedStreamsPacket::StartRange(id) => {
                     assert!(missing_since.is_none());
-                    missing_since = Some(id.clone());
+                    missing_since = Some(*id);
                 }
                 MissedStreamsPacket::EndRange(id) => {
                     let since = missing_since.take().unwrap();
@@ -415,7 +415,7 @@ impl MissedStreamsTrackerHandle {
 
             for id in range_start.idx()..range_end.idx() {
                 let stream = db.streams.read().await[id].clone();
-                let stream_id = stream.id.clone();
+                let stream_id = stream.id;
                 let client_payload = db.datablob(stream.client_data_id).unwrap().to_vec();
                 let server_payload = db.datablob(stream.server_data_id).unwrap().to_vec();
                 let swd = StreamWithData {

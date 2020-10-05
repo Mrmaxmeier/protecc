@@ -40,8 +40,8 @@ impl Stream {
     pub(crate) fn skeleton_from(stream: &StreamReassembly, id: StreamID) -> Self {
         Stream {
             id,
-            client: stream.client.clone(),
-            server: stream.server.clone(),
+            client: stream.client,
+            server: stream.server,
             segments: Vec::new(),
             client_data_len: 0,
             server_data_len: 0,
@@ -135,7 +135,7 @@ impl Stream {
 
                 {
                     tracyrs::zone!("Stream::from", "sort/dedup");
-                    topo_edges.sort();
+                    topo_edges.sort_unstable();
                     topo_edges.dedup();
                 }
             }
@@ -232,9 +232,9 @@ impl Stream {
 
     pub(crate) fn as_lightweight(&self) -> LightweightStream {
         LightweightStream {
-            id: self.id.clone(),
-            client: self.client.clone(),
-            server: self.server.clone(),
+            id: self.id,
+            client: self.client,
+            server: self.server,
             tags: self.tags.to_vec(),
             client_data_len: self.client_data_len,
             server_data_len: self.server_data_len,
@@ -267,7 +267,7 @@ impl Stream {
                 ack: segment.ack,
                 flags: segment.flags,
                 timestamp: segment.timestamp,
-                sender: segment.sender.clone(),
+                sender: segment.sender,
             })
         }
         segments.reverse();
