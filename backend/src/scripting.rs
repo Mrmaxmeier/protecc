@@ -20,6 +20,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+thread_local! {
+    static REGEX_CACHE: RefCell<HashMap<String, Arc<Regex>>> = RefCell::new(HashMap::new());
+}
+
 #[derive(Debug, Default, Clone)]
 pub(crate) struct StreamDecisions {
     pub(crate) index: Option<QueryIndex>,
@@ -272,7 +276,13 @@ fn data_matches(env: &Environment, regex: &str) -> bool {
         .downcast_ref::<StreamDecisionSession>()
         .expect("session downcast failed");
 
-    let regex = Regex::new(regex).unwrap(); // TODO: cache
+    let regex = REGEX_CACHE.with(|re_cache| {
+        re_cache
+            .borrow_mut()
+            .entry(regex.to_owned())
+            .or_insert_with(|| Arc::new(Regex::new(regex).unwrap()))
+            .clone()
+    });
 
     if let Some(client_data) = session.db.datablob(session.client_payload_id) {
         // TODO: cache
@@ -299,7 +309,13 @@ fn data_capture(env: &Environment, regex: &str) -> Option<Vec<String>> {
         .downcast_ref::<StreamDecisionSession>()
         .expect("session downcast failed");
 
-    let regex = Regex::new(regex).unwrap(); // TODO: cache
+    let regex = REGEX_CACHE.with(|re_cache| {
+        re_cache
+            .borrow_mut()
+            .entry(regex.to_owned())
+            .or_insert_with(|| Arc::new(Regex::new(regex).unwrap()))
+            .clone()
+    });
 
     if let Some(client_data) = session.db.datablob(session.client_payload_id) {
         // TODO: cache
