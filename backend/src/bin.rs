@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fut = tokio::spawn(async move {
         let addr = "0.0.0.0:10000".parse::<std::net::SocketAddr>().unwrap();
         let try_socket = TcpListener::bind(&addr).await;
-        let mut listener = try_socket.expect("Failed to bind");
+        let listener = try_socket.expect("Failed to bind");
         println!("Listening on: {}", addr);
 
         while let Ok((stream, _)) = listener.accept().await {
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     println!("connect ws now :)");
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     let fut2 = tokio::spawn(async move {
         while let Some(path) = pcap_process_rx.recv().await {
@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             if SLEEP_BETWEEN_PCAPS != 0 {
                 tracyrs::message!("sleep between pcap imports");
-                tokio::time::delay_for(std::time::Duration::from_millis(SLEEP_BETWEEN_PCAPS)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(SLEEP_BETWEEN_PCAPS)).await;
             }
             reassembler.expire().await;
         }

@@ -12,6 +12,7 @@ pub mod wirefilter;
 pub mod reassembly;
 pub mod serde_aux;
 pub mod stream;
+pub mod throttled_watch;
 pub mod window;
 pub mod workq;
 pub mod wsserver;

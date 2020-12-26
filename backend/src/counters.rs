@@ -1,11 +1,10 @@
 use derive_more::{Add, AddAssign};
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::stream::StreamExt;
 use tokio::sync::{mpsc, watch};
-use tokio::time::DelayQueue;
+use tokio_util::time::DelayQueue;
 
 type CountersCell = Arc<Mutex<Option<Counters>>>;
 
@@ -80,7 +79,7 @@ fn aggregate_counters() -> (
     let mut counters = Counters::default();
     tokio::spawn(async move {
         async fn delay_queue_next(dq: &mut DelayQueue<CountersCell>) -> CountersCell {
-            // for some stupid reason, delayqueue.next() returns with Ready(None) even though it's empty.
+            // for some stupid reason, delayqueue.next() returns with Ready(None) even though it's empty. ~tokio 0.2.x
             loop {
                 let elem = dq.next().await;
                 match elem {
@@ -106,7 +105,7 @@ fn aggregate_counters() -> (
                             println!("{}: {} (>= {:#x})", k, b, (a+1).checked_next_power_of_two().unwrap());
                         }
                     }
-                    counters_tx.broadcast(counters.clone()).unwrap();
+                    counters_tx.send(counters.clone()).unwrap();
                 },
             };
         }

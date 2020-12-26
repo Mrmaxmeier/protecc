@@ -1,13 +1,14 @@
-use crate::database::{Database, StreamID};
 use crate::stream::LightweightStream;
 use crate::stream::QueryIndex;
-use futures::{FutureExt, SinkExt};
+use crate::{
+    database::{Database, StreamID},
+    throttled_watch::ThrottledWatch,
+};
+use futures::{FutureExt, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 use std::sync::Arc;
-use tokio::stream::StreamExt;
-use tokio::sync::{broadcast, mpsc, watch};
-use tokio::time::{throttle, Throttle};
+use tokio::sync::{broadcast, mpsc};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -34,7 +35,7 @@ pub(crate) struct Window {
     limit_for_reattach: Option<StreamID>,
 
     update_id_chan: broadcast::Receiver<StreamID>,
-    latest_id_chan: Throttle<watch::Receiver<StreamID>>,
+    latest_id_chan: ThrottledWatch<StreamID>,
     params_rx: mpsc::Receiver<WindowParameters>,
 }
 
@@ -42,8 +43,8 @@ impl Window {
     pub(crate) async fn new(index: &QueryIndex, db: Arc<Database>) -> (Self, Arc<WindowHandle>) {
         let (params_tx, params_rx) = mpsc::channel(1);
         let update_id_chan = db.stream_update_tx.subscribe();
-        let mut latest_id_chan = db.stream_notification_rx.clone();
-        let stream_id_limit = latest_id_chan.recv().await.unwrap();
+        let latest_id_chan = db.stream_notification_rx.clone();
+        let stream_id_limit = latest_id_chan.borrow().clone();
         let range = stream_id_limit..stream_id_limit;
         let window = Window {
             db,
@@ -51,7 +52,7 @@ impl Window {
             size: 0,
             attached: true,
             limit_for_reattach: None,
-            latest_id_chan: throttle(std::time::Duration::from_millis(250), latest_id_chan),
+            latest_id_chan: ThrottledWatch::new(latest_id_chan),
             update_id_chan,
             params_rx,
             index: *index,
@@ -213,8 +214,8 @@ impl Window {
                         resp_tx.send(resp_frame(update)).await.unwrap();
                     }
                 },
-                changed_id = self.update_id_chan.next().fuse() => {
-                    if let Some(update) = self.changed_id(changed_id.unwrap().unwrap()).await {
+                changed_id = self.update_id_chan.recv().fuse() => {
+                    if let Some(update) = self.changed_id(changed_id.unwrap()).await {
                         resp_tx.send(resp_frame(update)).await.unwrap();
                     }
                 },

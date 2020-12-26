@@ -273,7 +273,7 @@ impl PipelineManager {
 
     pub(crate) fn publish_topo(&self) {
         self.execution_plan_tx
-            .broadcast(self.execution_plan.clone())
+            .send(self.execution_plan.clone())
             .unwrap();
     }
 }
@@ -351,14 +351,14 @@ impl MissedStreamsTrackerHandle {
                 }
                 MissedStreamsPacket::SubmitToNode => {
                     packets.push(packet);
-                    status_tx.broadcast(Self::calc_missed(&packets)).unwrap();
+                    status_tx.send(Self::calc_missed(&packets)).unwrap();
                     while Self::advance(&mut packets, &*db, &node_q).await {
-                        status_tx.broadcast(Self::calc_missed(&packets)).unwrap();
+                        status_tx.send(Self::calc_missed(&packets)).unwrap();
                     }
                 }
                 MissedStreamsPacket::Exit => break,
             }
-            status_tx.broadcast(Self::calc_missed(&packets)).unwrap();
+            status_tx.send(Self::calc_missed(&packets)).unwrap();
         }
     }
 

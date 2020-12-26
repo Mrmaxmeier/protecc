@@ -12,10 +12,13 @@ use tokio::net::TcpStream;
 use tokio::sync::{broadcast, oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::database::{Database, StreamID, TagID};
 use crate::incr_counter;
 use crate::stream::QueryIndex;
 use crate::stream::{SegmentWithData, StreamDetails};
+use crate::{
+    database::{Database, StreamID, TagID},
+    throttled_watch::ThrottledWatch,
+};
 use crate::{window::WindowHandle, wirefilter::WirefilterContext};
 
 #[derive(Serialize, Debug)]
@@ -155,7 +158,8 @@ impl ConnectionHandler {
                 let mut out_stream = self.stream_tx.clone();
                 let mut watcher = crate::counters::subscribe();
                 let mut prev = HashMap::new();
-                while let Some(counters) = watcher.recv().await {
+                loop {
+                    let counters = watcher.borrow().clone();
                     let mut next = counters.as_hashmap();
                     next.retain(|k, v| v != prev.get(k).unwrap_or(&0));
                     if next.len() == 1 && next.get("ws_tx").is_some() {
@@ -169,12 +173,14 @@ impl ConnectionHandler {
                         .await
                         .unwrap();
                     prev = counters.as_hashmap();
+                    watcher.changed().await.unwrap();
                 }
             }
             ResponseStreamKind::Configuration => {
                 let mut out_stream = self.stream_tx.clone();
                 let mut handle = self.db.configuration_handle.clone();
-                while let Some(config) = handle.rx.recv().await {
+                loop {
+                    let config = handle.rx.borrow().clone();
                     out_stream
                         .send(RespFrame {
                             id: req_id,
@@ -182,6 +188,7 @@ impl ConnectionHandler {
                         })
                         .await
                         .unwrap();
+                    handle.rx.changed().await.unwrap();
                 }
             }
             ResponseStreamKind::Window { index, params } => {
@@ -307,10 +314,7 @@ impl ConnectionHandler {
                 };
 
                 tx.send(fetch_index_sizes(&db, req_id).await).await.unwrap();
-                let mut chan = tokio::time::throttle(
-                    std::time::Duration::from_secs(1),
-                    self.db.stream_notification_rx.clone(),
-                );
+                let mut chan = ThrottledWatch::new(self.db.stream_notification_rx.clone());
                 let mut update_tx = self.db.stream_update_tx.subscribe();
                 loop {
                     tokio::select! {
@@ -345,10 +349,8 @@ impl ConnectionHandler {
                     .await
                     .unwrap();
                 }
-                let mut chan = tokio::time::throttle(
-                    std::time::Duration::from_millis(250),
-                    self.db.stream_notification_rx.clone(),
-                );
+
+                let mut chan = ThrottledWatch::new(self.db.stream_notification_rx.clone());
 
                 loop {
                     tokio::select! {
@@ -362,7 +364,7 @@ impl ConnectionHandler {
                             .await
                             .unwrap();
                         }
-                        _ = pipeline_topo_rx.recv() => {
+                        _ = pipeline_topo_rx.changed() => {
                             let current_stream_id = *self.db.stream_notification_rx.borrow();
                             let status = self.db.pipeline.read().await.status(current_stream_id).await;
                             tx.send(RespFrame {
@@ -441,14 +443,7 @@ impl ConnectionHandler {
         query: &StarlarkScanQuery,
     ) -> Result<ResponsePayload, ResponsePayload> {
         // tracyrs::zone!("starlark_scan");
-        let config = self
-            .db
-            .configuration_handle
-            .clone()
-            .rx
-            .recv()
-            .await
-            .unwrap();
+        let config = self.db.configuration_handle.rx.borrow().clone();
         let latest_id = *self.db.stream_notification_rx.borrow();
         let bound_high = query.bound_high.unwrap_or(latest_id);
         let bound_low = query.bound_low.unwrap_or(StreamID::new(0));
@@ -546,14 +541,7 @@ impl ConnectionHandler {
         &self,
         query: &StarlarkScanQuery,
     ) -> Result<ResponsePayload, ResponsePayload> {
-        let config = self
-            .db
-            .configuration_handle
-            .clone()
-            .rx
-            .recv()
-            .await
-            .unwrap();
+        let config = self.db.configuration_handle.rx.borrow().clone();
         let latest_id = *self.db.stream_notification_rx.borrow();
         let bound_high = query.bound_high.unwrap_or(latest_id);
         let bound_low = query.bound_low.unwrap_or(StreamID::new(0));
@@ -742,7 +730,7 @@ impl ConnectionHandler {
                     }
                 }
                 RequestPayload::UpdateConfiguration(conf_update) => {
-                    let mut handle = self_.db.configuration_handle.clone();
+                    let handle = self_.db.configuration_handle.clone();
                     handle.tx.send(conf_update.clone()).await.unwrap();
                 }
                 RequestPayload::RegisterPipelineNode(registration_info) => {

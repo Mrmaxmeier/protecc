@@ -34,7 +34,7 @@ impl<T> WorkQ<T> {
         } else {
             self.blocking_push_count.fetch_add(1, Ordering::Relaxed);
             tracyrs::message!("blocking WorkQ::push");
-            self.free.acquire().await.forget();
+            self.free.acquire().await.unwrap().forget();
             tracyrs::message!("~blocking WorkQ::push");
         }
         {
@@ -61,7 +61,7 @@ impl<T> WorkQ<T> {
             if permits == 0 {
                 self.blocking_push_count.fetch_add(1, Ordering::Relaxed);
                 tracyrs::message!("blocking WorkQ::push_batch");
-                self.free.acquire().await.forget();
+                self.free.acquire().await.unwrap().forget();
                 tracyrs::message!("~blocking WorkQ::push_batch");
                 permits += 1;
             }
@@ -81,7 +81,7 @@ impl<T> WorkQ<T> {
     }
 
     pub async fn pop(&self) -> T {
-        self.ready.acquire().await.forget();
+        self.ready.acquire().await.unwrap().forget();
         let res;
         {
             let mut data = self.data.lock().await;
@@ -100,7 +100,7 @@ impl<T> WorkQ<T> {
         } else {
             self.blocking_pop_count.fetch_add(1, Ordering::Relaxed);
             tracyrs::message!("blocking WorkQ::pop_batch");
-            self.ready.acquire().await.forget();
+            self.ready.acquire().await.unwrap().forget();
             tracyrs::message!("~blocking WorkQ::pop_batch");
         }
         let mut permits = 1;

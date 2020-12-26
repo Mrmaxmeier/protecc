@@ -57,8 +57,6 @@ io.on('connection', function (socket) {
     ws.on("open", function () {
         socket.on('msg', async function (s) {
             console.log('client -> server: ' + s);
-            if (latency)
-                await sleep(500)
             ws.send(s);
         });
         socket.on('disconnect', function () {

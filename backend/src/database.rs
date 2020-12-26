@@ -329,7 +329,7 @@ impl Database {
                 tracyrs::zone!("streamid_tx ooo pq");
                 for stream_id in buffer.drain(..) {
                     if stream_id.idx() == next {
-                        streamid_tx.broadcast(stream_id).unwrap();
+                        streamid_tx.send(stream_id).unwrap();
                         next = stream_id.idx() + 1;
                         continue;
                     }
@@ -339,7 +339,7 @@ impl Database {
 
                     while pq.peek().copied() == Some(Reverse(next)) {
                         let Reverse(sid) = pq.pop().unwrap();
-                        streamid_tx.broadcast(StreamID(sid)).unwrap();
+                        streamid_tx.send(StreamID(sid)).unwrap();
                         next = sid + 1;
                     }
                 }

@@ -3,6 +3,8 @@ apt-get install -y apparmor-utils
 aa-complain /usr/sbin/tcpdump
 
 
+# ACHTUNG: tcpdump ist awkward => pcaps in /tmp?
+
 # cat tcpdump_complete.sh
 #!/usr/bin/env bash
 echo "FINISHED $1"

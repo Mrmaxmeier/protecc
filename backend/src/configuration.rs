@@ -79,9 +79,9 @@ impl ConfigurationHandle {
             .send(ConfigurationUpdate::RegisterTag(tag))
             .await
             .unwrap();
-        // return iff config reflects registered tag
-        while let Some(config) = rx.recv().await {
-            if let Some(_) = config.tags.get(&tag_id) {
+        // return once config reflects registered tag
+        while let Ok(()) = rx.changed().await {
+            if let Some(_) = rx.borrow().tags.get(&tag_id) {
                 return tag_id;
             }
         }
@@ -122,7 +122,7 @@ impl Configuration {
         while let Some(msg) = rx.recv().await {
             let prev = config.clone();
             config.update(msg);
-            tx.broadcast(config.clone()).unwrap();
+            tx.send(config.clone()).unwrap();
             if prev != config {
                 let file = std::fs::File::create(path.clone()).unwrap();
                 serde_json::to_writer_pretty(file, &config)
