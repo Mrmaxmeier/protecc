@@ -109,11 +109,9 @@ pub async fn read_pcap_file(
     };
 
     let mut reader = if filename.ends_with(".pcapng") {
-        Box::new(PcapNGReader::new(1 << 20, reader)?)
-            as Box<dyn PcapReaderIterator<Box<dyn Read + Send>> + Send>
+        Box::new(PcapNGReader::new(1 << 20, reader)?) as Box<dyn PcapReaderIterator + Send>
     } else {
-        Box::new(LegacyPcapReader::new(1 << 20, reader)?)
-            as Box<dyn PcapReaderIterator<Box<dyn Read + Send>> + Send>
+        Box::new(LegacyPcapReader::new(1 << 20, reader)?) as Box<dyn PcapReaderIterator + Send>
     };
     let mut if_linktypes = Vec::new();
     let mut if_tsconfig = Vec::new();

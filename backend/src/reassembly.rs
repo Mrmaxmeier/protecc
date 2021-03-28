@@ -201,7 +201,7 @@ impl StreamReassembly {
     }
 }
 
-impl Arbitrary for StreamReassembly {
+impl Arbitrary<'_> for StreamReassembly {
     fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
         use std::net::Ipv4Addr;
         let ip1 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, u8::arbitrary(u)?));

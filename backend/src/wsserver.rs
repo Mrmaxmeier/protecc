@@ -311,7 +311,7 @@ impl ConnectionHandler {
                         id: req_id,
                         payload: ResponsePayload::IndexSizes { tags, services },
                     }
-                };
+                }
 
                 tx.send(fetch_index_sizes(&db, req_id).await).await.unwrap();
                 let mut chan = ThrottledWatch::new(self.db.stream_notification_rx.clone());
