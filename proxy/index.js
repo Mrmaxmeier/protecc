@@ -31,7 +31,7 @@ static_dir = process.env.STATIC_DIR || '../protecc/build'
 console.log('serving from ' + static_dir)
 app.use(express.static(static_dir))
 
-backend = process.env.BACKEND || 'ws://localhost:10000'
+backend = process.env.BACKEND || 'ws://127.0.0.1:10000'
 console.log('connecting to backend at ' + backend)
 
 io.on('connection', function (socket) {
@@ -55,6 +55,7 @@ io.on('connection', function (socket) {
     })
 
     ws.on("open", function () {
+        console.log("backend socket opened")
         socket.on('msg', async function (s) {
             console.log('client -> server: ' + s);
             ws.send(s);
