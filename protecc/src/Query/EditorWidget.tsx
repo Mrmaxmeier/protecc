@@ -345,7 +345,7 @@ export function EditorWidget({ onExecute, error, onChange }: { onExecute?: () =>
             height='20em'
             language='starlark'
             theme='starlark-dark'
-            editorDidMount={(_, editor) => setEditor(editor)}
+            onMount={(editor, _) => setEditor(editor)}
         />
     </>
 }

@@ -1,9 +1,8 @@
 import React, { Context, createContext, useState, useEffect, useContext, useCallback } from 'react';
-import io from 'socket.io-client';
+import io, { Socket } from 'socket.io-client';
 import { Record, Static, String, Number, Unknown, Dictionary, Literal, Union } from 'runtypes';
 import { SemanticColor } from '../Components/ColoredLabel';
 import { StreamDetailed } from './Types';
-import process from "process";
 
 const StreamMessage = Record({
     id: Number,
@@ -12,13 +11,14 @@ const StreamMessage = Record({
 type StreamMessage = Static<typeof StreamMessage>
 
 export class ProteccApi {
-    private socket: SocketIOClient.Socket
+    private socket: Socket
     private currentId = 0
     private listeners: { [id: number]: (msg: any) => void } = {}
 
     constructor(url: string) {
         this.socket = io(url);
-        this.socket.on('msg', (msg: string) => {
+        this.socket.on('msg', (buffer: ArrayBuffer) => {
+            let msg = new TextDecoder().decode(buffer)
             let streamMsg = StreamMessage.check(JSON.parse(msg));
             let listener = this.listeners[streamMsg.id];
             if (listener)

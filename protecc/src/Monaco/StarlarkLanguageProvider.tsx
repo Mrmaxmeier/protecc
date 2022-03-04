@@ -1,12 +1,12 @@
 import React, { useEffect } from 'react'
-import { monaco, Monaco } from '@monaco-editor/react';
+import { loader, Monaco } from '@monaco-editor/react';
 import { useContext } from 'react';
 import { Configuration, Config } from '../Api/ProteccApi';
 
 export const StarlarkLanguageProvider: React.FC<{}> = ({ children }) => {
     const config = useContext(Config)
     useEffect(() => {
-        monaco.init().then(monaco => {
+        loader.init().then(monaco => {
             registerAutocomplete(monaco)
             monaco.languages.setMonarchTokensProvider('starlark', starlarkTokensProvider as any)
             monaco.languages.register({ id: 'starlark' })

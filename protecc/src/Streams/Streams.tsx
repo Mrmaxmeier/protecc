@@ -3,7 +3,7 @@ import { Config, Api, serviceFromPort } from '../Api/ProteccApi';
 import { Loading } from '../Components/Loading';
 import { Stack, StackItem, Split, SplitItem, OptionsMenu, OptionsMenuToggle, OptionsMenuItem, TextInput, Pagination, Flex, FlexItem, Switch, Modal, Title } from '@patternfly/react-core';
 import { onEnter, nanToNull, formatBytes } from '../Util';
-import { useHistory, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ColoredDot } from '../Components/ColoredDot';
 import { Record, Array, Number, Static } from 'runtypes';
 import { StreamOverview, prettyPrintEndpoint } from '../Api/Types';
@@ -45,7 +45,7 @@ function Menu(props: { name: string, id: string, menuItems: any[] }) {
 
 
 function PortMenu({ port, tag }: Params) {
-    let history = useHistory();
+    let navigate = useNavigate();
     let config = useContext(Config);
 
     let selectedService = (port !== null && config !== null && Object.values(config.services).find((s) => s.port === port)) || null
@@ -63,13 +63,13 @@ function PortMenu({ port, tag }: Params) {
             type='text'
             id='portinput'
             onChange={setInput}
-            onKeyPress={onEnter(() => history.push(makeUrl({ port: nanToNull(parseInt(input)), tag })))}
+            onKeyPress={onEnter(() => navigate(makeUrl({ port: nanToNull(parseInt(input)), tag })))}
         />,
     ].concat(Object.entries(config.services).map(([id, service]) =>
         <OptionsMenuItem
             isSelected={port === service.port}
             key={id}
-            onSelect={() => history.push(makeUrl({ port: service.port, tag }))}
+            onSelect={() => navigate(makeUrl({ port: service.port, tag }))}
         >
             {service.name}
         </OptionsMenuItem>
@@ -82,7 +82,7 @@ function PortMenu({ port, tag }: Params) {
 
 
 function TagMenu(params: Params) {
-    let history = useHistory();
+    let navigate = useNavigate();
     let config = useContext(Config);
 
 
@@ -95,13 +95,13 @@ function TagMenu(params: Params) {
         <OptionsMenuItem
             isSelected={params.tag === null}
             key={'empty'}
-            onSelect={() => history.push(makeUrl({ port: params.port, tag: null }))}
+            onSelect={() => navigate(makeUrl({ port: params.port, tag: null }))}
         >&nbsp;</OptionsMenuItem>
     ].concat(Object.entries(config.tags).map(([id, tag]) => ({ id: parseInt(id), tag })).map(({ id, tag }) =>
         <OptionsMenuItem
             isSelected={params.tag === id}
             key={id.toString()}
-            onSelect={() => history.push(makeUrl({ port: params.port, tag: id }))}
+            onSelect={() => navigate(makeUrl({ port: params.port, tag: id }))}
         >
             <ColoredDot useSemanticColors color={tag.color} /> {tag.name}
         </OptionsMenuItem>

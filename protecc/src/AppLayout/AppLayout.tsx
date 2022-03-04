@@ -1,7 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { PageHeader, Nav, NavList, NavItem, PageSidebar, Page, PageSection, PageHeaderTools } from "@patternfly/react-core";
 import { ConnectedIcon, DisconnectedIcon, InProgressIcon } from '@patternfly/react-icons'
-import { HashRouter as Router, Route, Switch, Link } from 'react-router-dom';
+import { HashRouter as Router, Route, Routes, Link } from 'react-router-dom';
 import Logo from './logo.png';
 import { Dashboard } from '../Dashboard/Dashboard';
 import { Connected } from '../Api/ProteccApi';
@@ -26,13 +26,12 @@ function ConnectionStatus() {
 
 
 export function AppLayout() {
-
     let pages = [
-        { path: "/", name: "Dashboard", component: <Dashboard /> },
-        { path: "/streams", name: "Streams", component: <Streams /> },
-        { path: "/config", name: "Configuration", component: <Configuration /> },
-        { path: "/query", name: "Query", component: <Query /> },
-        { path: "/pipeline", name: "Taggers & Co", component: <Pipeline /> },
+        { path: "/", name: "Dashboard", element: <Dashboard /> },
+        { path: "/streams", name: "Streams", element: <Streams /> },
+        { path: "/config", name: "Configuration", element: <Configuration /> },
+        { path: "/query", name: "Query", element: <Query /> },
+        { path: "/pipeline", name: "Taggers & Co", element: <Pipeline /> },
     ];
 
     let [navOpen, setNavOpen] = useState(true);
@@ -65,20 +64,17 @@ export function AppLayout() {
     );
 
     return (
-        <Router hashType="noslash">
+        <Router>
             <Page header={header} sidebar={sidebar}>
                 <PageSection>
-                    <Switch>
-                        {pages.map(({ path, component }) => (
-                            <Route key={path} exact path={path}>
-                                {component}
-                            </Route>
-                        ))}
-                        <Route key={"streams-port"} exact path={"/streams/port/:port"}><Streams /></Route>
-                        <Route key={"streams-tag"} exact path={"/streams/tag/:tag"}><Streams /></Route>
-                        <Route key={"streams-port-tag"} exact path={"/streams/:port/:tag"}><Streams /></Route>
-                        <Route key={'stream'} exact path={'/stream/:id'}><Stream /></Route>
-                    </Switch>
+                    <Routes>
+                        {pages.map(({ path, element }) =>
+                            <Route key={path} path={path} element={element} />)}
+                        <Route key={"streams-port"} path={"/streams/port/:port"} element={<Streams />} />
+                        <Route key={"streams-tag"} path={"/streams/tag/:tag"} element={<Streams />} />
+                        <Route key={"streams-port-tag"} path={"/streams/:port/:tag"} element={<Streams />} />
+                        <Route key={'stream'} path={'/stream/:id'} element={<Stream />} />
+                    </Routes>
                 </PageSection>
             </Page>
         </Router>
