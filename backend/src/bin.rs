@@ -1,9 +1,11 @@
 #![recursion_limit = "512"] // for futures::select!
 
+/*
 // for heaptrack
 use std::alloc::System;
 #[global_allocator]
 static GLOBAL: System = System;
+*/
 
 use snacc::database::Database;
 use snacc::pcapmanager::PcapManager;
@@ -19,6 +21,7 @@ const SLEEP_BETWEEN_PCAPS: u64 = 0;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // console_subscriber::init();
     let pcap_folder = args().skip(1).next().unwrap_or("pcaps/".into());
     let mut pcap_process_rx = PcapManager::start(&pcap_folder);
 
@@ -34,6 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Ok((stream, _)) = listener.accept().await {
             tokio::spawn(wsserver::accept_connection(stream, database.clone()));
         }
+        eprintln!("failed to accept websocket listener?!");
     });
 
     println!("connect ws now :)");

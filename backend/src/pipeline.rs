@@ -110,7 +110,7 @@ impl ExecutionPlan {
             db.streams.write().await[swd.stream.id.idx()].tags = stream_tags;
         }
         if !self.reduce_stage.is_empty() {
-            for action in self.process_stage(&self.reduce_stage, &swd).await {
+            for _action in self.process_stage(&self.reduce_stage, &swd).await {
                 todo!();
             }
         }
@@ -291,6 +291,7 @@ enum MissedStreamsPacket {
     StartRange(StreamID),
     EndRange(StreamID),
     SubmitToNode,
+    #[allow(unused)]
     Exit,
 }
 
@@ -450,6 +451,7 @@ impl MissedStreamsTrackerHandle {
     pub(crate) fn submit_to_node(&self) {
         self.tx.send(MissedStreamsPacket::SubmitToNode).unwrap();
     }
+    #[allow(unused)]
     pub(crate) fn exit(&self) {
         self.tx.send(MissedStreamsPacket::Exit).unwrap();
     }

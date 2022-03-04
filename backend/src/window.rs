@@ -4,7 +4,7 @@ use crate::{
     database::{Database, StreamID},
     throttled_watch::ThrottledWatch,
 };
-use futures::{FutureExt, SinkExt, StreamExt};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 use std::sync::Arc;
@@ -184,7 +184,7 @@ impl Window {
     pub(crate) async fn stream_results_to(
         &mut self,
         req_id: u64,
-        mut resp_tx: futures::channel::mpsc::Sender<crate::wsserver::RespFrame>,
+        resp_tx: mpsc::Sender<crate::wsserver::RespFrame>,
     ) {
         let resp_frame = move |window_update| {
             let payload = crate::wsserver::ResponsePayload::WindowUpdate(window_update);
@@ -195,8 +195,8 @@ impl Window {
         };
 
         loop {
-            futures::select! {
-                params = self.params_rx.recv().fuse() => {
+            tokio::select! {
+                params = self.params_rx.recv() => {
                     let WindowParameters { size, attached } = params.unwrap();
                     if attached != self.attached {
                         if let Some(update) = self.set_attached(attached).await {
@@ -209,12 +209,12 @@ impl Window {
                         }
                     }
                 },
-                new_id = self.latest_id_chan.next().fuse() => {
+                new_id = self.latest_id_chan.next() => {
                     if let Some(update) = self.new_id(new_id.unwrap()).await {
                         resp_tx.send(resp_frame(update)).await.unwrap();
                     }
                 },
-                changed_id = self.update_id_chan.recv().fuse() => {
+                changed_id = self.update_id_chan.recv() => {
                     if let Some(update) = self.changed_id(changed_id.unwrap()).await {
                         resp_tx.send(resp_frame(update)).await.unwrap();
                     }

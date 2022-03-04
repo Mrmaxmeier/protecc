@@ -1,5 +1,5 @@
 use derive_more::{Add, AddAssign};
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -78,34 +78,26 @@ fn aggregate_counters() -> (
 
     let mut counters = Counters::default();
     tokio::spawn(async move {
-        async fn delay_queue_next(dq: &mut DelayQueue<CountersCell>) -> CountersCell {
-            // for some stupid reason, delayqueue.next() returns with Ready(None) even though it's empty. ~tokio 0.2.x
-            loop {
-                let elem = dq.next().await;
-                match elem {
-                    Some(x) => return x.expect("tokio time error").into_inner(),
-                    None => futures::pending!(),
-                }
-            }
-        }
         loop {
-            futures::select! {
-                elem = agg_rx.recv().fuse() => {
+            tokio::select! {
+                elem = agg_rx.recv() => {
                     delay_queue.insert(elem.unwrap(), std::time::Duration::from_secs(1));
                 },
-                elem = delay_queue_next(&mut delay_queue).fuse() => {
-                    let mut delta = elem.lock().unwrap();
-                    let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
-                    let before = CountersAsMapHack::from_counters(&counters);
-                    counters += delta;
-                    let after = CountersAsMapHack::from_counters(&counters);
-                    for (k, a) in before.0.iter() {
-                        let b = after.0.get(k).unwrap();
-                        if check_for_pow2(*a, *b) {
-                            println!("{}: {} (>= {:#x})", k, b, (a+1).checked_next_power_of_two().unwrap());
+                elem = delay_queue.next(), if !delay_queue.is_empty() => {
+                    if let Some(elem) = elem {
+                        let mut delta = elem.get_ref().lock().unwrap();
+                        let delta = std::mem::replace(&mut *delta, None).expect("double-collect of counters");
+                        let before = CountersAsMapHack::from_counters(&counters);
+                        counters += delta;
+                        let after = CountersAsMapHack::from_counters(&counters);
+                        for (k, a) in before.0.iter() {
+                            let b = after.0.get(k).unwrap();
+                            if check_for_pow2(*a, *b) {
+                                println!("{}: {} (>= {:#x})", k, b, (a+1).checked_next_power_of_two().unwrap());
+                            }
                         }
+                        counters_tx.send(counters.clone()).unwrap();
                     }
-                    counters_tx.send(counters.clone()).unwrap();
                 },
             };
         }

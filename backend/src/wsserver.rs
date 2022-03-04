@@ -3,12 +3,10 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::channel::mpsc;
 use futures::future::Future;
-use futures::future::FutureExt;
-use futures::sink::SinkExt;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 use tokio::sync::{broadcast, oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -155,7 +153,7 @@ impl ConnectionHandler {
         // {"id": 0, "payload": {"watch": "configuration"}}
         match kind {
             ResponseStreamKind::Counters => {
-                let mut out_stream = self.stream_tx.clone();
+                let out_stream = self.stream_tx.clone();
                 let mut watcher = crate::counters::subscribe();
                 let mut prev = HashMap::new();
                 loop {
@@ -177,7 +175,7 @@ impl ConnectionHandler {
                 }
             }
             ResponseStreamKind::Configuration => {
-                let mut out_stream = self.stream_tx.clone();
+                let out_stream = self.stream_tx.clone();
                 let mut handle = self.db.configuration_handle.clone();
                 loop {
                     let config = handle.rx.borrow().clone();
@@ -205,7 +203,7 @@ impl ConnectionHandler {
                     .await;
             }
             ResponseStreamKind::StreamDetails(stream_id) => {
-                let mut tx = self.stream_tx.clone();
+                let tx = self.stream_tx.clone();
 
                 let db = self.db.clone();
                 let mut update_id_chan = self.db.stream_update_tx.subscribe();
@@ -279,7 +277,7 @@ impl ConnectionHandler {
                 }
             }
             ResponseStreamKind::IndexSizes => {
-                let mut tx = self.stream_tx.clone();
+                let tx = self.stream_tx.clone();
 
                 let db = self.db.clone();
 
@@ -328,7 +326,7 @@ impl ConnectionHandler {
                 }
             }
             ResponseStreamKind::PipelineStatus => {
-                let mut tx = self.stream_tx.clone();
+                let tx = self.stream_tx.clone();
                 let mut pipeline_topo_rx = {
                     let pipeline = self.db.pipeline.read().await;
                     pipeline.execution_plan_rx.clone()
@@ -393,7 +391,7 @@ impl ConnectionHandler {
             (submit_q, node_guard)
         };
 
-        let mut tx = self.stream_tx.clone();
+        let tx = self.stream_tx.clone();
         let mut buffer = Vec::new();
         loop {
             submit_q.pop_batch(&mut buffer).await;
@@ -648,7 +646,7 @@ impl ConnectionHandler {
                     node.missed_streams_tracker.start_range(current_stream_id);
                 }
             }
-            Remove(node) => todo!(),
+            Remove(_node) => todo!(),
             CatchUp(node) => {
                 let node = pipeline.get_node(node).unwrap();
                 let is_running = *node.status.lock().await == NodeStatus::Running;
@@ -672,9 +670,9 @@ impl ConnectionHandler {
     }
 
     async fn setup_cancellation<T: Future>(self: Arc<Self>, req: &ReqFrame, f: T) {
-        futures::select! {
-            _ = f.fuse() => {},
-            _ = self.clone().await_cancel(req.id).fuse() => {
+        tokio::select! {
+            _ = f => {},
+            _ = self.clone().await_cancel(req.id) => {
                 println!("req cancelled: {:?}", req);
                 return;
             }
@@ -788,14 +786,14 @@ pub async fn accept_connection(stream: TcpStream, database: Arc<Database>) {
         .expect("connected streams should have a peer address");
     println!("Peer address: {}", addr);
 
-    let ws_stream = tokio_tungstenite::accept_async(stream)
+    let mut ws_stream = tokio_tungstenite::accept_async(stream)
         .await
         .expect("Error during the websocket handshake occurred");
 
     println!("New WebSocket connection: {}", addr);
     incr_counter!(ws_connections);
 
-    let (stream_tx, stream_rx) = mpsc::channel::<RespFrame>(8);
+    let (stream_tx, mut stream_rx) = mpsc::channel::<RespFrame>(8);
 
     let conn_handler = Arc::new(ConnectionHandler {
         db: database,
@@ -805,22 +803,12 @@ pub async fn accept_connection(stream: TcpStream, database: Arc<Database>) {
         stream_tx,
     });
 
-    let (mut write, read) = ws_stream.split();
-    enum SelectKind {
-        // TODO(refactor) select!
-        In(Result<Message, tokio_tungstenite::tungstenite::error::Error>),
-        Out(RespFrame),
-    }
+    // let (mut write, mut read) = ws_stream.split();
 
-    let mut read =
-        futures::stream::select(read.map(SelectKind::In), stream_rx.map(SelectKind::Out));
-    // TODO(upstream): why futures::channel::mpsc instread of tokio::sync::mpsc?
-    // ^ why does tokio::sync::mpsc::Receiver not implement futures::Stream?
-
-    while let Some(msg) = read.next().await {
-        match msg {
-            SelectKind::In(rmsg) => {
-                let msg = match rmsg {
+    loop {
+        tokio::select! {
+            in_msg = ws_stream.next() => {
+                let msg = match in_msg.unwrap() {
                     Ok(val) => val,
                     Err(e) => {
                         eprintln!("{:?}", e);
@@ -832,31 +820,31 @@ pub async fn accept_connection(stream: TcpStream, database: Arc<Database>) {
                     Message::Text(text) => {
                         let frame = serde_json::from_str::<ReqFrame>(&text);
                         if let Ok(frame) = frame {
-                            dbg!(&frame);
+                            eprintln!("ws reqframe: {:?}", frame);
                             tokio::spawn(conn_handler.clone().handle_req(frame));
                         } else {
                             let resp = RespFrame {
                                 id: 0x1337_1337_1337_1337,
                                 payload: ResponsePayload::Error(format!("{:?}", frame)),
                             };
-                            write
+                            ws_stream
                                 .send(Message::Text(serde_json::to_string(&resp).unwrap()))
                                 .await
                                 .expect("failed to send");
                         }
                     }
                     Message::Close(..) => {
-                        let _ = write.send(msg).await;
+                        let _ = ws_stream.send(msg).await;
                         break;
                     }
                     Message::Ping(_) => {} // handled by tungstenite
                     _ => panic!("unhandled msg frame {:?}", msg),
                 }
             }
-            SelectKind::Out(msg) => {
+            out_msg = stream_rx.recv() => {
                 incr_counter!(ws_tx);
-                write
-                    .send(Message::Text(serde_json::to_string(&msg).unwrap()))
+                ws_stream
+                    .send(Message::Text(serde_json::to_string(&out_msg.unwrap()).unwrap()))
                     .await
                     .expect("failed to send");
             }

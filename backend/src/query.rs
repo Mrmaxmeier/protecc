@@ -1,5 +1,9 @@
-use crate::database::{Database, TagID};
-use crate::stream::{Stream, StreamDataWrapper};
+use crate::stream::Stream;
+use crate::{
+    database::{Database, TagID},
+    stream::QueryIndex,
+};
+use regex::bytes::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::incr_counter;
@@ -47,7 +51,7 @@ pub(crate) struct QueryFilter {
     service: Option<u16>,
     tag: Option<TagID>,
     tags_cnf: Option<BoolExpr<TagID>>,
-    regex: Option<String>,
+    regex: Option<Regex>,
     length: Option<IntExpr<usize>>,
 }
 
@@ -65,9 +69,7 @@ impl QueryFilter {
         }
         if let Some(regex) = self.regex.as_ref() {
             let swd = swd.as_stream_with_data(db);
-            let re = regex::bytes::Regex::new(&regex).unwrap(); // TODO: caching, error handling?
-
-            if !(re.is_match(&*swd.client_payload) || re.is_match(&*swd.server_payload)) {
+            if !(regex.is_match(&*swd.client_payload) || regex.is_match(&*swd.server_payload)) {
                 return false;
             }
         }
