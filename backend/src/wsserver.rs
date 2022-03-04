@@ -162,16 +162,16 @@ impl ConnectionHandler {
                     let counters = watcher.borrow().clone();
                     let mut next = counters.as_hashmap();
                     next.retain(|k, v| v != prev.get(k).unwrap_or(&0));
-                    if next.len() == 1 && next.get("ws_tx").is_some() {
-                        continue;
+                    let ws_tx_feedback_loop = next.len() == 1 && next.get("ws_tx").is_some();
+                    if !ws_tx_feedback_loop {
+                        out_stream
+                            .send(RespFrame {
+                                id: req_id,
+                                payload: ResponsePayload::Counters(next),
+                            })
+                            .await
+                            .unwrap();
                     }
-                    out_stream
-                        .send(RespFrame {
-                            id: req_id,
-                            payload: ResponsePayload::Counters(next),
-                        })
-                        .await
-                        .unwrap();
                     prev = counters.as_hashmap();
                     watcher.changed().await.unwrap();
                 }
