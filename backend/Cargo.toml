@@ -32,7 +32,9 @@ console-subscriber = "0.1.3"
 
 [features]
 tracy = ["tracyrs/tracy_enable"]
-
+starlark = ["dep:starlark"]
+wirefilter = ["dep:wirefilter-engine"]
+default = ["starlark", "wirefilter"]
 
 [lib]
 name = "snacc"

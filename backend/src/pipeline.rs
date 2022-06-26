@@ -170,6 +170,7 @@ impl PipelineManager {
         (submit_q, results_chan, NodeGuard(db, node))
     }
 
+    #[cfg(feature = "starlark")]
     pub(crate) async fn start_starlark_tagger(
         &mut self,
         db: Arc<crate::database::Database>,

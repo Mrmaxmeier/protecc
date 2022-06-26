@@ -13,11 +13,13 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::incr_counter;
 use crate::stream::QueryIndex;
 use crate::stream::{SegmentWithData, StreamDetails};
+use crate::window::WindowHandle;
+#[cfg(feature = "wirefilter")]
+use crate::wirefilter::WirefilterContext;
 use crate::{
     database::{Database, StreamID, TagID},
     throttled_watch::ThrottledWatch,
 };
-use crate::{window::WindowHandle, wirefilter::WirefilterContext};
 
 #[derive(Serialize, Debug)]
 pub(crate) struct RespFrame {
@@ -39,7 +41,9 @@ enum RequestPayload {
     AddTag(StreamID, TagID),
     RemoveTag(StreamID, TagID),
     GetTagID(crate::configuration::Tag),
+    #[cfg(feature = "starlark")]
     StarlarkScan(StarlarkScanQuery),
+    #[cfg(feature = "wirefilter")]
     WirefilterScan(StarlarkScanQuery),
     DoS(DebugDenialOfService),
     WindowUpdate {
@@ -63,6 +67,7 @@ pub(crate) enum ResponsePayload {
     Error(String),
     WindowUpdate(crate::window::WindowUpdate),
     StreamDetails(StreamDetails),
+    #[cfg(any(feature = "starlark", feature = "wirefilter"))]
     StarlarkScan(StarlarkScanResp),
     IndexSizes {
         services: HashMap<u16, u64>,
@@ -98,6 +103,7 @@ enum DebugDenialOfService {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "starlark", feature = "wirefilter"))]
 struct StarlarkScanQuery {
     code: String,
     window_size: usize,
@@ -122,11 +128,13 @@ enum ManagePipelineNode {
     Enable(String),
     Remove(String),
     CatchUp(String),
+    #[cfg(feature = "starlark")]
     AttachStarlark(String),
 }
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "starlark", feature = "wirefilter"))]
 pub(crate) struct StarlarkScanResp {
     error: Option<String>,
     scan_progress: StreamID, // inclusive
@@ -436,6 +444,7 @@ impl ConnectionHandler {
         }
     }
 
+    #[cfg(feature = "starlark")]
     async fn starlark_scan(
         &self,
         query: &StarlarkScanQuery,
@@ -535,6 +544,7 @@ impl ConnectionHandler {
         }))
     }
 
+    #[cfg(feature = "wirefilter")]
     async fn wirefilter_scan(
         &self,
         query: &StarlarkScanQuery,
@@ -654,6 +664,7 @@ impl ConnectionHandler {
                     node.missed_streams_tracker.submit_to_node();
                 }
             }
+            #[cfg(feature = "starlark")]
             AttachStarlark(name) => {
                 pipeline.start_starlark_tagger(self.db.clone(), name).await;
             }
@@ -740,6 +751,7 @@ impl ConnectionHandler {
                 RequestPayload::RemoveTag(stream_id, tag_id) => {
                     self_.db.remove_tag(*stream_id, *tag_id).await
                 }
+                #[cfg(feature = "starlark")]
                 RequestPayload::StarlarkScan(query) => {
                     self_
                         .send_out(&req, async {
@@ -750,6 +762,7 @@ impl ConnectionHandler {
                         })
                         .await
                 }
+                #[cfg(feature = "wirefilter")]
                 RequestPayload::WirefilterScan(query) => {
                     self_
                         .send_out(&req, async {
