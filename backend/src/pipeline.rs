@@ -192,7 +192,7 @@ impl PipelineManager {
 
         let config = db.configuration_handle.rx.borrow().clone();
         let script = config.scripts[name].to_owned();
-        let core = crate::scripting::StarlarkEngine::new(&script, config, db).unwrap();
+        let core = crate::scripting::StarlarkEngine::new(&script, config, db);
 
         tokio::spawn(async move {
             let mut buffer = Vec::new();

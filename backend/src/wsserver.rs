@@ -118,7 +118,7 @@ struct ScanResult {
     stream: crate::stream::LightweightStream,
     added_tags: SmallVec<[TagID; 4]>,
     attached: Option<serde_json::Value>,
-    sort_key: Option<i64>,
+    sort_key: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -458,35 +458,20 @@ impl ConnectionHandler {
         let range_exhausted = false;
         let streams = self.db.streams.read().await;
 
-        let diag_to_error = |diagnostic: starlark::codemap_diagnostic::Diagnostic| {
+        let to_error_debug = |error: Box<dyn std::error::Error>| {
             ResponsePayload::StarlarkScan(StarlarkScanResp {
                 bound_high,
                 bound_low,
                 scan_progress,
                 range_exhausted,
                 scan_results: Vec::new(),
-                error: Some(diagnostic.message),
-            })
-        };
-
-        let exception_to_error = |diagnostic: starlark::eval::EvalException| {
-            if let starlark::eval::EvalException::DiagnosedError(diag) = diagnostic {
-                return diag_to_error(diag);
-            }
-            ResponsePayload::StarlarkScan(StarlarkScanResp {
-                bound_high,
-                bound_low,
-                scan_progress,
-                range_exhausted,
-                scan_results: Vec::new(),
-                error: Some(format!("{:?}", diagnostic)),
+                error: Some(format!("{:?}", error)),
             })
         };
 
         let filter_core =
-            crate::scripting::StarlarkEngine::new(&query.code, config.clone(), self.db.clone())
-                .map_err(diag_to_error)?;
-        let index = filter_core.get_meta().map_err(exception_to_error)?;
+            crate::scripting::StarlarkEngine::new(&query.code, config.clone(), self.db.clone());
+        let index = filter_core.get_meta().map_err(to_error_debug)?;
 
         let mut scan_results = Vec::new();
 
@@ -511,7 +496,7 @@ impl ConnectionHandler {
 
                     let verdict = filter_core
                         .get_verdict(&streams[stream_id.idx()])
-                        .map_err(exception_to_error)?;
+                        .map_err(to_error_debug)?;
                     if verdict.accept != Some(false) {
                         let stream = streams[stream_id.idx()].as_lightweight();
                         scan_results_ref.push(ScanResult {

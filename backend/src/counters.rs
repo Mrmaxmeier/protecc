@@ -134,7 +134,6 @@ macro_rules! incr_counter {
         crate::counters::update_counters(|c| {
             c.$x += 1;
         });
-        ()
     }};
     ($x:ident, $msg:tt) => {
         println!($msg);
