@@ -29,7 +29,7 @@ base64 = "0.13.0"
 # starlark_derive = { version="0.7", optional=true }
 starlark = { git = "https://github.com/facebookexperimental/starlark-rust", optional = true }
 starlark_derive = { git = "https://github.com/facebookexperimental/starlark-rust", optional=true }
-gazebo = { version = "0.7.1", optional = true}
+gazebo = { version = "0.8", optional = true}
 anyhow = { version = "1.0.58", optional = true }
 
 zstd = "0.10"
