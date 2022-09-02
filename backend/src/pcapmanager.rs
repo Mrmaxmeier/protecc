@@ -7,8 +7,6 @@ use std::time::Duration;
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 
-const ENABLE_COMPRESSION: bool = true;
-
 /*
 use crate::database::StreamID;
 struct PcapRange {
@@ -22,10 +20,12 @@ pub struct PcapManager {
 }
 
 impl PcapManager {
-    pub fn start(pcap_folder: &str) -> mpsc::UnboundedReceiver<PathBuf> {
+    pub fn start(pcap_folder: &str, compress_pcaps: bool) -> mpsc::UnboundedReceiver<PathBuf> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         let path = PathBuf::from(pcap_folder);
+
+        assert!(path.exists(), "pcap folder does not exist ({:?})", path);
 
         let mut existing_pcaps = path
             .read_dir()
@@ -34,47 +34,24 @@ impl PcapManager {
             .collect::<Result<Vec<_>, _>>()
             .expect("io error listing pcap folder");
 
-        existing_pcaps.sort();
-        println!(
-            "queueing {} existing pcaps from folder...",
-            existing_pcaps.len()
-        );
+        let handle_file = move |file_path: PathBuf, tx: &mpsc::UnboundedSender<PathBuf>| {
+            let file_name = match file_path.file_name() {
+                Some(name) => name.to_str().expect("non-utf8 pcap file name").to_owned(),
+                None => return,
+            };
 
-        for file_path in existing_pcaps.into_iter() {
-            if let Some(file_name) = file_path.file_name() {
-                if !file_name.to_string_lossy().contains(".pcap") {
-                    continue;
-                }
-            }
-            if ENABLE_COMPRESSION && file_path.extension().and_then(|x| x.to_str()) == Some("zst") {
+            dbg!(&file_name);
+
+            if file_name.ends_with(".pcap.zst") || (file_name.ends_with(".pcap") && !compress_pcaps)
+            {
                 tx.send(file_path)
                     .expect("pcapmanager rx dropped before send");
-            } else {
+            } else if file_name.ends_with(".pcap") && compress_pcaps {
                 Self::compress_pcap(&file_path)
             }
-        }
+        };
 
         let (tx_, rx_) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            for event in rx_ {
-                dbg!(&event);
-                if let DebouncedEvent::Write(file_path) = event {
-                    if let Some(file_name) = file_path.file_name() {
-                        if !file_name.to_string_lossy().contains(".pcap") {
-                            return;
-                        }
-                    }
-                    if ENABLE_COMPRESSION
-                        && file_path.extension().and_then(|x| x.to_str()) == Some("zst")
-                    {
-                        tx.send(file_path)
-                            .expect("pcapmanager rx dropped before send");
-                    } else {
-                        Self::compress_pcap(&file_path)
-                    }
-                }
-            }
-        });
 
         let mut watcher: RecommendedWatcher =
             Watcher::new(tx_, Duration::from_secs(1)).expect("failed to initialize notify backend");
@@ -83,6 +60,27 @@ impl PcapManager {
 
         std::mem::forget(watcher); // keep this alive for the whole session
 
+        existing_pcaps.sort();
+        println!(
+            "queueing {} existing pcaps from folder...",
+            existing_pcaps.len()
+        );
+
+        // Handle existing files
+        for file_path in existing_pcaps.into_iter() {
+            handle_file(file_path, &tx);
+        }
+
+        // Catch up with newly created and live files
+        std::thread::spawn(move || {
+            for event in rx_ {
+                eprintln!("{:?}", event);
+                if let DebouncedEvent::Write(file_path) = event {
+                    handle_file(file_path, &tx);
+                }
+            }
+        });
+
         rx
     }
 
@@ -90,6 +88,7 @@ impl PcapManager {
         tracyrs::zone!("compress_pcap");
         println!("compressing pcap {:?}...", path);
         let src = File::open(path).expect("couldn't open file");
+
         let path_zst = match path.extension() {
             Some(extension) => path.with_extension(format!("{}.zst", extension.to_str().unwrap())),
             None => path.with_extension("zst"),

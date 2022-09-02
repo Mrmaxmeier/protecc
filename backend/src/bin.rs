@@ -7,25 +7,38 @@ use std::alloc::System;
 static GLOBAL: System = System;
 */
 
+use clap::Parser;
+use std::path::Path;
+use tokio::net::TcpListener;
+
 use snacc::database::Database;
 use snacc::pcapmanager::PcapManager;
 use snacc::pcapreader::read_pcap_file;
 use snacc::reassembly::Reassembler;
 use snacc::wsserver;
 
-use std::env::args;
-use std::path::Path;
-use tokio::net::TcpListener;
+#[derive(Parser, Debug)]
+struct Args {
+    /// Pcap folder to watch and serve (will import .pcap and/or .pcap.zst files)
+    #[clap(default_value = "pcaps/")]
+    pcap_folder: String,
 
-const SLEEP_BETWEEN_PCAPS: u64 = 0;
+    /// Replace .pcaps with Zstd-compressed versions to save storage.
+    #[clap(short = 'z', long)]
+    compress_pcaps: bool,
+
+    /// Sleep between pcap processing to simulate real-time imports (in seconds)
+    #[clap(long)]
+    import_delay: Option<f64>,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // console_subscriber::init();
-    let pcap_folder = args().skip(1).next().unwrap_or("pcaps/".into());
-    let mut pcap_process_rx = PcapManager::start(&pcap_folder);
+    let args = Args::parse();
+    let mut pcap_process_rx = PcapManager::start(&args.pcap_folder, args.compress_pcaps);
 
-    let database = Database::open(Path::new(&pcap_folder));
+    let database = Database::open(Path::new(&args.pcap_folder));
     let mut reassembler = Reassembler::new(database.clone());
 
     let fut = tokio::spawn(async move {
@@ -49,9 +62,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(err) = read_pcap_file(&path, &mut reassembler).await {
                 eprintln!("{:?}", err)
             }
-            if SLEEP_BETWEEN_PCAPS != 0 {
+            if let Some(delay) = args.import_delay {
                 tracyrs::message!("sleep between pcap imports");
-                tokio::time::sleep(std::time::Duration::from_millis(SLEEP_BETWEEN_PCAPS)).await;
+                tokio::time::sleep(std::time::Duration::from_secs_f64(delay)).await;
             }
             reassembler.expire().await;
         }
