@@ -132,22 +132,14 @@ pub async fn read_pcap_file(
                     }
                     PcapBlockOwned::NG(Block::InterfaceDescription(ref idb)) => {
                         if_linktypes.push(idb.linktype);
-                        if_tsconfig.push((idb.if_tsoffset, idb.if_tsresol));
+                        if_tsconfig.push((idb.if_tsoffset, idb.ts_resolution().unwrap_or(1)));
                     }
                     PcapBlockOwned::NG(Block::EnhancedPacket(ref epb)) => {
                         assert!((epb.if_id as usize) < if_linktypes.len(), "invalid pcapng");
                         let (ts_offset, ts_resol) = if_tsconfig[epb.if_id as usize];
-                        let (ts_secs, ts_frac, frac_unit) = pcap_parser::pcapng::build_ts(
-                            epb.ts_high,
-                            epb.ts_low,
-                            ts_offset,
-                            ts_resol,
-                        );
+                        let ts = epb.decode_ts_f64(ts_offset, ts_resol);
                         let ts = SystemTime::UNIX_EPOCH
-                            .checked_add(
-                                Duration::from_secs(ts_secs as u64)
-                                    + ts_frac * Duration::from_nanos(1_000_000_000 / frac_unit),
-                            )
+                            .checked_add(Duration::from_secs_f64(ts))
                             .expect("pcap timestamp overflow");
                         let linktype = if_linktypes[epb.if_id as usize];
                         let res = pcap_parser::data::get_packetdata(

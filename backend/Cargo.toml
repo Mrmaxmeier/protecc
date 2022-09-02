@@ -11,7 +11,7 @@ tokio-stream = { version = "0.1.8", features = ["time", "sync"] }
 tokio-tungstenite = "0.17.1"
 futures = { version = "0.3.21", default-features = false, features = ["std", "async-await"] }
 pktparse = "0.7.1"
-pcap-parser = { version = "0.13.0", features = ["data"] }
+pcap-parser = { version = "0.14", features = ["data"] }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.79"
 # sled = { version = "0.34.7", features = ["compression"] }
