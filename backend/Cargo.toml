@@ -15,7 +15,7 @@ pcap-parser = { version = "0.14", features = ["data"] }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.79"
 # sled = { version = "0.34.7", features = ["compression"] }
-sled = { git = "https://github.com/spacejam/sled", features = ["compression"] }
+sled = { git = "https://github.com/spacejam/sled", features = ["compression"], branch = "dependabot/cargo/zstd-0.11.2" }
 metrohash = "1.0.6"
 regex = "1.5.4"
 derive_more = "0.99.17"
@@ -32,9 +32,9 @@ starlark_derive = { git = "https://github.com/facebookexperimental/starlark-rust
 gazebo = { version = "0.8", optional = true}
 anyhow = { version = "1.0.58", optional = true }
 
-zstd = "0.10"
+zstd = "0.11"
 num_cpus = "1.13.1"
-notify = "4.0.17"
+notify-debouncer-mini = { version = "0.2", default-features = false }
 smallvec = { version = "1.8.0", features = ["serde"] }
 arbitrary = { version = "1.1.0", features = ["derive"] }
 wirefilter-engine = { git = "https://github.com/Mrmaxmeier/wirefilter.git", branch="dominating-boolean-matches", optional=true }

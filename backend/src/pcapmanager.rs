@@ -4,7 +4,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use notify_debouncer_mini::{new_debouncer, notify, DebouncedEventKind};
 use tokio::sync::mpsc;
 
 /*
@@ -40,8 +40,6 @@ impl PcapManager {
                 None => return,
             };
 
-            dbg!(&file_name);
-
             if file_name.ends_with(".pcap.zst") || (file_name.ends_with(".pcap") && !compress_pcaps)
             {
                 tx.send(file_path)
@@ -53,10 +51,16 @@ impl PcapManager {
 
         let (tx_, rx_) = std::sync::mpsc::channel();
 
-        let mut watcher: RecommendedWatcher =
-            Watcher::new(tx_, Duration::from_secs(1)).expect("failed to initialize notify backend");
+        // Select recommended watcher for debouncer.
+        // Using a callback here, could also be a channel.
+        let mut watcher = new_debouncer(Duration::from_secs(2), None, tx_).unwrap();
 
-        watcher.watch(&path, RecursiveMode::Recursive).unwrap();
+        // Add a path to be watched. All files and directories at that path and
+        // below will be monitored for changes.
+        watcher
+            .watcher()
+            .watch(&path, notify::RecursiveMode::Recursive)
+            .expect("failed to initialize notify backend");
 
         std::mem::forget(watcher); // keep this alive for the whole session
 
@@ -74,9 +78,24 @@ impl PcapManager {
         // Catch up with newly created and live files
         std::thread::spawn(move || {
             for event in rx_ {
-                eprintln!("{:?}", event);
-                if let DebouncedEvent::Write(file_path) = event {
-                    handle_file(file_path, &tx);
+                match event {
+                    Ok(events) => {
+                        if events.len() > 1 {
+                            eprintln!("pcap watcher events:");
+                            for event in &events {
+                                eprintln!("- {:?}", event);
+                            }
+                        } else if !events.is_empty() {
+                            eprintln!("pcap watcher event: {:?}", events[0]);
+                        }
+                        for event in events {
+                            if event.kind == DebouncedEventKind::Any && event.path.exists() {
+                                // TODO: track duplicates?
+                                handle_file(event.path, &tx);
+                            }
+                        }
+                    }
+                    Err(err) => eprintln!("pcap watcher errored: {:?}", err),
                 }
             }
         });
@@ -93,6 +112,13 @@ impl PcapManager {
             Some(extension) => path.with_extension(format!("{}.zst", extension.to_str().unwrap())),
             None => path.with_extension("zst"),
         };
+        if path_zst.exists() {
+            println!(
+                "compressing pcap {:?} ... compressed path exists already?",
+                path
+            );
+            return;
+        }
         let dst = File::create(path_zst).expect("couldn't create .pcap.zst");
         zstd::stream::copy_encode(src, dst, 11).expect("failed to compress pcap");
         fs::remove_file(path).expect("failed to remove non-compressed file");
