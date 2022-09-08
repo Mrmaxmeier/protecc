@@ -76,6 +76,9 @@ function registerAutocomplete(monaco: Monaco) {
                 builtinFun('data_matches', 'regex: string', 'bool', 'Checks whether the stream data matches the specified regex.'),
                 builtinFun('client_data_matches', 'regex: string', 'bool', 'Checks whether the data sent by the client matches the specified regex.'),
                 builtinFun('server_data_matches', 'regex: string', 'bool', 'Checks whether the data sent by the server matches the specified regex.'),
+                builtinFun('data_capture', 'regex: string', 'list', 'Returns regex capture groups as a list.'),
+                builtinFun('client_data_capture', 'regex: string', 'list', 'Returns regex capture groups as a list.'),
+                builtinFun('server_data_capture', 'regex: string', 'list', 'Returns regex capture groups as a list.'),
 
                 builtinFun('any', 'x: iterable', 'bool', 'any(x) returns True if any element of the iterable sequence x is true. If the iterable is empty, it returns False'),
                 builtinFun('all', 'x: iterable', 'bool', 'all(x) returns False if any element of the iterable sequence x is false. If the iterable is empty, it returns True'),

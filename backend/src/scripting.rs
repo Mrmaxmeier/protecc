@@ -201,7 +201,13 @@ fn modify_decisions<F: Fn(&mut StreamDecisions)>(
     Ok(NoneType)
 }
 
-fn data_matches(eval: &mut Evaluator, regex: &str) -> bool {
+enum Direction {
+    Client,
+    Server,
+    Both,
+}
+
+fn data_matches_(eval: &mut Evaluator, regex: &str, direction: Direction) -> bool {
     let session = eval
         .extra
         .unwrap()
@@ -216,23 +222,27 @@ fn data_matches(eval: &mut Evaluator, regex: &str) -> bool {
             .clone()
     });
 
-    if let Some(client_data) = session.db.datablob(session.client_payload_id) {
-        // TODO: cache
-        if regex.is_match(&client_data) {
-            return true;
+    if matches!(direction, Direction::Client | Direction::Both) {
+        if let Some(client_data) = session.db.datablob(session.client_payload_id) {
+            // TODO: cache
+            if regex.is_match(&client_data) {
+                return true;
+            }
         }
     }
 
-    if let Some(server_data) = session.db.datablob(session.server_payload_id) {
-        // TODO: cache
-        if regex.is_match(&server_data) {
-            return true;
+    if matches!(direction, Direction::Server | Direction::Both) {
+        if let Some(server_data) = session.db.datablob(session.server_payload_id) {
+            // TODO: cache
+            if regex.is_match(&server_data) {
+                return true;
+            }
         }
     }
     false
 }
 
-fn data_capture(eval: &mut Evaluator, regex: &str) -> Option<Vec<String>> {
+fn data_capture_(eval: &mut Evaluator, regex: &str, direction: Direction) -> Option<Vec<String>> {
     let session = eval
         .extra
         .unwrap()
@@ -247,28 +257,35 @@ fn data_capture(eval: &mut Evaluator, regex: &str) -> Option<Vec<String>> {
             .clone()
     });
 
-    if let Some(client_data) = session.db.datablob(session.client_payload_id) {
-        // TODO: cache
-        if let Some(captures) = regex.captures(&client_data) {
-            let mut res = Vec::new();
-            for i in 0..captures.len() {
-                res.push(String::from_utf8_lossy(&captures[i]).to_string());
+    let mut res = Vec::new();
+
+    if matches!(direction, Direction::Client | Direction::Both) {
+        if let Some(client_data) = session.db.datablob(session.client_payload_id) {
+            // TODO: cache
+            if let Some(captures) = regex.captures(&client_data) {
+                for i in 0..captures.len() {
+                    res.push(String::from_utf8_lossy(&captures[i]).to_string());
+                }
             }
-            return Some(res);
         }
     }
 
-    if let Some(server_data) = session.db.datablob(session.server_payload_id) {
-        // TODO: cache
-        if let Some(captures) = regex.captures(&server_data) {
-            let mut res = Vec::new();
-            for i in 0..captures.len() {
-                res.push(String::from_utf8_lossy(&captures[i]).to_string());
+    if matches!(direction, Direction::Server | Direction::Both) {
+        if let Some(server_data) = session.db.datablob(session.server_payload_id) {
+            // TODO: cache
+            if let Some(captures) = regex.captures(&server_data) {
+                for i in 0..captures.len() {
+                    res.push(String::from_utf8_lossy(&captures[i]).to_string());
+                }
             }
-            return Some(res);
         }
     }
-    None
+
+    if res.is_empty() {
+        None
+    } else {
+        Some(res)
+    }
 }
 
 #[starlark_module]
@@ -310,12 +327,40 @@ fn decision_functions(registry: &mut GlobalsBuilder) {
         modify_decisions(eval, |o| o.added_tags.push(TagID(tag as u16)))
     }
 
-    fn data_matches_(regex: &str, eval: &mut Evaluator) -> anyhow::Result<bool> {
-        Ok(data_matches(eval, regex))
+    fn data_matches(regex: &str, eval: &mut Evaluator) -> anyhow::Result<bool> {
+        Ok(data_matches_(eval, regex, Direction::Both))
     }
 
-    fn data_capture_(regex: &str, eval: &mut Evaluator) -> anyhow::Result<Option<Vec<String>>> {
-        Ok(match data_capture(eval, regex) {
+    fn client_data_matches(regex: &str, eval: &mut Evaluator) -> anyhow::Result<bool> {
+        Ok(data_matches_(eval, regex, Direction::Client))
+    }
+
+    fn server_data_matches(regex: &str, eval: &mut Evaluator) -> anyhow::Result<bool> {
+        Ok(data_matches_(eval, regex, Direction::Server))
+    }
+
+    fn data_capture(regex: &str, eval: &mut Evaluator) -> anyhow::Result<Option<Vec<String>>> {
+        Ok(match data_capture_(eval, regex, Direction::Both) {
+            Some(result) => result.into(),
+            None => None,
+        })
+    }
+
+    fn client_data_capture(
+        regex: &str,
+        eval: &mut Evaluator,
+    ) -> anyhow::Result<Option<Vec<String>>> {
+        Ok(match data_capture_(eval, regex, Direction::Client) {
+            Some(result) => result.into(),
+            None => None,
+        })
+    }
+
+    fn server_data_capture(
+        regex: &str,
+        eval: &mut Evaluator,
+    ) -> anyhow::Result<Option<Vec<String>>> {
+        Ok(match data_capture_(eval, regex, Direction::Server) {
             Some(result) => result.into(),
             None => None,
         })
